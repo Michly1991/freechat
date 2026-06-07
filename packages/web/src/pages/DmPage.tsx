@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../lib/api'
@@ -51,16 +51,29 @@ export default function DmPage() {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const initialScrollDoneRef = useRef(false)
 
   useEffect(() => {
     if (!conversationId) return
+    initialScrollDoneRef.current = false
     api.markConversationRead('dm', conversationId).catch(() => {})
     const cached = readCache(conversationId)
     if (cached.length) setMessages(cached)
     loadDm()
   }, [conversationId])
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior, block: 'end' })
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior, block: 'end' }), 80)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (messages.length === 0) return
+    scrollToBottom(initialScrollDoneRef.current ? 'smooth' : 'auto')
+    initialScrollDoneRef.current = true
+  }, [messages.length, scrollToBottom])
 
   const loadDm = async () => {
     if (!conversationId) return
@@ -85,6 +98,7 @@ export default function DmPage() {
       setSending(true)
       const data = await api.sendDmMessage(conversationId, input.trim())
       setInput('')
+      scrollToBottom('smooth')
       setMessages((prev) => {
         const next = mergeMessages(prev, [data.message])
         writeCache(conversationId, next)

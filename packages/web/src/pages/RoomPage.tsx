@@ -88,10 +88,12 @@ export default function RoomPage() {
   const [selectedProfile, setSelectedProfile] = useState<any | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const initialScrollDoneRef = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!roomId) return
+    initialScrollDoneRef.current = false
     api.markConversationRead('project', roomId).catch(() => {})
     const cachedMessages = readCachedMessages(roomId)
     if (cachedMessages.length > 0) setMessages(cachedMessages)
@@ -100,7 +102,18 @@ export default function RoomPage() {
     return () => { wsRef.current?.close() }
   }, [roomId])
 
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' })
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' }), 80)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (messages.length === 0) return
+    scrollToBottom(initialScrollDoneRef.current ? 'smooth' : 'auto')
+    initialScrollDoneRef.current = true
+  }, [messages.length, scrollToBottom])
 
   const loadRoom = async () => {
     try {
@@ -203,6 +216,7 @@ export default function RoomPage() {
     if (!content || !wsRef.current) return
     wsRef.current.send(JSON.stringify({ action: 'chat.send', payload: { content, mentions: buildMentionsForSend(content) } }))
     setInput('')
+    scrollToBottom('smooth')
     setSelectedMentions([])
   }
 
