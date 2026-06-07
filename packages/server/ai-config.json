@@ -1,0 +1,17 @@
+{
+  "providers": {
+    "qwen": {
+      "name": "通义千问 (阿里云百炼)",
+      "baseUrl": "https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic",
+      "apiKeyHeader": "x-api-key",
+      "models": ["qwen3.7-max"],
+      "defaultModel": "qwen3.7-max",
+      "authType": "header",
+      "enabled": true
+    }
+  },
+  "currentProvider": "qwen",
+  "apiKeys": {
+    "qwen": "sk-sp-D.IRLHY.OhNg.MEYCIQDG80kFRrKbdNsfouLhfDNJre0ANAVHPD6M8cMsyL9KUAIhAIgpNX+DQviAeadsBI12vuOS3UhPD0/ptcLhgzWvWnN7"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "freechat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI协同办公云系统",
+  "scripts": {
+    "dev": "pnpm -r dev",
+    "build": "pnpm -r build",
+    "clean": "pnpm -r clean"
+  },
+  "keywords": ["collaboration", "ai", "websocket"],
+  "author": "",
+  "license": "MIT"
+}

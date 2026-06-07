@@ -1,0 +1,86 @@
+import Fastify from 'fastify'
+import cors from '@fastify/cors'
+import { registerAuthRoutes } from './routes/auth.js'
+import { registerRoomRoutes } from './routes/rooms.js'
+import { registerFileRoutes } from './routes/files.js'
+import { registerTabRoutes } from './routes/tabs.js'
+import { registerAgentRoutes } from './routes/agents.js'
+import { registerProfileRoutes } from './routes/profiles.js'
+import { authenticate } from './auth/middleware.js'
+import { initDatabase } from './storage/db.js'
+import { initWebSocket } from './ws/gateway.js'
+import { config } from './config.js'
+
+async function buildApp() {
+  const app = Fastify({
+    logger: {
+      transport: {
+        target: 'pino-pretty',
+        options: {
+          translateTime: 'HH:MM:ss Z',
+          ignore: 'pid,hostname'
+        }
+      }
+    }
+  })
+
+  // Register CORS
+  await app.register(cors, {
+    origin: config.cors.origin === '*' ? true : config.cors.origin,
+    credentials: true
+  })
+
+  // Initialize database
+  initDatabase()
+
+  // Health check (public)
+  app.get('/api/health', async () => {
+    return { status: 'ok', timestamp: Date.now() }
+  })
+
+  // Protected routes (auth required)
+  app.addHook('preHandler', async (request, reply) => {
+    const url = request.url
+    if (url.startsWith('/api/') && !url.startsWith('/api/auth/') && url !== '/api/health') {
+      await authenticate(request, reply)
+    }
+  })
+
+  // Register routes
+  await registerAuthRoutes(app)
+  await registerRoomRoutes(app)
+  await registerFileRoutes(app)
+  await registerTabRoutes(app)
+  await registerAgentRoutes(app)
+  await registerProfileRoutes(app)
+
+  // Error handler
+  app.setErrorHandler((error, request, reply) => {
+    app.log.error(error)
+    reply.code(error.statusCode || 500).send({
+      success: false,
+      error: {
+        code: error.code || 'INTERNAL_ERROR',
+        message: error.message || 'Internal server error'
+      }
+    })
+  })
+
+  return app
+}
+
+export async function startServer() {
+  const app = await buildApp()
+  
+  const server = await app.listen({
+    port: config.port,
+    host: config.host
+  })
+
+  console.log(`✓ Server running at ${server}`)
+
+  // Initialize WebSocket
+  initWebSocket(app.server)
+
+  return app
+}
