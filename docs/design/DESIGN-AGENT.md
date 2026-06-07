@@ -743,3 +743,16 @@ spawn('claude', args, { cwd: workspaceDir })
 - 助理如果判断不需要回复，仍输出 `[SILENT]` 保持安静。
 
 这样减少规则漏判，让“是否接话”的判断主要由助理模型结合上下文完成。
+
+### Agent 文件读写约束与误写兜底
+
+Agent 在房间项目目录中运行，但用户可见文件区是 `workspace-data/<roomId>/files/`。因此：
+
+- Agent 必须通过 `./freechat file write <path> <content>` 写入用户可见项目文件。
+- Agent 必须通过 `./freechat file read <path>` 读取用户可见项目文件。
+- 禁止直接用 shell 重定向、cat/echo、Write/Edit 等方式在房间根目录创建或读取业务文件。
+- `AGENTS.md` 和 `.freechat/API.md` 会在每次 Agent 启动前刷新该规则。
+
+兜底机制：Agent 执行结束后，服务端会扫描房间根目录。如果发现非保留的普通文件（排除 `AGENTS.md`、`freechat`、`files/`、隐藏文件等），会自动移动到 `files/` 文件区，并广播 `files.updated`，让前端文件面板刷新。
+
+该兜底用于修正模型偶发误写；正常路径仍必须使用 `./freechat file read/write`。

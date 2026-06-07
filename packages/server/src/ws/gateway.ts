@@ -333,6 +333,17 @@ export class WebSocketGateway {
         const result = await agentService.spawnClaudeCode(roomId, agentId, content)
         await agentService.updateAgent(agentId, { status: 'active' } as any)
 
+        if (result.movedFiles && result.movedFiles.length > 0) {
+          this.broadcastToRoom(roomId, {
+            msgId: uuidv4(),
+            roomId,
+            type: 'broadcast',
+            action: 'files.updated',
+            payload: { movedFiles: result.movedFiles },
+            timestamp: Date.now()
+          })
+        }
+
         this.broadcastToRoom(roomId, {
           msgId: uuidv4(),
           roomId,
