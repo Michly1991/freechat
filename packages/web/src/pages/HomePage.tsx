@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../lib/api'
+import { BellOff, MessageCircle, MoreHorizontal, Pin, Plus, Settings, Users, FolderKanban } from 'lucide-react'
 
 export default function HomePage() {
   const [rooms, setRooms] = useState<any[]>([])
@@ -15,6 +16,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [showJoin, setShowJoin] = useState(false)
+  const [showQuickActions, setShowQuickActions] = useState(false)
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
   const [inviteCode, setInviteCode] = useState('')
@@ -153,9 +155,32 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between">
           <h1 className="text-xl font-bold text-gray-800">FreeChat</h1>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 sm:gap-4 relative">
+            <button
+              onClick={() => setShowQuickActions((v) => !v)}
+              className="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center text-xl leading-none hover:bg-blue-700"
+              title="新建/加入"
+            >
+              <Plus className="w-5 h-5" />
+            </button>
+            {showQuickActions && (
+              <div className="absolute right-0 top-11 w-40 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden z-20">
+                <button
+                  onClick={() => { setShowQuickActions(false); setShowJoin(true) }}
+                  className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  加入项目
+                </button>
+                <button
+                  onClick={() => { setShowQuickActions(false); setShowCreate(true) }}
+                  className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  新建项目
+                </button>
+              </div>
+            )}
             <button
               onClick={() => navigate('/settings')}
               className="flex items-center gap-2 text-gray-600 hover:text-gray-800"
@@ -167,7 +192,7 @@ export default function HomePage() {
                   {(user?.nickname || user?.username || '?')[0].toUpperCase()}
                 </span>
               )}
-              <span>{user?.nickname || user?.username}</span>
+              <span className="hidden sm:inline">{user?.nickname || user?.username}</span>
             </button>
             <button
               onClick={handleLogout}
@@ -179,8 +204,8 @@ export default function HomePage() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-8">
-        <div className="bg-white rounded-xl border border-gray-200 p-1 mb-6 flex w-full sm:w-fit">
+      <main className="max-w-5xl mx-auto px-0 sm:px-4 py-0 sm:py-8 pb-20 sm:pb-8">
+        <div className="hidden sm:flex bg-white rounded-xl border border-gray-200 p-1 mb-6 w-fit">
           <button
             onClick={() => setActiveHomeTab('messages')}
             className={`flex-1 sm:flex-none px-6 py-2 rounded-lg text-sm font-medium transition-colors ${activeHomeTab === 'messages' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
@@ -202,8 +227,8 @@ export default function HomePage() {
         </div>
 
         {activeHomeTab === 'messages' && (
-          <section className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <section className="bg-white sm:rounded-xl sm:border border-gray-200 overflow-hidden mb-4 sm:mb-6">
+            <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-gray-100 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-gray-800">消息</h2>
               <button onClick={loadConversations} className="text-xs text-gray-400 hover:text-gray-600">刷新</button>
             </div>
@@ -212,18 +237,18 @@ export default function HomePage() {
             ) : (
               <div className="divide-y divide-gray-100">
                 {conversations.map((conv) => (
-                  <div key={`${conv.type}-${conv.id}`} onClick={() => navigate(conv.targetPath)} className={`p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-50 ${conv.pinned ? 'bg-yellow-50/60' : 'bg-white'}`}>
+                  <div key={`${conv.type}-${conv.id}`} onClick={() => navigate(conv.targetPath)} className={`px-3 sm:px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 active:bg-gray-100 ${conv.pinned ? 'bg-yellow-50/60' : 'bg-white'}`}>
                     {conv.type === 'dm' ? (
                       conv.avatar ? <img src={conv.avatar} className="w-12 h-12 rounded-full object-cover" /> : <span className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 text-white flex items-center justify-center font-semibold">{(conv.title || '?')[0].toUpperCase()}</span>
                     ) : (
-                      <span className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-400 to-blue-500 text-white flex items-center justify-center font-semibold">项</span>
+                      <span className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-400 to-blue-500 text-white flex items-center justify-center"><FolderKanban className="w-6 h-6" /></span>
                     )}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-gray-800 truncate">{conv.title}</span>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded ${conv.type === 'dm' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'}`}>{conv.type === 'dm' ? '私聊' : '项目'}</span>
-                        {conv.pinned && <span className="text-[10px] text-yellow-600">置顶</span>}
-                        {conv.muted && <span className="text-[10px] text-gray-400">免打扰</span>}
+                        {conv.pinned && <span className="text-[10px] text-yellow-600 inline-flex items-center gap-0.5"><Pin className="w-3 h-3" />置顶</span>}
+                        {conv.muted && <span className="text-[10px] text-gray-400 inline-flex items-center gap-0.5"><BellOff className="w-3 h-3" />免打扰</span>}
                       </div>
                       <p className="text-sm text-gray-400 truncate mt-1">
                         {conv.lastMessage ? `${conv.lastMessage.actorName}: ${conv.lastMessage.content}` : conv.subtitle}
@@ -231,10 +256,11 @@ export default function HomePage() {
                     </div>
                     <div className="flex flex-col items-end gap-2 shrink-0">
                       {conv.unreadCount > 0 && <span className={`text-xs rounded-full px-2 py-0.5 ${conv.muted ? 'bg-gray-200 text-gray-500' : 'bg-red-500 text-white'}`}>{conv.unreadCount}</span>}
-                      <div className="flex gap-2 text-xs text-gray-400">
+                      <div className="hidden sm:flex gap-2 text-xs text-gray-400">
                         <button onClick={(e) => toggleConversationPref(conv, 'pinned', e)}>{conv.pinned ? '取消置顶' : '置顶'}</button>
                         <button onClick={(e) => toggleConversationPref(conv, 'muted', e)}>{conv.muted ? '取消免打扰' : '免打扰'}</button>
                       </div>
+                      <button onClick={(e) => toggleConversationPref(conv, 'pinned', e)} className="sm:hidden text-gray-300 leading-none"><MoreHorizontal className="w-5 h-5" /></button>
                     </div>
                   </div>
                 ))}
@@ -244,7 +270,7 @@ export default function HomePage() {
         )}
 
         {activeHomeTab === 'contacts' && (
-        <section className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+        <section className="bg-white sm:rounded-xl sm:border border-gray-200 p-4 sm:p-5 mb-4 sm:mb-6">
           <h2 className="text-lg font-semibold text-gray-800 mb-3">好友</h2>
           <div className="flex gap-2 mb-3">
             <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchUsers()} placeholder="搜索用户名/昵称添加好友" className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm" />
@@ -301,15 +327,8 @@ export default function HomePage() {
         </section>
         )}
 
-        {activeHomeTab === 'messages' && (
-          <div className="flex gap-2 mb-6">
-            <button onClick={() => setShowJoin(true)} className="bg-white text-blue-600 border border-blue-200 px-4 py-2 rounded-lg hover:bg-blue-50 transition-colors">加入项目</button>
-            <button onClick={() => setShowCreate(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">+ 新建项目</button>
-          </div>
-        )}
-
         {activeHomeTab === 'settings' && (
-          <section className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+          <section className="bg-white sm:rounded-xl sm:border border-gray-200 p-4 sm:p-5 space-y-4">
             <div className="flex items-center gap-3">
               {user?.avatar ? <img src={user.avatar} className="w-14 h-14 rounded-full object-cover" /> : <span className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 text-white flex items-center justify-center text-xl font-semibold">{(user?.nickname || user?.username || '?')[0].toUpperCase()}</span>}
               <div>
@@ -324,9 +343,28 @@ export default function HomePage() {
 
       </main>
 
+      <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 safe-area-inset-bottom">
+        <div className="grid grid-cols-3 h-16">
+          {[
+            { key: 'messages', label: '消息', Icon: MessageCircle },
+            { key: 'contacts', label: '通讯录', Icon: Users },
+            { key: 'settings', label: '设置', Icon: Settings },
+          ].map(({ key, label, Icon }) => (
+            <button
+              key={key}
+              onClick={() => setActiveHomeTab(key as any)}
+              className={`flex flex-col items-center justify-center gap-0.5 text-xs ${activeHomeTab === key ? 'text-blue-600' : 'text-gray-500'}`}
+            >
+              <Icon className="w-5 h-5" />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
+
       {showJoin && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-xl p-4 sm:p-6 w-full max-w-md max-h-[85vh] overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4">加入项目</h3>
             <form onSubmit={handleJoinRoom} className="space-y-4">
               <div>
@@ -365,8 +403,8 @@ export default function HomePage() {
       )}
 
       {showCreate && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-xl p-4 sm:p-6 w-full max-w-md max-h-[85vh] overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4">新建项目</h3>
             <form onSubmit={handleCreate} className="space-y-4">
               <div>

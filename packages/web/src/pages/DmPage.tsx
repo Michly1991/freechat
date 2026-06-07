@@ -118,12 +118,12 @@ export default function DmPage() {
           const avatar = isOwn ? user?.avatar : other?.avatar
           return (
             <div key={msg.id} className={`flex items-end gap-2 ${isOwn ? 'justify-end' : 'justify-start'}`}>
-              {!isOwn && <Avatar name={name} avatar={avatar} />}
-              <div className={`max-w-[80%] rounded-xl px-4 py-2 ${isOwn ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-800'}`}>
+              {!isOwn && <Avatar name={name} avatar={avatar} size="w-10 h-10 sm:w-12 sm:h-12" />}
+              <div className={`max-w-[78%] sm:max-w-[80%] rounded-xl px-3 sm:px-4 py-2 ${isOwn ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-800'}`}>
                 <div className={`text-xs mb-1 ${isOwn ? 'text-blue-200' : 'text-gray-400'}`}>{name}</div>
                 <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
               </div>
-              {isOwn && <Avatar name={name} avatar={avatar} />}
+              {isOwn && <Avatar name={name} avatar={avatar} size="w-10 h-10 sm:w-12 sm:h-12" />}
             </div>
           )
         })}

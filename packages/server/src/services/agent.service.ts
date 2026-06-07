@@ -3,9 +3,11 @@ import { v4 as uuidv4 } from 'uuid'
 import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
 import { spawn } from 'child_process'
+import { chmod, mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { config } from '../config.js'
 import { aiConfigService } from './ai-config.service.js'
+import { createAgentToolToken } from '../agent-tool-token.js'
 import type { Agent } from '@freechat/shared'
 
 // Shape of an agent row in the DB
@@ -215,9 +217,102 @@ export class AgentService {
     return rows.map(r => this.rowToAgent(r))
   }
 
+  private async prepareRoomWorkspace(roomId: string, agent: Agent): Promise<string> {
+    const workspaceDir = join(config.workspace.root, roomId)
+    const metaDir = join(workspaceDir, '.freechat')
+    await mkdir(metaDir, { recursive: true })
+
+    const toolToken = createAgentToolToken(roomId, agent.id)
+    const toolApiUrl = `http://127.0.0.1:${config.port}`
+    const room = db.prepare('SELECT id, name, description, created_by, created_at, updated_at FROM rooms WHERE id = ?').get(roomId) as any
+    const members = db.prepare(`
+      SELECT rm.role, rm.joined_at, u.username, u.nickname
+      FROM room_members rm
+      INNER JOIN users u ON rm.user_id = u.id
+      WHERE rm.room_id = ?
+      ORDER BY rm.joined_at ASC
+    `).all(roomId) as any[]
+    const agents = await this.getRoomAgents(roomId)
+
+    const cliPath = join(workspaceDir, 'freechat')
+    await writeFile(cliPath, `#!/usr/bin/env node
+const API_URL = ${JSON.stringify(toolApiUrl)};
+const ROOM_ID = ${JSON.stringify(roomId)};
+const TOKEN = ${JSON.stringify(toolToken)};
+
+async function call(action, args = {}) {
+  const res = await fetch(\`${toolApiUrl}/api/agent-tools/${roomId}\`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: \`Bearer ${toolToken}\` },
+    body: JSON.stringify({ action, args })
+  });
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = { success: false, raw: text }; }
+  if (!res.ok || data.success === false) {
+    console.error(JSON.stringify(data, null, 2));
+    process.exit(1);
+  }
+  console.log(JSON.stringify(data.data ?? data, null, 2));
+}
+
+function pairsToObject(items) {
+  const out = {};
+  for (let i = 0; i < items.length; i += 2) out[items[i]] = items[i + 1];
+  return out;
+}
+
+const [domain, cmd, ...rest] = process.argv.slice(2);
+if (!domain || ['-h', '--help', 'help'].includes(domain)) {
+  console.log(\`FreeChat Agent CLI
+
+Commands:
+  ./freechat chat send <content>
+  ./freechat task list [status]
+  ./freechat task create <title> [description]
+  ./freechat task update <taskId> <field> <value> [field value...]
+  ./freechat file list
+  ./freechat file read <path>
+  ./freechat file write <path> <content>
+  ./freechat members list
+  ./freechat room info
+  ./freechat raw <action> '<jsonArgs>'
+\`);
+  process.exit(0);
+}
+
+if (domain === 'chat' && cmd === 'send') call('chat.send', { content: rest.join(' ') });
+else if (domain === 'task' && cmd === 'list') call('task.list', { status: rest[0] });
+else if (domain === 'task' && cmd === 'create') call('task.create', { title: rest[0], description: rest.slice(1).join(' ') || undefined });
+else if (domain === 'task' && cmd === 'update') call('task.update', { taskId: rest[0], updates: pairsToObject(rest.slice(1)) });
+else if (domain === 'file' && cmd === 'list') call('file.list');
+else if (domain === 'file' && cmd === 'read') call('file.read', { path: rest[0] });
+else if (domain === 'file' && cmd === 'write') call('file.write', { path: rest[0], content: rest.slice(1).join(' ') });
+else if (domain === 'members' && cmd === 'list') call('members.list');
+else if (domain === 'room' && cmd === 'info') call('room.info');
+else if (domain === 'raw') call(cmd, rest[0] ? JSON.parse(rest[0]) : {});
+else {
+  console.error('Unknown command. Run ./freechat help');
+  process.exit(1);
+}
+`, 'utf8')
+    await chmod(cliPath, 0o700)
+
+    await writeFile(join(workspaceDir, 'AGENTS.md'), `# FreeChat Agent Workspace\n\n你正在 FreeChat 项目工作区内运行。\n\n- 当前目录就是项目根目录。\n- 优先阅读 .freechat/ 下的上下文文件。\n- 必须使用根目录的 \`./freechat\` CLI 同步对话、任务、文件和成员信息。\n- 复杂任务要先 \`./freechat chat send\` 汇报开始，再用 \`./freechat task create/update\` 同步进度，必要时用 \`./freechat file read/write\` 读写资料，完成后发总结。\n- 不要越权操作，不要删除用户资料。\n- 如果你是助理 Agent，可以做总结、协调和拍板；专家 Agent 只负责专业执行和同步状态。\n`, 'utf8')
+
+    await writeFile(join(metaDir, 'ROOM.md'), `# Room Context\n\n- Room ID: ${roomId}\n- Name: ${room?.name || ''}\n- Description: ${room?.description || ''}\n- Current Agent: ${agent.name}\n- Agent ID: ${agent.id}\n- Agent Role: ${agent.roleType}\n`, 'utf8')
+
+    await writeFile(join(metaDir, 'MEMBERS.md'), `# Members\n\n## Humans\n${members.map((m) => `- ${m.nickname || m.username} (@${m.username}) - ${m.role}`).join('\n') || '- none'}\n\n## Agents\n${agents.map((a) => `- ${a.name} (${a.roleType}) - ${a.status || 'active'}`).join('\n') || '- none'}\n`, 'utf8')
+
+    await writeFile(join(metaDir, 'API.md'), `# FreeChat CLI Contract\n\nAgent 必须通过根目录的 \`./freechat\` CLI 同步工作进度：\n\n\`\`\`bash\n./freechat chat send "我开始处理这个任务"\n./freechat task list\n./freechat task create "拆分任务标题" "任务说明"\n./freechat task update <taskId> status doing\n./freechat task update <taskId> status review reviewNote "已完成，等待确认"\n./freechat task update <taskId> status done\n./freechat file list\n./freechat file read docs/example.md\n./freechat file write docs/progress.md "进度内容"\n./freechat members list\n./freechat room info\n\`\`\`\n\n规则：\n\n- 长任务开始时先发消息，再创建/更新任务。\n- 处理中把任务设为 doing，完成后设为 review 或 done。\n- 阻塞时设为 blocked 并写 blockedReason。\n- 文件写入应放在 room files 区，路径由 \`file.write\` 管理。\n`, 'utf8')
+
+    return workspaceDir
+  }
+
   /**
    * Spawn an agent to process a message.
-   * Tries configured AI provider first, falls back to Claude Code CLI.
+   * Server-side agents default to Claude Code CLI with the room workspace as cwd.
+   * Provider API is only used when AGENT_RUNTIME=provider-api.
    * Returns the agent's response text.
    */
   async spawnClaudeCode(
@@ -226,7 +321,7 @@ export class AgentService {
     message: string
   ): Promise<{ response: string; silent: boolean }> {
     const agent = await this.getAgent(agentId)
-    const workspaceDir = join(config.workspace.root, roomId)
+    const workspaceDir = await this.prepareRoomWorkspace(roomId, agent)
 
     // Check for existing session
     const existingSession = db.prepare(`
@@ -236,8 +331,8 @@ export class AgentService {
       LIMIT 1
     `).get(roomId, agentId) as { session_id: string } | undefined
 
-    // Try configured AI provider first (e.g., MiniMax/Aliyun Claude)
-    try {
+    // Optional provider API mode. Default server agent runtime is Claude Code CLI.
+    if (config.agent.runtime === 'provider-api') try {
       const aiConfig = aiConfigService.getConfig()
       const provider = aiConfig.providers[aiConfig.currentProvider]
       const apiKey = aiConfigService.getApiKey(aiConfig.currentProvider)
@@ -301,16 +396,25 @@ export class AgentService {
       // Fall through to Claude Code CLI
     }
 
-    // Fallback: Use Claude Code CLI
-    const args: string[] = ['-p', message, '--cwd', workspaceDir]
+    // Default: Use Claude Code CLI with room workspace as project root
+    const args: string[] = [
+      '-p',
+      message,
+      '--permission-mode',
+      'auto',
+      '--allowedTools',
+      'Bash(./freechat *)',
+      '--output-format',
+      'json'
+    ]
 
     // Resume existing session if available
     if (existingSession) {
       args.push('--resume', existingSession.session_id)
     }
 
-    return new Promise((resolve, reject) => {
-      const proc = spawn('claude', args, {
+    const runClaude = (runArgs: string[]): Promise<{ response: string; silent: boolean; sessionId?: string }> => new Promise((resolve, reject) => {
+      const proc = spawn('claude', runArgs, {
         cwd: workspaceDir,
         env: { ...process.env },
         timeout: 120_000, // 2 min timeout
@@ -319,48 +423,58 @@ export class AgentService {
       let stdout = ''
       let stderr = ''
 
-      proc.stdout.on('data', (data: Buffer) => {
-        stdout += data.toString()
-      })
-
-      proc.stderr.on('data', (data: Buffer) => {
-        stderr += data.toString()
-      })
+      proc.stdout.on('data', (data: Buffer) => { stdout += data.toString() })
+      proc.stderr.on('data', (data: Buffer) => { stderr += data.toString() })
 
       proc.on('close', (code) => {
-        const response = stdout.trim()
+        const raw = stdout.trim()
+        const combined = `${raw}\n${stderr}`.trim()
 
-        // Check for [SILENT] marker — agent chose not to reply
-        if (response === '[SILENT]' || response.includes('[SILENT]')) {
-          this.updateSession(roomId, agentId, existingSession?.session_id)
-          resolve({ response: '', silent: true })
-          return
-        }
-
-        // Extract session ID from output if present (claude outputs session info)
-        const sessionMatch = response.match(/session[_-]?id[:\s]+([^\s]+)/i)
-        const newSessionId = sessionMatch?.[1] || existingSession?.session_id || uuidv4()
-
-        this.updateSession(roomId, agentId, newSessionId)
-
-        if (code !== 0 && !response) {
+        if (code !== 0) {
           reject({
             code: 'AGENT_EXECUTION_ERROR',
-            message: `Claude Code exited with code ${code}: ${stderr}`
+            message: `Claude Code exited with code ${code}: ${combined}`
           })
           return
         }
 
-        resolve({ response: response || '', silent: false })
+        let response = raw
+        let sessionId: string | undefined
+        try {
+          const parsed = JSON.parse(raw)
+          response = parsed.result || ''
+          sessionId = parsed.session_id
+        } catch {
+          const sessionMatch = raw.match(/session[_-]?id[:\s]+([^\s]+)/i)
+          sessionId = sessionMatch?.[1]
+        }
+
+        if (response === '[SILENT]' || response.includes('[SILENT]')) {
+          resolve({ response: '', silent: true, sessionId })
+          return
+        }
+
+        resolve({ response: response || '', silent: false, sessionId })
       })
 
       proc.on('error', (err) => {
-        reject({
-          code: 'AGENT_SPAWN_ERROR',
-          message: `Failed to spawn Claude Code: ${err.message}`
-        })
+        reject({ code: 'AGENT_SPAWN_ERROR', message: `Failed to spawn Claude Code: ${err.message}` })
       })
     })
+
+    try {
+      const result = await runClaude(args)
+      if (result.sessionId) this.updateSession(roomId, agentId, result.sessionId)
+      return { response: result.response, silent: result.silent }
+    } catch (err: any) {
+      if (existingSession && String(err.message || '').includes('No conversation found')) {
+        const freshArgs = args.filter((arg, index) => arg !== '--resume' && args[index - 1] !== '--resume')
+        const result = await runClaude(freshArgs)
+        if (result.sessionId) this.updateSession(roomId, agentId, result.sessionId)
+        return { response: result.response, silent: result.silent }
+      }
+      throw err
+    }
   }
 
   /**

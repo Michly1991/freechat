@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../lib/api'
+import { Bot, CheckSquare, FileText, Folder, MessageCircle, PanelLeftClose, PanelLeftOpen, PanelsTopLeft, Pencil, Settings, ShieldCheck, UserRound, Users, Wrench, X } from 'lucide-react'
 
 interface Message {
   id: string
@@ -76,6 +77,7 @@ export default function RoomPage() {
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [showMentionPopup, setShowMentionPopup] = useState(false)
   const [mentionFilter, setMentionFilter] = useState('')
+  const [selectedMentions, setSelectedMentions] = useState<Array<{ id: string; name: string; role: 'human' | 'ai' }>>([])
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTabName, setNewTabName] = useState('')
   const [newTabContent, setNewTabContent] = useState('')
@@ -83,6 +85,7 @@ export default function RoomPage() {
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
   const [showMembers, setShowMembers] = useState(true)
   const [showMobileMembers, setShowMobileMembers] = useState(false)
+  const [selectedProfile, setSelectedProfile] = useState<any | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -148,6 +151,8 @@ export default function RoomPage() {
         })
       } else if (msg.action === 'room.members_update') {
         setMembers(msg.payload.members || [])
+      } else if (msg.action === 'agent.status_update') {
+        setRoomAgents((prev) => prev.map((a) => a.id === msg.payload.agentId ? { ...a, status: msg.payload.status } : a))
       } else if (msg.action === 'task.list_result') {
         setTasks(msg.payload.tasks || [])
       } else if (msg.action === 'task.changed') {
@@ -172,11 +177,33 @@ export default function RoomPage() {
     try { const td = await api.getTabs(roomId); setTabs(td.tabs || []) } catch {}
   }, [roomId])
 
+  const buildMentionsForSend = (content: string) => {
+    const mentions = [...selectedMentions]
+
+    members.forEach((m) => {
+      const id = m.id || m.userId
+      const name = getMemberDisplayName(m)
+      if (id && content.includes(`@${name}`) && !mentions.some((x) => x.id === id)) {
+        mentions.push({ id, name, role: 'human' })
+      }
+    })
+
+    roomAgents.forEach((a) => {
+      if (a.id && content.includes(`@${a.name}`) && !mentions.some((x) => x.id === a.id)) {
+        mentions.push({ id: a.id, name: a.name, role: 'ai' })
+      }
+    })
+
+    return mentions.filter((m) => content.includes(`@${m.name}`))
+  }
+
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!input.trim() || !wsRef.current) return
-    wsRef.current.send(JSON.stringify({ action: 'chat.send', payload: { content: input.trim() } }))
+    const content = input.trim()
+    if (!content || !wsRef.current) return
+    wsRef.current.send(JSON.stringify({ action: 'chat.send', payload: { content, mentions: buildMentionsForSend(content) } }))
     setInput('')
+    setSelectedMentions([])
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -196,7 +223,30 @@ export default function RoomPage() {
 
   const getMemberDisplayName = (member: any) => member.nickname || member.username || member.displayName || '未命名用户'
   const getMemberAvatar = (member: any) => member.avatar || ''
-  const getActorAvatar = (msg: Message) => members.find((m) => (m.userId || m.id) === msg.actorId)?.avatar || ''
+  const getActorMember = (msg: Message) => members.find((m) => (m.userId || m.id) === msg.actorId)
+  const getActorAgent = (msg: Message) => roomAgents.find((a) => a.id === msg.actorId || a.name === msg.actorName)
+  const getActorAvatar = (msg: Message) => getActorMember(msg)?.avatar || ''
+  const openMemberProfile = (target: any, kind: 'member' | 'agent') => {
+    if (kind === 'member') {
+      setSelectedProfile({
+        kind,
+        name: getMemberDisplayName(target),
+        username: target.username,
+        avatar: getMemberAvatar(target),
+        subtitle: target.username ? `@${target.username}` : '项目成员',
+        status: '在线',
+      })
+    } else {
+      setSelectedProfile({
+        kind,
+        name: target.name,
+        subtitle: target.roleType === 'assistant' ? '助理 Agent' : '专家 Agent',
+        roleType: target.roleType,
+        status: target.status === 'active' ? '在线' : target.status === 'working' ? '工作中' : '离线',
+        specialties: target.specialties || [],
+      })
+    }
+  }
   const renderAvatar = (name: string, avatar?: string, size = 'w-9 h-9') => avatar ? (
     <img src={avatar} alt={name} className={`${size} rounded-full object-cover border border-gray-200 shrink-0`} />
   ) : (
@@ -223,6 +273,10 @@ export default function RoomPage() {
     const atIdx = beforeCursor.lastIndexOf('@')
     const newInput = beforeCursor.slice(0, atIdx) + `@${name} ` + afterCursor
     setInput(newInput)
+    setSelectedMentions((prev) => {
+      const mention = { id: target.id || target.userId, name, role: type === 'agent' ? 'ai' as const : 'human' as const }
+      return prev.some((m) => m.id === mention.id) ? prev : [...prev, mention]
+    })
     setShowMentionPopup(false)
     inputRef.current?.focus()
   }
@@ -331,7 +385,7 @@ export default function RoomPage() {
             className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer hover:bg-blue-50 ${currentFile?.path === node.path ? 'bg-blue-100' : ''}`}
             onClick={() => node.type === 'directory' ? null : openFile(node)}
           >
-            <span className="text-sm">{node.type === 'directory' ? '📁' : '📄'}</span>
+            <span className="text-sm text-gray-500">{node.type === 'directory' ? <Folder className="w-4 h-4" /> : <FileText className="w-4 h-4" />}</span>
             <span className="text-sm flex-1 truncate">{node.name}</span>
             {node.type === 'file' && (
               <button onClick={(e) => { e.stopPropagation(); deleteFile(node.path) }} className="text-xs text-red-400 hover:text-red-600">×</button>
@@ -345,22 +399,28 @@ export default function RoomPage() {
 
   // Mobile bottom nav
   const panels: { key: Panel; label: string; icon: string }[] = [
-    { key: 'chat', label: '聊天', icon: '💬' },
-    { key: 'files', label: '文件', icon: '📁' },
-    { key: 'tabs', label: '标签', icon: '📑' },
-    { key: 'tasks', label: '任务', icon: '✅' },
+    { key: 'chat', label: '聊天', icon: 'message' },
+    { key: 'files', label: '文件', icon: 'folder' },
+    { key: 'tabs', label: '标签', icon: 'panels' },
+    { key: 'tasks', label: '任务', icon: 'check' },
   ]
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 relative">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/')} className="text-gray-500 hover:text-gray-700">← 返回</button>
-          <h1 className="font-semibold text-gray-800">{room?.name || '加载中...'}</h1>
-          <button onClick={() => navigate(`/room/${roomId}/settings`)} className="text-gray-400 hover:text-gray-600 text-sm ml-2">⚙️</button>
+      <header className="bg-white border-b border-gray-200 px-3 sm:px-4 py-3 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <button onClick={() => navigate('/')} className="text-gray-500 hover:text-gray-700 shrink-0">← 返回</button>
+          <h1 className="font-semibold text-gray-800 truncate">{room?.name || '加载中...'}</h1>
+          <button onClick={() => navigate(`/room/${roomId}/settings`)} className="text-gray-400 hover:text-gray-600 text-sm ml-1 shrink-0"><Settings className="w-4 h-4" /></button>
         </div>
-        <div />
+        <button
+          onClick={() => setShowMobileMembers(true)}
+          className="md:hidden flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-blue-50 text-blue-600 text-xs font-medium shrink-0"
+        >
+          <Users className="w-4 h-4" />
+          {members.length + roomAgents.length}
+        </button>
       </header>
 
       {/* Desktop tab bar */}
@@ -371,7 +431,11 @@ export default function RoomPage() {
             className={`px-4 py-2 text-sm font-medium ${activePanel === p.key ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
             onClick={() => setActivePanel(p.key)}
           >
-            {p.icon} {p.label}
+            {p.icon === 'message' && <MessageCircle className="inline w-4 h-4 mr-1" />}
+            {p.icon === 'folder' && <Folder className="inline w-4 h-4 mr-1" />}
+            {p.icon === 'panels' && <PanelsTopLeft className="inline w-4 h-4 mr-1" />}
+            {p.icon === 'check' && <CheckSquare className="inline w-4 h-4 mr-1" />}
+            {p.label}
           </button>
         ))}
       </div>
@@ -384,7 +448,7 @@ export default function RoomPage() {
             className="hidden md:flex absolute left-0 top-1/2 -translate-y-1/2 z-20 w-7 h-12 rounded-r-full bg-white border border-l-0 border-gray-200 shadow-md text-gray-400 hover:text-blue-600 items-center justify-center"
             title="展开成员面板"
           >
-            ›
+            <PanelLeftOpen className="w-4 h-4" />
           </button>
         )}
         {/* Left: Panel content */}
@@ -396,18 +460,32 @@ export default function RoomPage() {
                 const isOwn = msg.actorId === user?.id
                 const displayName = isOwn ? '我' : msg.actorName
                 const avatar = isOwn ? user?.avatar : getActorAvatar(msg)
+                const actorMember = isOwn ? user : getActorMember(msg)
+                const actorAgent = msg.actorRole === 'ai' ? (getActorAgent(msg) || { name: displayName, roleType: 'assistant', status: 'active' }) : null
                 return (
                   <div key={msg.id} className={`flex items-end gap-2 ${isOwn ? 'justify-end' : 'justify-start'}`}>
                     {!isOwn && (msg.actorRole === 'ai' ? (
-                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-400 to-blue-500 flex items-center justify-center text-white text-lg shrink-0">🤖</div>
-                    ) : renderAvatar(displayName, avatar, 'w-12 h-12'))}
-                    <div className={`max-w-[80%] rounded-xl px-4 py-2 ${isOwn ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-800'}`}>
-                      <div className={`text-xs mb-1 ${isOwn ? 'text-blue-200' : 'text-gray-400'}`}>
-                        {msg.actorRole === 'ai' ? '🤖 ' : ''}{displayName}
-                      </div>
+                      <button type="button" onClick={() => openMemberProfile(actorAgent, 'agent')} className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-green-400 to-blue-500 flex items-center justify-center text-white shrink-0 hover:ring-2 hover:ring-blue-200"><Bot className="w-5 h-5 sm:w-6 sm:h-6" /></button>
+                    ) : (
+                      <button type="button" onClick={() => actorMember && openMemberProfile(actorMember, 'member')} className="shrink-0 hover:ring-2 hover:ring-blue-200 rounded-full">
+                        {renderAvatar(displayName, avatar, 'w-10 h-10 sm:w-12 sm:h-12')}
+                      </button>
+                    ))}
+                    <div className={`max-w-[78%] sm:max-w-[80%] rounded-xl px-3 sm:px-4 py-2 ${isOwn ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-800'}`}>
+                      <button
+                        type="button"
+                        onClick={() => msg.actorRole === 'ai' ? openMemberProfile(actorAgent, 'agent') : actorMember && openMemberProfile(actorMember, 'member')}
+                        className={`block text-xs mb-1 text-left ${isOwn ? 'text-blue-200' : 'text-gray-400 hover:text-blue-500'}`}
+                      >
+                        {msg.actorRole === 'ai' ? 'AI · ' : ''}{displayName}
+                      </button>
                       <p className="text-sm whitespace-pre-wrap">{renderMessageContent(msg.content, isOwn)}</p>
                     </div>
-                    {isOwn && renderAvatar(displayName, avatar, 'w-12 h-12')}
+                    {isOwn && (
+                      <button type="button" onClick={() => actorMember && openMemberProfile(actorMember, 'member')} className="shrink-0 hover:ring-2 hover:ring-blue-200 rounded-full">
+                        {renderAvatar(displayName, avatar, 'w-10 h-10 sm:w-12 sm:h-12')}
+                      </button>
+                    )}
                   </div>
                 )
               })}
@@ -434,7 +512,7 @@ export default function RoomPage() {
                         <div key={a.id} className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm flex items-center gap-2" onClick={() => insertMention(a, 'agent')}>
                           <div className="relative">
                             <div className="w-6 h-6 bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center text-white text-xs">
-                              🤖
+                              <Bot className="w-4 h-4" />
                             </div>
                             <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 border border-white rounded-full ${
                               a.status === 'active' ? 'bg-green-400' :
@@ -509,7 +587,7 @@ export default function RoomPage() {
               {tabs.map((tab) => (
                 <div key={tab.id} className={`flex items-center gap-1 px-3 py-1 rounded-t text-sm cursor-pointer ${activeTabId === tab.id ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>
                   <span onClick={() => setActiveTabId(tab.id)}>{tab.name}</span>
-                  <button onClick={() => setEditingTabId(editingTabId === tab.id ? null : tab.id)} className="text-xs text-gray-400 hover:text-gray-600">✏️</button>
+                  <button onClick={() => setEditingTabId(editingTabId === tab.id ? null : tab.id)} className="text-xs text-gray-400 hover:text-gray-600"><Pencil className="w-4 h-4" /></button>
                   <button onClick={() => deleteTab(tab.id)} className="text-xs text-red-400 hover:text-red-600">×</button>
                 </div>
               ))}
@@ -595,7 +673,7 @@ export default function RoomPage() {
               className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-6 h-12 rounded-full bg-white border border-gray-200 shadow-sm text-gray-400 hover:text-blue-600 flex items-center justify-center"
               title="收起成员面板"
             >
-              ‹
+              <PanelLeftClose className="w-4 h-4" />
             </button>
             <div className="p-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center justify-between">
@@ -604,7 +682,7 @@ export default function RoomPage() {
               </h3>
               <div className="space-y-1">
                 {members.map((member) => (
-                  <div key={member.id || member.userId} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors">
+                  <button key={member.id || member.userId} type="button" onClick={() => openMemberProfile(member, 'member')} className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-blue-50 transition-colors text-left">
                     <div className="relative">
                       {renderAvatar(getMemberDisplayName(member), getMemberAvatar(member), 'w-9 h-9')}
                       <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-400 border-2 border-white rounded-full"></div>
@@ -617,7 +695,7 @@ export default function RoomPage() {
                         {member.username && member.username !== getMemberDisplayName(member) ? `@${member.username}` : '在线'}
                       </p>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
 
@@ -629,10 +707,10 @@ export default function RoomPage() {
                   </h3>
                   <div className="space-y-1">
                     {roomAgents.map((agent) => (
-                      <div key={agent.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors">
+                      <button key={agent.id} type="button" onClick={() => openMemberProfile(agent, 'agent')} className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-blue-50 transition-colors text-left">
                         <div className="relative">
                           <div className="w-9 h-9 bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                            🤖
+                            <Bot className="w-5 h-5" />
                           </div>
                           <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-white rounded-full ${
                             agent.status === 'active' ? 'bg-green-400' :
@@ -643,14 +721,15 @@ export default function RoomPage() {
                           <p className="text-sm font-medium text-gray-800 truncate">
                             {agent.name}
                           </p>
-                          <p className="text-xs text-gray-400">
-                            {agent.roleType === 'assistant' ? '⭐ 助理' : '🔧 专家'}
-                            {agent.status === 'active' && ' · 在线'}
-                            {agent.status === 'working' && ' · 工作中'}
-                            {agent.status === 'inactive' && ' · 离线'}
+                          <p className="text-xs text-gray-400 flex items-center gap-1">
+                            {agent.roleType === 'assistant' ? <ShieldCheck className="w-3 h-3" /> : <Wrench className="w-3 h-3" />}
+                            <span>{agent.roleType === 'assistant' ? '助理' : '专家'}</span>
+                            {agent.status === 'active' && <span>· 在线</span>}
+                            {agent.status === 'working' && <span>· 工作中</span>}
+                            {agent.status === 'inactive' && <span>· 离线</span>}
                           </p>
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </>
@@ -660,30 +739,23 @@ export default function RoomPage() {
         )}
       </div>
 
-      {!showMobileMembers && (
-        <button
-          onClick={() => setShowMobileMembers(true)}
-          className="md:hidden fixed left-3 bottom-20 z-40 bg-white border border-gray-200 shadow-lg rounded-full px-3 py-2 text-sm text-gray-600"
-        >
-          👥 成员
-        </button>
-      )}
-
       {/* Mobile members drawer */}
       {showMobileMembers && (
         <div className="md:hidden fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={() => setShowMobileMembers(false)}>
-          <div className="w-full max-w-md bg-white rounded-t-2xl max-h-[70vh] overflow-y-auto animate-slideUp" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md bg-white rounded-t-2xl max-h-[75vh] overflow-y-auto animate-slideUp" onClick={(e) => e.stopPropagation()}>
             <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between rounded-t-2xl">
-              <h3 className="font-semibold text-gray-800">成员列表 <span className="text-sm font-normal text-gray-400">({members.length})</span></h3>
-              <button onClick={() => setShowMobileMembers(false)} className="text-gray-400 hover:text-gray-600 p-1">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+              <div>
+                <h3 className="font-semibold text-gray-800">成员与 AI</h3>
+                <p className="text-xs text-gray-400">成员 {members.length} · Agent {roomAgents.length}</p>
+              </div>
+              <button onClick={() => setShowMobileMembers(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100">
+                <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-4 space-y-1">
+            <div className="p-4 space-y-2">
+              <h4 className="px-1 text-xs font-semibold text-gray-500 uppercase tracking-wide">在线成员</h4>
               {members.map((member) => (
-                <div key={member.id || member.userId} className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors">
+                <button key={member.id || member.userId} type="button" onClick={() => openMemberProfile(member, 'member')} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-blue-50 transition-colors text-left">
                   <div className="relative">
                     {renderAvatar(getMemberDisplayName(member), getMemberAvatar(member), 'w-11 h-11')}
                     <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-400 border-2 border-white rounded-full"></div>
@@ -694,16 +766,16 @@ export default function RoomPage() {
                       {member.username && member.username !== getMemberDisplayName(member) ? `@${member.username}` : '在线'}
                     </p>
                   </div>
-                </div>
+                </button>
               ))}
               {roomAgents.length > 0 && (
                 <>
-                  <h4 className="font-semibold text-gray-700 mt-4 mb-2 px-1">AI Agents ({roomAgents.length})</h4>
+                  <h4 className="px-1 pt-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">AI Agents</h4>
                   {roomAgents.map((agent) => (
-                    <div key={agent.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors">
+                    <button key={agent.id} type="button" onClick={() => openMemberProfile(agent, 'agent')} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-blue-50 transition-colors text-left">
                       <div className="relative">
                         <div className="w-11 h-11 bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center text-white font-semibold">
-                          🤖
+                          <Bot className="w-5 h-5" />
                         </div>
                         <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 border-2 border-white rounded-full ${
                           agent.status === 'active' ? 'bg-green-400' :
@@ -712,11 +784,12 @@ export default function RoomPage() {
                       </div>
                       <div className="flex-1">
                         <p className="font-medium text-gray-800">{agent.name}</p>
-                        <p className="text-sm text-gray-400">
-                          {agent.roleType === 'assistant' ? '⭐ 助理' : '🔧 专家'}
-                          {agent.status === 'active' && ' · 在线'}
-                          {agent.status === 'working' && ' · 工作中'}
-                          {agent.status === 'inactive' && ' · 离线'}
+                        <p className="text-sm text-gray-400 flex items-center gap-1">
+                          {agent.roleType === 'assistant' ? <ShieldCheck className="w-3 h-3" /> : <Wrench className="w-3 h-3" />}
+                          <span>{agent.roleType === 'assistant' ? '助理' : '专家'}</span>
+                          {agent.status === 'active' && <span>· 在线</span>}
+                          {agent.status === 'working' && <span>· 工作中</span>}
+                          {agent.status === 'inactive' && <span>· 离线</span>}
                         </p>
                         {agent.specialties && agent.specialties.length > 0 && (
                           <div className="flex gap-1 mt-1 flex-wrap">
@@ -726,9 +799,55 @@ export default function RoomPage() {
                           </div>
                         )}
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedProfile && (
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={() => setSelectedProfile(null)}>
+          <div className="w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center gap-3 min-w-0">
+                {selectedProfile.kind === 'agent' ? (
+                  <div className="w-14 h-14 rounded-full bg-gradient-to-br from-green-400 to-blue-500 flex items-center justify-center text-white shrink-0"><Bot className="w-7 h-7" /></div>
+                ) : renderAvatar(selectedProfile.name, selectedProfile.avatar, 'w-14 h-14')}
+                <div className="min-w-0">
+                  <p className="font-semibold text-gray-800 truncate">{selectedProfile.name}</p>
+                  <p className="text-sm text-gray-400 truncate">{selectedProfile.subtitle}</p>
+                </div>
+              </div>
+              <button onClick={() => setSelectedProfile(null)} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2">
+                <span className="text-gray-500">类型</span>
+                <span className="font-medium text-gray-700 inline-flex items-center gap-1">
+                  {selectedProfile.kind === 'agent' ? <Bot className="w-4 h-4" /> : <UserRound className="w-4 h-4" />}
+                  {selectedProfile.kind === 'agent' ? 'AI Agent' : '项目成员'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2">
+                <span className="text-gray-500">状态</span>
+                <span className="font-medium text-gray-700">{selectedProfile.status}</span>
+              </div>
+              {selectedProfile.kind === 'agent' && (
+                <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2">
+                  <span className="text-gray-500">角色</span>
+                  <span className="font-medium text-gray-700 inline-flex items-center gap-1">
+                    {selectedProfile.roleType === 'assistant' ? <ShieldCheck className="w-4 h-4" /> : <Wrench className="w-4 h-4" />}
+                    {selectedProfile.roleType === 'assistant' ? '助理' : '专家'}
+                  </span>
+                </div>
+              )}
+              {selectedProfile.specialties?.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {selectedProfile.specialties.map((s: string) => <span key={s} className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full">{s}</span>)}
+                </div>
               )}
             </div>
           </div>
@@ -743,7 +862,12 @@ export default function RoomPage() {
             className={`flex-1 py-2 text-center ${activePanel === p.key ? 'text-blue-600' : 'text-gray-400'}`}
             onClick={() => setActivePanel(p.key)}
           >
-            <div className="text-lg">{p.icon}</div>
+            <div className="flex justify-center mb-0.5">
+              {p.icon === 'message' && <MessageCircle className="w-5 h-5" />}
+              {p.icon === 'folder' && <Folder className="w-5 h-5" />}
+              {p.icon === 'panels' && <PanelsTopLeft className="w-5 h-5" />}
+              {p.icon === 'check' && <CheckSquare className="w-5 h-5" />}
+            </div>
             <div className="text-xs">{p.label}</div>
           </button>
         ))}

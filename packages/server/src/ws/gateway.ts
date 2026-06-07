@@ -5,6 +5,7 @@ import { verifyToken } from '../auth/jwt.js'
 import { messageService } from '../services/message.service.js'
 import { taskService } from '../services/task.service.js'
 import { roomService } from '../services/room.service.js'
+import { agentService } from '../services/agent.service.js'
 
 interface ClientConnection {
   ws: WebSocket
@@ -19,6 +20,7 @@ export class WebSocketGateway {
   private wss: WebSocketServer
   private clients: Map<string, ClientConnection> = new Map()
   private roomClients: Map<string, Set<string>> = new Map() // roomId -> Set<clientId>
+  private assistantAutoReplyCooldowns: Map<string, number> = new Map() // roomId -> timestamp
 
   constructor(server: Server) {
     this.wss = new WebSocketServer({ server, path: '/ws' })
@@ -261,6 +263,115 @@ export class WebSocketGateway {
       payload: msg,
       timestamp: Date.now()
     })
+
+    const mentions = payload.mentions || []
+    const agentMentions = mentions.filter((m: any) => m?.role === 'ai' && m?.id)
+    if (agentMentions.length > 0) {
+      void this.invokeMentionedAgents(client.currentRoomId, payload.content, mentions)
+    } else if (client.role === 'human') {
+      void this.maybeAutoInvokeAssistant(client.currentRoomId, client.nickname, payload.content)
+    }
+  }
+
+  private shouldConsiderAssistantAutoReply(content: string): boolean {
+    const text = content.trim()
+    if (!text) return false
+    if (text.length <= 2) return false
+    if (/^(好|好的|收到|嗯|哦|哈哈|呵呵|ok|OK|1|测试|谢谢|谢了)[。.!！?？]*$/.test(text)) return false
+    return /[?？]|帮我|怎么|如何|为什么|下一步|总结|安排|任务|卡住|阻塞|方案|决定|谁来|能不能|可以吗|咋办|处理|实现|优化|修复|设计|评估|建议/.test(text)
+  }
+
+  private async maybeAutoInvokeAssistant(roomId: string, actorName: string, content: string) {
+    if (!this.shouldConsiderAssistantAutoReply(content)) return
+
+    const now = Date.now()
+    const last = this.assistantAutoReplyCooldowns.get(roomId) || 0
+    const cooldownMs = 30_000
+    if (now - last < cooldownMs) return
+
+    const roomAgents = await agentService.getRoomAgents(roomId)
+    const assistant = roomAgents.find((a: any) => a.roleType === 'assistant' && a.status !== 'inactive')
+    if (!assistant) return
+
+    this.assistantAutoReplyCooldowns.set(roomId, now)
+
+    const recentMessages = await messageService.getMessages(roomId, 10)
+    const context = recentMessages
+      .map((m) => `${m.actorRole === 'ai' ? 'AI' : '用户'} ${m.actorName}: ${m.content}`)
+      .join('\n')
+
+    const prompt = `你是 FreeChat 房间助理，正在旁听项目对话。\n\n最近对话：\n${context}\n\n最新消息来自 ${actorName}: ${content}\n\n请判断是否需要你介入回复。\n- 如果只是闲聊、确认、测试、无意义短消息，或者人类成员可以自然继续，不要回复，只输出 [SILENT]。\n- 如果用户在提问、寻求方案、任务推进、总结、安排、阻塞处理、决策建议，才回复。\n- 如需推进项目，请优先使用 ./freechat CLI 同步任务/进度/文件。\n- 回复要简洁，不要抢话。`
+
+    await this.invokeMentionedAgents(roomId, prompt, [{ id: assistant.id, name: assistant.name, role: 'ai' }])
+  }
+
+  private async invokeMentionedAgents(roomId: string, content: string, mentions: any[]) {
+    const agentMentions = mentions.filter((m) => m?.role === 'ai' && m?.id)
+    if (agentMentions.length === 0) return
+
+    const uniqueAgentIds = Array.from(new Set(agentMentions.map((m) => m.id)))
+    const roomAgents = await agentService.getRoomAgents(roomId)
+    const roomAgentIds = new Set(roomAgents.map((a) => a.id))
+
+    for (const agentId of uniqueAgentIds) {
+      if (!roomAgentIds.has(agentId)) continue
+      const agent = roomAgents.find((a) => a.id === agentId)
+      if (!agent) continue
+
+      this.broadcastToRoom(roomId, {
+        msgId: uuidv4(),
+        roomId,
+        type: 'broadcast',
+        action: 'agent.status_update',
+        payload: { agentId, status: 'working' },
+        timestamp: Date.now()
+      })
+
+      try {
+        await agentService.updateAgent(agentId, { status: 'working' } as any)
+        const result = await agentService.spawnClaudeCode(roomId, agentId, content)
+        await agentService.updateAgent(agentId, { status: 'active' } as any)
+
+        this.broadcastToRoom(roomId, {
+          msgId: uuidv4(),
+          roomId,
+          type: 'broadcast',
+          action: 'agent.status_update',
+          payload: { agentId, status: 'active' },
+          timestamp: Date.now()
+        })
+
+        if (result.silent || !result.response) continue
+
+        const responseMsg = await messageService.createMessage(
+          roomId,
+          agentId,
+          agent.name,
+          'ai',
+          result.response
+        )
+
+        this.broadcastToRoom(roomId, {
+          msgId: responseMsg.id,
+          roomId,
+          type: 'broadcast',
+          action: 'chat.message',
+          payload: responseMsg,
+          timestamp: Date.now()
+        })
+      } catch (err: any) {
+        await agentService.updateAgent(agentId, { status: 'active' } as any).catch(() => {})
+        this.broadcastToRoom(roomId, {
+          msgId: uuidv4(),
+          roomId,
+          type: 'broadcast',
+          action: 'agent.status_update',
+          payload: { agentId, status: 'active' },
+          timestamp: Date.now()
+        })
+        console.error(`Agent ${agentId} invocation failed:`, err)
+      }
+    }
   }
 
   private async handleChatHistory(clientId: string, payload: any) {

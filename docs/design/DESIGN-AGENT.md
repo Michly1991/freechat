@@ -593,3 +593,143 @@ claude -p "回复一个字：好"
 ```
 
 注意：后端 Agent 调用 Claude Code CLI 时，默认不要强制指定已不可用的 `qwen3.7-max`；应优先走当前环境默认模型 `minimax-m2.5`。
+
+## @Agent 自动触发机制（2026-06-08）
+
+房间聊天支持通过 `@Agent名称` 触发房间内 Agent 工作：
+
+- 前端在 @ 弹层选择成员/Agent 时，会记录 `mentions` 元数据：`{ id, name, role }`。
+- 发送消息时，前端会根据消息内容补全仍然存在的 mentions；即使用户手动输入 `@助理`，也会尝试匹配房间 Agent 并带上 mention。
+- WebSocket `chat.send` payload 包含：
+
+```json
+{
+  "content": "@助理 帮我看看",
+  "mentions": [{ "id": "agent_xxx", "name": "助理", "role": "ai" }]
+}
+```
+
+- 后端 `chat.send` 先保存并广播用户消息，再异步检查 `role=ai` 的 mentions。
+- 只有当前房间已绑定的 Agent 才会被触发。
+- Agent 触发时广播 `agent.status_update: working`，完成或失败后广播 `agent.status_update: active`。
+- Agent 有回复时，后端创建 AI 消息并通过 WebSocket 广播 `chat.message`，所有在线成员实时可见。
+- 同一条消息中同一 Agent 只触发一次。
+
+## 服务端 Agent 默认运行时：Claude Code CLI（2026-06-08）
+
+服务端部署的 Agent 默认不再优先走普通模型 Provider API，而是启动 Claude Code CLI，并将当前房间的项目目录作为根目录：
+
+```bash
+claude -p "<用户消息>" --cwd workspace-data/<roomId>
+```
+
+如果存在历史会话，则追加：
+
+```bash
+--resume <session_id>
+```
+
+运行时配置：
+
+```env
+AGENT_RUNTIME=claude-code
+```
+
+可选值：
+
+- `claude-code`：默认，服务端 Agent 以项目目录为 cwd 启动 Claude Code。
+- `provider-api`：可选兼容模式，优先走配置的模型 Provider API，失败后 fallback 到 Claude Code。
+
+每次启动 Agent 前，服务端会确保房间工作区存在并刷新上下文文件：
+
+```text
+workspace-data/<roomId>/
+  AGENTS.md
+  .freechat/
+    ROOM.md
+    MEMBERS.md
+    API.md
+```
+
+这些文件用于告诉 Claude 当前项目、成员、Agent 身份和 FreeChat 工具/API 使用规范。后续 FreeChat 的对话、任务、文件等工具会接入到该 Claude Code 工作区。当前规则是：服务端 Agent = 项目目录内运行的 Claude Code 实例。
+
+## FreeChat Agent CLI 工具（2026-06-08）
+
+Agent 工具层采用 CLI 方案，而不是 MCP 作为第一版默认集成方式。每次服务端启动 Claude Code 前，会在房间工作区根目录生成可执行文件：
+
+```text
+workspace-data/<roomId>/freechat
+```
+
+Claude Code 的 cwd 即为房间工作区，所以 Agent 可以直接使用：
+
+```bash
+./freechat chat send "我开始处理"
+./freechat task list
+./freechat task create "任务标题" "任务说明"
+./freechat task update <taskId> status doing
+./freechat task update <taskId> status review reviewNote "已完成，等待确认"
+./freechat task update <taskId> status done
+./freechat file list
+./freechat file read docs/example.md
+./freechat file write docs/progress.md "进度内容"
+./freechat members list
+./freechat room info
+```
+
+服务端新增 Agent Tool API：
+
+```text
+POST /api/agent-tools/:roomId
+```
+
+该接口不使用用户 JWT，而使用服务端为当前 Agent + Room 生成的短本地工具 token。CLI 内置该 token，并调用本机服务端 API。服务端收到工具调用后直接操作内部 service：
+
+- `chat.send` → `messageService.createMessage` 并广播 `chat.message`
+- `task.list/create/update` → `taskService` 并广播 `task.changed`
+- `file.list/read/write` → 房间 files 目录，并广播 `files.updated`
+- `members.list` → 房间成员 + Agent 列表
+- `room.info` → 当前房间信息
+
+Agent 行为规范：复杂任务必须先用 `chat send` 汇报开始，然后通过 `task create/update` 同步进度，必要时使用 `file read/write` 读写资料，完成后再发送总结。
+
+### Claude Code CLI 启动参数修正
+
+当前 Claude Code CLI 不支持 `--cwd` 参数。服务端不得执行：
+
+```bash
+claude -p "..." --cwd workspace-data/<roomId>
+```
+
+正确方式是在 Node `spawn` 时设置进程工作目录：
+
+```ts
+spawn('claude', args, { cwd: workspaceDir })
+```
+
+同时使用：
+
+```bash
+--output-format json
+```
+
+从 JSON 输出中读取 `result` 和 `session_id`。如果历史 `--resume` session 不存在，则自动去掉 `--resume` 重新启动一次，避免旧失败 session 阻塞 Agent 回复。
+
+## 助理智能旁听自动回复（2026-06-08）
+
+房间默认助理支持“智能旁听”：用户不必每次 `@助理`，后端会根据消息内容和上下文判断是否触发助理。
+
+触发链路：
+
+1. `chat.send` 保存并广播用户消息。
+2. 如果消息明确 `@Agent`，立即触发指定 Agent，不受自动回复冷却影响。
+3. 如果没有 `@Agent` 且发送者是人类用户，则进入智能旁听判断。
+4. 规则过滤明显不需要回复的内容，如“好的/收到/哈哈/1/测试”等短消息。
+5. 对疑似需要协助的消息触发默认助理，附带最近 10 条上下文，并要求助理自行判断：
+   - 不需要回复时输出 `[SILENT]`。
+   - 需要回复时简洁介入。
+   - 如需推进项目，优先使用 `./freechat` CLI 同步任务、进度和文件。
+6. 同一房间自动回复有 30 秒冷却，避免刷屏。
+7. Agent 自己发出的消息不会触发自动旁听，避免循环。
+
+第一版触发关键词包括：问号、帮我、怎么、如何、为什么、下一步、总结、安排、任务、卡住、阻塞、方案、决定、谁来、处理、实现、优化、修复、设计、评估、建议等。

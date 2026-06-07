@@ -17,6 +17,8 @@ export default function RoomSettingsPage() {
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
   const [profileForm, setProfileForm] = useState({ role_title: '', persona: '', specialties: '' })
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     if (!roomId) return
@@ -40,16 +42,17 @@ export default function RoomSettingsPage() {
   }
 
   const deleteRoom = async () => {
-    if (!roomId || !room) return
-    const ok = window.confirm(`确定要永久删除项目「${room.name}」吗？\n\n这会硬删除房间、消息、任务、标签页、邀请、文件和默认助理 Agent，删除后不可恢复。`)
-    if (!ok) return
-
+    if (!roomId || !room || deleting) return
+    setDeleting(true)
     try {
       await api.deleteRoom(roomId)
+      setShowDeleteConfirm(false)
       alert('项目已删除')
       navigate('/')
     } catch (e: any) {
       alert('删除失败: ' + (e.message || JSON.stringify(e)))
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -229,9 +232,39 @@ export default function RoomSettingsPage() {
         <section className="bg-white rounded-lg border border-red-200 p-5">
           <h2 className="text-lg font-semibold text-red-600 mb-2">危险操作</h2>
           <p className="text-sm text-gray-500 mb-4">永久删除这个项目及其所有关联数据。此操作不可恢复。</p>
-          <button onClick={deleteRoom} className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700">永久删除项目</button>
+          <button onClick={() => setShowDeleteConfirm(true)} className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700">永久删除项目</button>
         </section>
       </div>
+
+      {showDeleteConfirm && room && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => !deleting && setShowDeleteConfirm(false)}>
+          <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-red-600 mb-2">永久删除项目</h3>
+            <p className="text-sm text-gray-600 leading-6">
+              确定要永久删除项目「<span className="font-medium text-gray-800">{room.name}</span>」吗？
+            </p>
+            <p className="text-sm text-gray-500 mt-2 leading-6">
+              这会硬删除房间、消息、任务、标签页、邀请、文件和默认助理 Agent，删除后不可恢复。
+            </p>
+            <div className="mt-5 flex gap-2 justify-end">
+              <button
+                disabled={deleting}
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-4 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-60"
+              >
+                取消
+              </button>
+              <button
+                disabled={deleting}
+                onClick={deleteRoom}
+                className="px-4 py-2 rounded-lg text-sm bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleting ? '删除中...' : '确认永久删除'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

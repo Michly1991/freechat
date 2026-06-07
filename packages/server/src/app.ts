@@ -13,6 +13,7 @@ import { registerProfileRoutes } from './routes/profiles.js'
 import { registerFriendRoutes } from './routes/friends.js'
 import { registerDmRoutes } from './routes/dm.js'
 import { registerConversationRoutes } from './routes/conversations.js'
+import { registerAgentToolRoutes } from './routes/agent-tools.js'
 import { authenticate } from './auth/middleware.js'
 import { initDatabase } from './storage/db.js'
 import { initWebSocket } from './ws/gateway.js'
@@ -63,7 +64,7 @@ async function buildApp() {
   // Protected routes (auth required)
   app.addHook('preHandler', async (request, reply) => {
     const url = request.url
-    if (url.startsWith('/api/') && !url.startsWith('/api/auth/') && url !== '/api/health') {
+    if (url.startsWith('/api/') && !url.startsWith('/api/auth/') && !url.startsWith('/api/agent-tools/') && url !== '/api/health') {
       await authenticate(request, reply)
     }
   })
@@ -78,6 +79,7 @@ async function buildApp() {
   await registerProfileRoutes(app)
   await registerDmRoutes(app)
   await registerConversationRoutes(app)
+  await registerAgentToolRoutes(app)
 
   // Error handler
   app.setErrorHandler((error, request, reply) => {

@@ -10,3 +10,13 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+.safe-area-inset-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@media (max-width: 640px) {
+  input, textarea, select {
+    font-size: 16px;
+  }
+}

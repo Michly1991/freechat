@@ -16,6 +16,9 @@ export const config = {
   workspace: {
     root: process.env.WORKSPACE_ROOT || './workspace-data'
   },
+  agent: {
+    runtime: process.env.AGENT_RUNTIME || 'claude-code'
+  },
   cors: {
     origin: process.env.CORS_ORIGIN || '*'
   }
