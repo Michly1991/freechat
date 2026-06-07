@@ -5,16 +5,33 @@ import { api } from '../lib/api'
 
 export default function HomePage() {
   const [rooms, setRooms] = useState<any[]>([])
+  const [conversations, setConversations] = useState<any[]>([])
+  const [friends, setFriends] = useState<any[]>([])
+  const [friendRequests, setFriendRequests] = useState<{ received: any[]; sent: any[] }>({ received: [], sent: [] })
+  const [searchQ, setSearchQ] = useState('')
+  const [searchResults, setSearchResults] = useState<any[]>([])
+  const [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([])
+  const [activeHomeTab, setActiveHomeTab] = useState<'messages' | 'contacts' | 'settings'>('messages')
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
+  const [showJoin, setShowJoin] = useState(false)
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
+  const [joining, setJoining] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const navigate = useNavigate()
   const { user, logout } = useAuthStore()
 
   useEffect(() => {
-    loadRooms()
+    loadHome()
   }, [])
+
+  const loadHome = async () => {
+    setLoading(true)
+    await Promise.all([loadRooms(), loadFriends(), loadFriendRequests(), loadConversations()])
+    setLoading(false)
+  }
 
   const loadRooms = async () => {
     try {
@@ -22,19 +39,63 @@ export default function HomePage() {
       setRooms(data.rooms || [])
     } catch (err) {
       console.error(err)
-    } finally {
-      setLoading(false)
     }
+  }
+
+  const loadConversations = async () => {
+    try { const data = await api.getConversations(); setConversations(data.conversations || []) } catch (err) { console.error(err) }
+  }
+
+  const loadFriends = async () => {
+    try { const data = await api.getFriends(); setFriends(data.friends || []) } catch (err) { console.error(err) }
+  }
+
+  const loadFriendRequests = async () => {
+    try { const data = await api.getFriendRequests(); setFriendRequests({ received: data.received || [], sent: data.sent || [] }) } catch (err) { console.error(err) }
+  }
+
+  const searchUsers = async () => {
+    if (!searchQ.trim()) return
+    try { const data = await api.searchUsers(searchQ.trim()); setSearchResults(data.users || []) } catch (err: any) { alert(err.message) }
+  }
+
+  const sendFriendRequest = async (targetUserId: string) => {
+    try { await api.sendFriendRequest(targetUserId); alert('好友申请已发送'); searchUsers(); loadFriendRequests() } catch (err: any) { alert(err.message) }
+  }
+
+  const acceptFriendRequest = async (requestId: string) => {
+    try { await api.acceptFriendRequest(requestId); loadFriends(); loadFriendRequests() } catch (err: any) { alert(err.message) }
+  }
+
+  const rejectFriendRequest = async (requestId: string) => {
+    try { await api.rejectFriendRequest(requestId); loadFriendRequests() } catch (err: any) { alert(err.message) }
+  }
+
+  const openDm = async (friendId: string) => {
+    try { const data = await api.openDm(friendId); navigate(`/dm/${data.conversation.id}`) } catch (err: any) { alert(err.message) }
+  }
+
+  const toggleConversationPref = async (conv: any, key: 'pinned' | 'muted', e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      await api.updateConversationPrefs(conv.type, conv.id, { [key]: !conv[key] })
+      loadConversations()
+    } catch (err: any) { alert(err.message) }
+  }
+
+  const toggleSelectedFriend = (friendId: string) => {
+    setSelectedFriendIds((prev) => prev.includes(friendId) ? prev.filter((id) => id !== friendId) : [...prev, friendId])
   }
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      const result = await api.createRoom({ name: newName, description: newDesc })
+      const result = await api.createRoom({ name: newName, description: newDesc, memberIds: selectedFriendIds })
       console.log('创建成功:', result)
       setShowCreate(false)
       setNewName('')
       setNewDesc('')
+      setSelectedFriendIds([])
       loadRooms()
       // 创建成功后跳转到房间
       if (result?.room?.id) {
@@ -51,6 +112,44 @@ export default function HomePage() {
     navigate('/login')
   }
 
+  const handleJoinRoom = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const code = inviteCode.trim()
+    if (!code) return
+
+    try {
+      setJoining(true)
+      const result = await api.joinRoom(code)
+      setShowJoin(false)
+      setInviteCode('')
+      if (result?.room?.id) {
+        navigate(`/room/${result.room.id}`)
+      } else {
+        await loadRooms()
+      }
+    } catch (err: any) {
+      alert('加入失败: ' + (err.message || JSON.stringify(err)))
+    } finally {
+      setJoining(false)
+    }
+  }
+
+  const handleDeleteRoom = async (room: any, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const ok = window.confirm(`确定要永久删除项目「${room.name}」吗？\n\n这会硬删除房间、消息、任务、标签页、邀请、文件和默认助理 Agent，删除后不可恢复。`)
+    if (!ok) return
+
+    try {
+      setDeletingId(room.id)
+      await api.deleteRoom(room.id)
+      setRooms((prev) => prev.filter((r) => r.id !== room.id))
+    } catch (err: any) {
+      alert('删除失败: ' + (err.message || JSON.stringify(err)))
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
@@ -59,9 +158,16 @@ export default function HomePage() {
           <div className="flex items-center gap-4">
             <button
               onClick={() => navigate('/settings')}
-              className="text-gray-600 hover:text-gray-800"
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-800"
             >
-              {user?.nickname || user?.username}
+              {user?.avatar ? (
+                <img src={user.avatar} alt="头像" className="w-8 h-8 rounded-full object-cover border border-gray-200" />
+              ) : (
+                <span className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-sm font-semibold">
+                  {(user?.nickname || user?.username || '?')[0].toUpperCase()}
+                </span>
+              )}
+              <span>{user?.nickname || user?.username}</span>
             </button>
             <button
               onClick={handleLogout}
@@ -74,43 +180,189 @@ export default function HomePage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-semibold text-gray-800">我的项目</h2>
+        <div className="bg-white rounded-xl border border-gray-200 p-1 mb-6 flex w-full sm:w-fit">
           <button
-            onClick={() => setShowCreate(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            onClick={() => setActiveHomeTab('messages')}
+            className={`flex-1 sm:flex-none px-6 py-2 rounded-lg text-sm font-medium transition-colors ${activeHomeTab === 'messages' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
           >
-            + 新建项目
+            消息
+          </button>
+          <button
+            onClick={() => setActiveHomeTab('contacts')}
+            className={`flex-1 sm:flex-none px-6 py-2 rounded-lg text-sm font-medium transition-colors ${activeHomeTab === 'contacts' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
+          >
+            通讯录
+          </button>
+          <button
+            onClick={() => setActiveHomeTab('settings')}
+            className={`flex-1 sm:flex-none px-6 py-2 rounded-lg text-sm font-medium transition-colors ${activeHomeTab === 'settings' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
+          >
+            设置
           </button>
         </div>
 
-        {loading ? (
-          <p className="text-gray-500">加载中...</p>
-        ) : rooms.length === 0 ? (
-          <div className="text-center py-16 text-gray-400">
-            <p className="text-lg mb-2">还没有项目</p>
-            <p className="text-sm">点击右上角创建你的第一个项目</p>
+        {activeHomeTab === 'messages' && (
+          <section className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-800">消息</h2>
+              <button onClick={loadConversations} className="text-xs text-gray-400 hover:text-gray-600">刷新</button>
+            </div>
+            {conversations.length === 0 ? (
+              <div className="p-8 text-center text-gray-400">暂无会话，去通讯录找好友聊天，或创建一个项目</div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {conversations.map((conv) => (
+                  <div key={`${conv.type}-${conv.id}`} onClick={() => navigate(conv.targetPath)} className={`p-4 flex items-center gap-3 cursor-pointer hover:bg-gray-50 ${conv.pinned ? 'bg-yellow-50/60' : 'bg-white'}`}>
+                    {conv.type === 'dm' ? (
+                      conv.avatar ? <img src={conv.avatar} className="w-12 h-12 rounded-full object-cover" /> : <span className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 text-white flex items-center justify-center font-semibold">{(conv.title || '?')[0].toUpperCase()}</span>
+                    ) : (
+                      <span className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-400 to-blue-500 text-white flex items-center justify-center font-semibold">项</span>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-gray-800 truncate">{conv.title}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${conv.type === 'dm' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'}`}>{conv.type === 'dm' ? '私聊' : '项目'}</span>
+                        {conv.pinned && <span className="text-[10px] text-yellow-600">置顶</span>}
+                        {conv.muted && <span className="text-[10px] text-gray-400">免打扰</span>}
+                      </div>
+                      <p className="text-sm text-gray-400 truncate mt-1">
+                        {conv.lastMessage ? `${conv.lastMessage.actorName}: ${conv.lastMessage.content}` : conv.subtitle}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-2 shrink-0">
+                      {conv.unreadCount > 0 && <span className={`text-xs rounded-full px-2 py-0.5 ${conv.muted ? 'bg-gray-200 text-gray-500' : 'bg-red-500 text-white'}`}>{conv.unreadCount}</span>}
+                      <div className="flex gap-2 text-xs text-gray-400">
+                        <button onClick={(e) => toggleConversationPref(conv, 'pinned', e)}>{conv.pinned ? '取消置顶' : '置顶'}</button>
+                        <button onClick={(e) => toggleConversationPref(conv, 'muted', e)}>{conv.muted ? '取消免打扰' : '免打扰'}</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {activeHomeTab === 'contacts' && (
+        <section className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+          <h2 className="text-lg font-semibold text-gray-800 mb-3">好友</h2>
+          <div className="flex gap-2 mb-3">
+            <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchUsers()} placeholder="搜索用户名/昵称添加好友" className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+            <button onClick={searchUsers} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">搜索</button>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {rooms.map((room) => (
-              <div
-                key={room.id}
-                onClick={() => navigate(`/room/${room.id}`)}
-                className="bg-white rounded-xl border border-gray-200 p-5 cursor-pointer hover:shadow-md transition-shadow"
-              >
-                <h3 className="font-semibold text-gray-800 mb-2">{room.name}</h3>
-                {room.description && (
-                  <p className="text-sm text-gray-500 line-clamp-2">{room.description}</p>
-                )}
-                <div className="mt-4 flex items-center justify-between text-xs text-gray-400">
-                  <span>创建于 {new Date(room.createdAt).toLocaleDateString()}</span>
+          {searchResults.length > 0 && (
+            <div className="space-y-2 mb-4">
+              {searchResults.map((u) => (
+                <div key={u.id} className="flex items-center justify-between p-2 rounded-lg bg-gray-50">
+                  <div className="flex items-center gap-2">
+                    {u.avatar ? <img src={u.avatar} className="w-8 h-8 rounded-full object-cover" /> : <span className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs">{(u.nickname || u.username || '?')[0].toUpperCase()}</span>}
+                    <span className="text-sm font-medium">{u.nickname || u.username}</span>
+                    <span className="text-xs text-gray-400">@{u.username}</span>
+                  </div>
+                  {u.friendStatus === 'none' && <button onClick={() => sendFriendRequest(u.id)} className="text-xs text-blue-600 hover:text-blue-700">加好友</button>}
+                  {u.friendStatus === 'friends' && <span className="text-xs text-green-600">已是好友</span>}
+                  {u.friendStatus === 'pending_sent' && <span className="text-xs text-gray-400">已申请</span>}
+                  {u.friendStatus === 'pending_received' && <span className="text-xs text-orange-500">待你处理</span>}
+                  {u.friendStatus === 'self' && <span className="text-xs text-gray-400">自己</span>}
                 </div>
+              ))}
+            </div>
+          )}
+          {friendRequests.received.length > 0 && (
+            <div className="mb-4">
+              <h3 className="text-sm font-medium text-gray-600 mb-2">好友申请</h3>
+              <div className="space-y-2">
+                {friendRequests.received.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between p-2 rounded-lg bg-orange-50">
+                    <span className="text-sm">{r.user.nickname || r.user.username} 请求添加你为好友</span>
+                    <div className="flex gap-2">
+                      <button onClick={() => acceptFriendRequest(r.id)} className="text-xs text-green-600">同意</button>
+                      <button onClick={() => rejectFriendRequest(r.id)} className="text-xs text-red-500">拒绝</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+            {friends.length === 0 ? <p className="text-sm text-gray-400">暂无好友，先搜索添加一个吧</p> : friends.map((f) => (
+              <div key={f.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100">
+                <div className="flex items-center gap-2 min-w-0">
+                  {f.avatar ? <img src={f.avatar} className="w-9 h-9 rounded-full object-cover" /> : <span className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 text-white flex items-center justify-center text-sm">{(f.nickname || f.username || '?')[0].toUpperCase()}</span>}
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{f.nickname || f.username}</p>
+                    <p className="text-xs text-gray-400 truncate">@{f.username}</p>
+                  </div>
+                </div>
+                <button onClick={() => openDm(f.id)} className="text-xs text-blue-600 hover:text-blue-700">发消息</button>
               </div>
             ))}
           </div>
+        </section>
         )}
+
+        {activeHomeTab === 'messages' && (
+          <div className="flex gap-2 mb-6">
+            <button onClick={() => setShowJoin(true)} className="bg-white text-blue-600 border border-blue-200 px-4 py-2 rounded-lg hover:bg-blue-50 transition-colors">加入项目</button>
+            <button onClick={() => setShowCreate(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">+ 新建项目</button>
+          </div>
+        )}
+
+        {activeHomeTab === 'settings' && (
+          <section className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              {user?.avatar ? <img src={user.avatar} className="w-14 h-14 rounded-full object-cover" /> : <span className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 text-white flex items-center justify-center text-xl font-semibold">{(user?.nickname || user?.username || '?')[0].toUpperCase()}</span>}
+              <div>
+                <p className="font-semibold text-gray-800">{user?.nickname || user?.username}</p>
+                <p className="text-sm text-gray-400">@{user?.username}</p>
+              </div>
+            </div>
+            <button onClick={() => navigate('/settings')} className="w-full text-left px-4 py-3 rounded-lg border border-gray-100 hover:bg-gray-50">个人设置</button>
+            <button onClick={handleLogout} className="w-full text-left px-4 py-3 rounded-lg border border-red-100 text-red-600 hover:bg-red-50">退出登录</button>
+          </section>
+        )}
+
       </main>
+
+      {showJoin && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">加入项目</h3>
+            <form onSubmit={handleJoinRoom} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  邀请码
+                </label>
+                <input
+                  type="text"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  placeholder="输入别人发给你的邀请码"
+                  autoFocus
+                  required
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => { setShowJoin(false); setInviteCode('') }}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={joining}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60"
+                >
+                  {joining ? '加入中...' : '加入'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {showCreate && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -142,6 +394,22 @@ export default function HomePage() {
                   rows={3}
                 />
               </div>
+              {friends.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    添加好友成员（可选）
+                  </label>
+                  <div className="max-h-36 overflow-y-auto border border-gray-200 rounded-lg p-2 space-y-1">
+                    {friends.map((f) => (
+                      <label key={f.id} className="flex items-center gap-2 p-2 rounded hover:bg-gray-50 cursor-pointer text-sm">
+                        <input type="checkbox" checked={selectedFriendIds.includes(f.id)} onChange={() => toggleSelectedFriend(f.id)} />
+                        {f.avatar ? <img src={f.avatar} className="w-6 h-6 rounded-full object-cover" /> : <span className="w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs">{(f.nickname || f.username || '?')[0].toUpperCase()}</span>}
+                        <span>{f.nickname || f.username}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="flex gap-2 justify-end">
                 <button
                   type="button"

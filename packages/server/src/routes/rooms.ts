@@ -2,6 +2,8 @@ import { FastifyInstance } from 'fastify'
 import { roomService } from '../services/room.service.js'
 import { v4 as uuidv4 } from 'uuid'
 import db from '../storage/db.js'
+import { getGateway } from '../ws/gateway.js'
+import { areFriends } from './friends.js'
 
 export async function registerRoomRoutes(app: FastifyInstance) {
   // Get user's rooms
@@ -18,7 +20,7 @@ export async function registerRoomRoutes(app: FastifyInstance) {
   // Create room
   app.post('/api/rooms', async (request, reply) => {
     const user = (request as any).user
-    const { name, description } = request.body as any
+    const { name, description, memberIds } = request.body as any
 
     console.log('[CreateRoom] Request:', { name, description, userId: user.id })
 
@@ -31,7 +33,10 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     }
 
     try {
-      const room = await roomService.createRoom(name, description || null, user.id)
+      const initialMemberIds = Array.isArray(memberIds)
+        ? memberIds.filter((id: string) => id && id !== user.id && areFriends(user.id, id))
+        : []
+      const room = await roomService.createRoom(name, description || null, user.id, initialMemberIds)
       console.log('[CreateRoom] Success:', room.id)
       return reply.send({ success: true, data: { room } })
     } catch (err: any) {
@@ -80,12 +85,19 @@ export async function registerRoomRoutes(app: FastifyInstance) {
 
   // Delete room
   app.delete('/api/rooms/:id', async (request, reply) => {
+    const user = (request as any).user
     const { id } = request.params as any
 
     try {
-      await roomService.deleteRoom(id)
+      await roomService.deleteRoom(id, user.id)
       return reply.send({ success: true })
     } catch (err: any) {
+      if (err.code === 'ROOM_NOT_FOUND') {
+        return reply.code(404).send({ success: false, error: err })
+      }
+      if (err.code === 'FORBIDDEN') {
+        return reply.code(403).send({ success: false, error: err })
+      }
       throw err
     }
   })
@@ -164,6 +176,18 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     db.prepare('UPDATE room_invites SET used_count = used_count + 1 WHERE code = ?').run(invite_code)
 
     const room = await roomService.getRoom(invite.room_id)
+    const members = await roomService.getRoomMembers(invite.room_id)
+
+    // Notify users already inside the room so their member panels refresh immediately.
+    getGateway()?.broadcast(invite.room_id, {
+      msgId: uuidv4(),
+      roomId: invite.room_id,
+      type: 'broadcast',
+      action: 'room.members_update',
+      payload: { members },
+      timestamp: Date.now()
+    })
+
     return reply.send({ success: true, data: { room, role: 'editor' } })
   })
 

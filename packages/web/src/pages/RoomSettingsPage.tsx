@@ -12,6 +12,7 @@ export default function RoomSettingsPage() {
   const [editName, setEditName] = useState('')
   const [editDesc, setEditDesc] = useState('')
   const [inviteUrl, setInviteUrl] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [searchQ, setSearchQ] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
@@ -38,8 +39,28 @@ export default function RoomSettingsPage() {
     try { await api.updateRoom(roomId!, { name: editName, description: editDesc }); alert('保存成功') } catch (e: any) { alert(e.message) }
   }
 
+  const deleteRoom = async () => {
+    if (!roomId || !room) return
+    const ok = window.confirm(`确定要永久删除项目「${room.name}」吗？\n\n这会硬删除房间、消息、任务、标签页、邀请、文件和默认助理 Agent，删除后不可恢复。`)
+    if (!ok) return
+
+    try {
+      await api.deleteRoom(roomId)
+      alert('项目已删除')
+      navigate('/')
+    } catch (e: any) {
+      alert('删除失败: ' + (e.message || JSON.stringify(e)))
+    }
+  }
+
   const generateInvite = async () => {
-    try { const data = await api.createInvite(roomId!); setInviteUrl(data.url || `${window.location.origin}/join?code=${data.code}`) } catch {}
+    try {
+      const data = await api.createInvite(roomId!)
+      setInviteCode(data.code)
+      setInviteUrl(data.url?.startsWith('http') ? data.url : `${window.location.origin}/join?code=${data.code}`)
+    } catch (e: any) {
+      alert('生成失败: ' + (e.message || JSON.stringify(e)))
+    }
   }
 
   const removeAgent = async (agentId: string) => {
@@ -56,7 +77,7 @@ export default function RoomSettingsPage() {
   }
 
   const startEditProfile = (member: any) => {
-    setEditingMemberId(member.id)
+    setEditingMemberId(member.id || member.userId)
     setProfileForm({
       role_title: member.role_title || '',
       persona: member.persona || '',
@@ -104,11 +125,23 @@ export default function RoomSettingsPage() {
         {/* Invite */}
         <section className="bg-white rounded-lg border border-gray-200 p-5">
           <h2 className="text-lg font-semibold text-gray-800 mb-4">邀请链接</h2>
-          <button onClick={generateInvite} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700">生成邀请链接</button>
-          {inviteUrl && (
-            <div className="mt-3 flex items-center gap-2">
-              <input value={inviteUrl} readOnly className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50" />
-              <button onClick={() => { navigator.clipboard.writeText(inviteUrl); alert('已复制') }} className="text-sm bg-gray-200 px-3 py-2 rounded hover:bg-gray-300">复制</button>
+          <button onClick={generateInvite} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700">生成邀请码</button>
+          {inviteCode && (
+            <div className="mt-3 space-y-3">
+              <div>
+                <label className="text-sm text-gray-600 block mb-1">邀请码</label>
+                <div className="flex items-center gap-2">
+                  <input value={inviteCode} readOnly className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50 font-mono" />
+                  <button onClick={() => { navigator.clipboard.writeText(inviteCode); alert('邀请码已复制') }} className="text-sm bg-gray-200 px-3 py-2 rounded hover:bg-gray-300">复制</button>
+                </div>
+              </div>
+              <div>
+                <label className="text-sm text-gray-600 block mb-1">邀请链接</label>
+                <div className="flex items-center gap-2">
+                  <input value={inviteUrl} readOnly className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50" />
+                  <button onClick={() => { navigator.clipboard.writeText(inviteUrl); alert('链接已复制') }} className="text-sm bg-gray-200 px-3 py-2 rounded hover:bg-gray-300">复制</button>
+                </div>
+              </div>
             </div>
           )}
         </section>
@@ -118,10 +151,17 @@ export default function RoomSettingsPage() {
           <h2 className="text-lg font-semibold text-gray-800 mb-4">成员列表</h2>
           <div className="space-y-2">
             {members.map((m) => (
-              <div key={m.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50">
-                <div>
-                  <span className="font-medium text-sm text-gray-800">{m.nickname || m.username}</span>
-                  <span className="ml-2 text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">{m.role}</span>
+              <div key={m.id || m.userId} className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50">
+                <div className="flex items-center gap-3">
+                  {m.avatar ? (
+                    <img src={m.avatar} alt="头像" className="w-8 h-8 rounded-full object-cover border border-gray-200" />
+                  ) : (
+                    <span className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xs font-semibold">
+                      {(m.nickname || m.username || '?')[0].toUpperCase()}
+                    </span>
+                  )}
+                  <span className="font-medium text-sm text-gray-800">{m.nickname || m.username || '未命名用户'}</span>
+                  {m.username && m.username !== m.nickname && <span className="ml-2 text-xs text-gray-400">@{m.username}</span>}
                   {m.role_title && <span className="ml-1 text-xs text-blue-500">{m.role_title}</span>}
                 </div>
                 <button onClick={() => startEditProfile(m)} className="text-xs text-blue-500 hover:text-blue-700">编辑资料</button>
@@ -183,6 +223,13 @@ export default function RoomSettingsPage() {
               </div>
             ))}
           </div>
+        </section>
+
+        {/* Danger Zone */}
+        <section className="bg-white rounded-lg border border-red-200 p-5">
+          <h2 className="text-lg font-semibold text-red-600 mb-2">危险操作</h2>
+          <p className="text-sm text-gray-500 mb-4">永久删除这个项目及其所有关联数据。此操作不可恢复。</p>
+          <button onClick={deleteRoom} className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700">永久删除项目</button>
         </section>
       </div>
     </div>

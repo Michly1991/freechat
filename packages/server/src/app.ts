@@ -1,11 +1,18 @@
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
+import fastifyStatic from '@fastify/static'
+import multipart from '@fastify/multipart'
+import { resolve } from 'path'
+import { mkdirSync } from 'fs'
 import { registerAuthRoutes } from './routes/auth.js'
 import { registerRoomRoutes } from './routes/rooms.js'
 import { registerFileRoutes } from './routes/files.js'
 import { registerTabRoutes } from './routes/tabs.js'
 import { registerAgentRoutes } from './routes/agents.js'
 import { registerProfileRoutes } from './routes/profiles.js'
+import { registerFriendRoutes } from './routes/friends.js'
+import { registerDmRoutes } from './routes/dm.js'
+import { registerConversationRoutes } from './routes/conversations.js'
 import { authenticate } from './auth/middleware.js'
 import { initDatabase } from './storage/db.js'
 import { initWebSocket } from './ws/gateway.js'
@@ -33,6 +40,21 @@ async function buildApp() {
   // Initialize database
   initDatabase()
 
+  mkdirSync(resolve(config.upload.dir), { recursive: true })
+
+  // Multipart uploads
+  await app.register(multipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024
+    }
+  })
+
+  // Static uploaded files (public)
+  await app.register(fastifyStatic, {
+    root: resolve(config.upload.dir),
+    prefix: '/uploads/'
+  })
+
   // Health check (public)
   app.get('/api/health', async () => {
     return { status: 'ok', timestamp: Date.now() }
@@ -52,7 +74,10 @@ async function buildApp() {
   await registerFileRoutes(app)
   await registerTabRoutes(app)
   await registerAgentRoutes(app)
+  await registerFriendRoutes(app)
   await registerProfileRoutes(app)
+  await registerDmRoutes(app)
+  await registerConversationRoutes(app)
 
   // Error handler
   app.setErrorHandler((error, request, reply) => {

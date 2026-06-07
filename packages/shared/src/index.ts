@@ -161,7 +161,7 @@ export interface AuthResponse {
 }
 
 // === Constants ===
-export const MAX_MESSAGES_PER_ROOM = 50
+export const MAX_MESSAGES_PER_ROOM = 100
 export const TASK_STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   todo: ['assigned', 'cancelled'],
   assigned: ['doing', 'todo', 'cancelled'],

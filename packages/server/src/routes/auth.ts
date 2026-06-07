@@ -1,5 +1,8 @@
 import { FastifyInstance } from 'fastify'
 import { authService } from '../services/auth.service.js'
+import { config } from '../config.js'
+import { mkdir, writeFile } from 'fs/promises'
+import { join } from 'path'
 
 export async function registerAuthRoutes(app: FastifyInstance) {
   // Register
@@ -69,6 +72,55 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     try {
       const result = await authService.updateProfile(user.id, nickname, avatar)
       return reply.send({ success: true, data: result })
+    } catch (err: any) {
+      throw err
+    }
+  })
+
+  // Upload avatar
+  app.post('/api/user/avatar', async (request, reply) => {
+    const user = (request as any).user
+
+    try {
+      const file = await request.file()
+      if (!file) {
+        return reply.code(400).send({
+          success: false,
+          error: { code: 'NO_FILE', message: '请选择头像图片' }
+        })
+      }
+
+      const allowedTypes: Record<string, string> = {
+        'image/png': 'png',
+        'image/jpeg': 'jpg',
+        'image/webp': 'webp',
+        'image/gif': 'gif'
+      }
+      const ext = allowedTypes[file.mimetype]
+      if (!ext) {
+        return reply.code(400).send({
+          success: false,
+          error: { code: 'INVALID_FILE_TYPE', message: '头像只支持 png、jpg、webp、gif 图片' }
+        })
+      }
+
+      const buffer = await file.toBuffer()
+      if (buffer.length > 2 * 1024 * 1024) {
+        return reply.code(400).send({
+          success: false,
+          error: { code: 'FILE_TOO_LARGE', message: '头像图片不能超过 2MB' }
+        })
+      }
+
+      const dir = join(config.upload.dir, 'avatars')
+      await mkdir(dir, { recursive: true })
+      const filename = `${user.id}-${Date.now()}.${ext}`
+      const filepath = join(dir, filename)
+      await writeFile(filepath, buffer)
+
+      const avatar = `/uploads/avatars/${filename}`
+      const updated = await authService.updateProfile(user.id, undefined, avatar)
+      return reply.send({ success: true, data: { user: updated, avatar } })
     } catch (err: any) {
       throw err
     }

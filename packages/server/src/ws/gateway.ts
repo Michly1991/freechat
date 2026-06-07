@@ -269,7 +269,7 @@ export class WebSocketGateway {
 
     const messages = await messageService.getMessages(
       client.currentRoomId,
-      payload.limit || 50,
+      payload.limit || 100,
       payload.before
     )
 
@@ -403,7 +403,7 @@ export class WebSocketGateway {
       msgId: uuidv4(),
       roomId,
       type: 'system',
-      action: 'room.members_update',
+      action: 'room.online_update',
       payload: { members },
       timestamp: Date.now()
     })

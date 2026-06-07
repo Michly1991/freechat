@@ -516,3 +516,80 @@ Response: { success: true }
 1. **Claude Code 的启动方式**：CLI（`claude --cwd ...`）？SDK？Subprocess？
 2. **Claude Code 的会话管理**：常驻进程怎么保持上下文？用 `--resume` 还是始终保持 stdin 管道？
 3. **并发控制**：多个专业 Agent 同时写同一个文件怎么办？（建议：助理在分配任务时避免文件冲突）
+
+---
+
+## 当前实现补充：默认助理与 Agent 可见性
+
+### 1. 默认助理 Agent 的创建时机
+
+默认助理不再依赖用户手动添加。创建房间时，服务端自动创建一个 `assistant` 类型 Agent，并绑定到当前房间。
+
+默认配置：
+
+```json
+{
+  "name": "助理",
+  "roleType": "assistant",
+  "deployment": "server",
+  "status": "active",
+  "specialties": ["协作", "总结", "任务协调", "决策"],
+  "config": {
+    "defaultRoomAssistant": true,
+    "roomId": "room_xxx"
+  }
+}
+```
+
+### 2. 默认助理生命周期
+
+默认助理与房间生命周期绑定：
+
+- 房间创建：自动创建默认助理
+- 房间删除：自动删除该房间的默认助理
+- 手动添加的专家 Agent：不随房间删除，只解除 room-agent 绑定
+
+### 3. Agent 在线状态展示
+
+Agent 必须在房间成员面板和 `@` 提及面板中可见。
+
+| 状态 | 含义 | 前端展示 |
+| --- | --- | --- |
+| `active` | 可调用 | 在线 / 绿色点 |
+| `working` | 执行中 | 工作中 / 黄色点 |
+| `inactive` | 不可用 | 离线 / 灰色点 |
+
+### 4. @Agent 调用入口
+
+用户输入 `@` 时，前端候选面板同时列出人类成员和 Agent。选中 Agent 后将 Agent 名称插入消息输入框，发送后由后端根据 mentions 或文本中的 `@AgentName` 进行后续路由。
+
+约束：
+
+- 用户不能 @ 自己
+- Agent 候选需要显示在线状态
+- 中文 Agent 名称必须可搜索和插入
+
+### 5. 当前 Claude Code CLI / 模型路由
+
+当前本地 Claude Code CLI 已调通，版本：
+
+```bash
+claude --version
+# 2.1.168 (Claude Code)
+```
+
+当前可用模型走本地 Anthropic 兼容路由：
+
+```bash
+ANTHROPIC_BASE_URL=http://127.0.0.1:1572
+ANTHROPIC_MODEL=minimax-m2.5
+```
+
+验证命令：
+
+```bash
+claude -p "回复一个字：好"
+# 好
+```
+
+注意：后端 Agent 调用 Claude Code CLI 时，默认不要强制指定已不可用的 `qwen3.7-max`；应优先走当前环境默认模型 `minimax-m2.5`。

@@ -6,8 +6,9 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     : null
 
   const isFormData = options?.body instanceof FormData
+  const hasBody = options?.body !== undefined && options?.body !== null
   const headers: Record<string, string> = {
-    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+    ...(hasBody && !isFormData ? { 'Content-Type': 'application/json' } : {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   }
 
@@ -36,14 +37,19 @@ export const api = {
       body: JSON.stringify(body),
     }),
   getMe: () => request<any>('/auth/me'),
-  updateProfile: (body: { nickname?: string; avatar?: string }) =>
+  updateUserProfile: (body: { nickname?: string; avatar?: string }) =>
     request<any>('/user/profile', { method: 'PATCH', body: JSON.stringify(body) }),
+  uploadAvatar: (file: File) => {
+    const formData = new FormData()
+    formData.append('avatar', file)
+    return request<{ user: any; avatar: string }>('/user/avatar', { method: 'POST', body: formData })
+  },
   changePassword: (body: { old_password: string; new_password: string }) =>
     request('/user/password', { method: 'POST', body: JSON.stringify(body) }),
 
   // Rooms
   getRooms: () => request<{ rooms: any[] }>('/rooms'),
-  createRoom: (body: { name: string; description?: string }) =>
+  createRoom: (body: { name: string; description?: string; memberIds?: string[] }) =>
     request<{ room: any }>('/rooms', { method: 'POST', body: JSON.stringify(body) }),
   getRoom: (id: string) => request<{ room: any; members: any[] }>(`/rooms/${id}`),
   updateRoom: (id: string, body: { name?: string; description?: string }) =>
@@ -113,7 +119,7 @@ export const api = {
 
   // Profiles
   getProfiles: (roomId: string) => request<{ profiles: any[] }>(`/rooms/${roomId}/profiles`),
-  updateProfile: (roomId: string, memberId: string, body: {
+  updateRoomProfile: (roomId: string, memberId: string, body: {
     displayName?: string
     roleDescription?: string
     avatar?: string
@@ -124,6 +130,28 @@ export const api = {
     request(`/rooms/${roomId}/profiles/${memberId}`, { method: 'PUT', body: JSON.stringify(body) }),
   batchUpdateProfiles: (roomId: string, profiles: any[]) =>
     request(`/rooms/${roomId}/profiles/batch`, { method: 'POST', body: JSON.stringify({ profiles }) }),
+
+  // Friends
+  getFriends: () => request<{ friends: any[] }>('/friends'),
+  getFriendRequests: () => request<{ received: any[]; sent: any[] }>('/friends/requests'),
+  sendFriendRequest: (targetUserId: string, message?: string) =>
+    request('/friends/requests', { method: 'POST', body: JSON.stringify({ targetUserId, message }) }),
+  acceptFriendRequest: (requestId: string) => request(`/friends/requests/${requestId}/accept`, { method: 'POST' }),
+  rejectFriendRequest: (requestId: string) => request(`/friends/requests/${requestId}/reject`, { method: 'POST' }),
+
+  // Conversations
+  getConversations: () => request<{ conversations: any[] }>('/conversations'),
+  markConversationRead: (type: 'dm' | 'project', id: string) =>
+    request('/conversations/read', { method: 'POST', body: JSON.stringify({ type, id }) }),
+  updateConversationPrefs: (type: 'dm' | 'project', id: string, body: { pinned?: boolean; muted?: boolean }) =>
+    request(`/conversations/${type}/${id}/prefs`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+  // DM
+  openDm: (userId: string) => request<{ conversation: any }>('/dm/open', { method: 'POST', body: JSON.stringify({ userId }) }),
+  getDm: (id: string) => request<{ conversation: any }>(`/dm/${id}`),
+  getDmMessages: (id: string, limit = 100) => request<{ messages: any[] }>(`/dm/${id}/messages?limit=${limit}`),
+  sendDmMessage: (id: string, content: string) =>
+    request<{ message: any }>(`/dm/${id}/messages`, { method: 'POST', body: JSON.stringify({ content }) }),
 
   // Users
   getUser: (userId: string) => request<any>(`/users/${userId}`),

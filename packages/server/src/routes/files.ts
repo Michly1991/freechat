@@ -2,16 +2,9 @@ import { FastifyInstance } from 'fastify'
 import { mkdir, readdir, readFile, writeFile, unlink, stat } from 'fs/promises'
 import { join, dirname, basename, extname } from 'path'
 import { existsSync } from 'fs'
-import multipart from '@fastify/multipart'
 import db from '../storage/db.js'
 
 export async function registerFileRoutes(app: FastifyInstance) {
-  await app.register(multipart, {
-    limits: {
-      fileSize: 10 * 1024 * 1024 // 10MB
-    }
-  })
-
   // 获取房间文件树
   app.get('/api/rooms/:roomId/files', async (request, reply) => {
     const { roomId } = request.params as any

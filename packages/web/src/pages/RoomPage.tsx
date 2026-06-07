@@ -5,6 +5,7 @@ import { api } from '../lib/api'
 
 interface Message {
   id: string
+  actorId: string
   actorName: string
   actorRole: 'human' | 'ai'
   content: string
@@ -26,6 +27,38 @@ interface Tab {
 
 type Panel = 'chat' | 'files' | 'tabs' | 'tasks'
 
+const LOCAL_MESSAGE_CACHE_LIMIT = 100
+const getMessageCacheKey = (roomId: string) => `freechat:room:${roomId}:messages`
+
+function mergeMessages(...groups: Message[][]): Message[] {
+  const map = new Map<string, Message>()
+  groups.flat().forEach((msg) => {
+    if (msg?.id) map.set(msg.id, { ...map.get(msg.id), ...msg })
+  })
+  return Array.from(map.values())
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+    .slice(-LOCAL_MESSAGE_CACHE_LIMIT)
+}
+
+function readCachedMessages(roomId: string): Message[] {
+  try {
+    const raw = localStorage.getItem(getMessageCacheKey(roomId))
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? mergeMessages(parsed) : []
+  } catch {
+    return []
+  }
+}
+
+function writeCachedMessages(roomId: string, messages: Message[]) {
+  try {
+    localStorage.setItem(getMessageCacheKey(roomId), JSON.stringify(mergeMessages(messages)))
+  } catch {
+    // localStorage may be full or disabled; UI should still work.
+  }
+}
+
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate = useNavigate()
@@ -34,6 +67,7 @@ export default function RoomPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [members, setMembers] = useState<any[]>([])
+  const [roomAgents, setRoomAgents] = useState<any[]>([])
   const [activePanel, setActivePanel] = useState<Panel>('chat')
   const [tasks, setTasks] = useState<any[]>([])
   const [files, setFiles] = useState<FileNode[]>([])
@@ -47,13 +81,17 @@ export default function RoomPage() {
   const [newTabContent, setNewTabContent] = useState('')
   const [showCreateTab, setShowCreateTab] = useState(false)
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
-  const [showMembers, setShowMembers] = useState(false)
+  const [showMembers, setShowMembers] = useState(true)
+  const [showMobileMembers, setShowMobileMembers] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!roomId) return
+    api.markConversationRead('project', roomId).catch(() => {})
+    const cachedMessages = readCachedMessages(roomId)
+    if (cachedMessages.length > 0) setMessages(cachedMessages)
     loadRoom()
     connectWs()
     return () => { wsRef.current?.close() }
@@ -69,6 +107,7 @@ export default function RoomPage() {
       // Load files and tabs
       try { const fd = await api.getFiles(roomId!); setFiles(fd.files || []) } catch {}
       try { const td = await api.getTabs(roomId!); setTabs(td.tabs || []) } catch {}
+      try { const ra = await api.getRoomAgents(roomId!); setRoomAgents(ra.agents || []) } catch {}
     } catch { navigate('/') }
   }
 
@@ -78,19 +117,35 @@ export default function RoomPage() {
     wsRef.current = ws
     ws.onopen = () => {
       ws.send(JSON.stringify({ action: 'room.join', payload: { room_id: roomId } }))
-      ws.send(JSON.stringify({ action: 'chat.history', payload: { room_id: roomId } }))
+      ws.send(JSON.stringify({ action: 'chat.history', payload: { room_id: roomId, limit: 100 } }))
       ws.send(JSON.stringify({ action: 'task.list', payload: { room_id: roomId } }))
     }
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data)
       if (msg.action === 'chat.message') {
-        setMessages((prev) => [...prev, msg.payload])
+        setMessages((prev) => {
+          const next = mergeMessages(prev, [msg.payload])
+          if (roomId) writeCachedMessages(roomId, next)
+          return next
+        })
       } else if (msg.action === 'chat.history_result') {
-        setMessages(msg.payload.messages || [])
+        setMessages((prev) => {
+          const next = mergeMessages(prev, msg.payload.messages || [])
+          if (roomId) writeCachedMessages(roomId, next)
+          return next
+        })
       } else if (msg.action === 'chat.edited') {
-        setMessages((prev) => prev.map((m) => (m.id === msg.payload.id ? { ...m, ...msg.payload } : m)))
+        setMessages((prev) => {
+          const next = mergeMessages(prev.map((m) => (m.id === msg.payload.id ? { ...m, ...msg.payload } : m)))
+          if (roomId) writeCachedMessages(roomId, next)
+          return next
+        })
       } else if (msg.action === 'chat.deleted') {
-        setMessages((prev) => prev.filter((m) => m.id !== msg.payload.message_id))
+        setMessages((prev) => {
+          const next = prev.filter((m) => m.id !== msg.payload.message_id)
+          if (roomId) writeCachedMessages(roomId, next)
+          return next
+        })
       } else if (msg.action === 'room.members_update') {
         setMembers(msg.payload.members || [])
       } else if (msg.action === 'task.list_result') {
@@ -130,7 +185,7 @@ export default function RoomPage() {
     // Check for @mention
     const cursorPos = e.target.selectionStart || 0
     const beforeCursor = val.slice(0, cursorPos)
-    const atMatch = beforeCursor.match(/@(\w*)$/)
+    const atMatch = beforeCursor.match(/@([^@\s]*)$/)
     if (atMatch) {
       setShowMentionPopup(true)
       setMentionFilter(atMatch[1].toLowerCase())
@@ -139,20 +194,38 @@ export default function RoomPage() {
     }
   }
 
-  const insertMention = (member: any) => {
+  const getMemberDisplayName = (member: any) => member.nickname || member.username || member.displayName || '未命名用户'
+  const getMemberAvatar = (member: any) => member.avatar || ''
+  const getActorAvatar = (msg: Message) => members.find((m) => (m.userId || m.id) === msg.actorId)?.avatar || ''
+  const renderAvatar = (name: string, avatar?: string, size = 'w-9 h-9') => avatar ? (
+    <img src={avatar} alt={name} className={`${size} rounded-full object-cover border border-gray-200 shrink-0`} />
+  ) : (
+    <div className={`${size} rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-sm font-semibold shrink-0`}>
+      {(name || '?')[0].toUpperCase()}
+    </div>
+  )
+
+  const filteredMembers = members.filter((m) => {
+    const id = m.id || m.userId
+    if (id === user?.id) return false
+    return getMemberDisplayName(m).toLowerCase().includes(mentionFilter)
+  })
+
+  const filteredAgents = roomAgents.filter((a) =>
+    (a.name || '').toLowerCase().includes(mentionFilter)
+  )
+
+  const insertMention = (target: any, type: 'member' | 'agent') => {
+    const name = type === 'member' ? getMemberDisplayName(target) : target.name
     const cursorPos = inputRef.current?.selectionStart || input.length
     const beforeCursor = input.slice(0, cursorPos)
     const afterCursor = input.slice(cursorPos)
     const atIdx = beforeCursor.lastIndexOf('@')
-    const newInput = beforeCursor.slice(0, atIdx) + `@${member.nickname || member.username} ` + afterCursor
+    const newInput = beforeCursor.slice(0, atIdx) + `@${name} ` + afterCursor
     setInput(newInput)
     setShowMentionPopup(false)
     inputRef.current?.focus()
   }
-
-  const filteredMembers = members.filter((m) =>
-    (m.nickname || m.username || '').toLowerCase().includes(mentionFilter)
-  )
 
   // File operations
   const openFile = async (node: FileNode) => {
@@ -192,7 +265,7 @@ export default function RoomPage() {
   const createTab = async () => {
     if (!newTabName.trim()) return
     try {
-      await api.createTab(roomId!, { name: newTabName, content: newTabContent || '<h1>Hello</h1>' })
+      await api.createTab(roomId!, { title: newTabName, content: newTabContent || '<h1>Hello</h1>' })
       setNewTabName('')
       setNewTabContent('')
       setShowCreateTab(false)
@@ -239,11 +312,11 @@ export default function RoomPage() {
   ]
 
   // Render content with @mentions highlighted
-  const renderMessageContent = (content: string) => {
-    const parts = content.split(/(@\w+)/g)
+  const renderMessageContent = (content: string, isOwn = false) => {
+    const parts = content.split(/(@[^@\s]+)/g)
     return parts.map((part, i) => {
       if (part.startsWith('@')) {
-        return <span key={i} className="inline-block bg-blue-100 text-blue-700 px-1 rounded text-xs font-medium">{part}</span>
+        return <span key={i} className={`inline-block px-1 rounded text-xs font-medium ${isOwn ? 'bg-blue-500 text-white' : 'bg-blue-100 text-blue-700'}`}>{part}</span>
       }
       return <span key={i}>{part}</span>
     })
@@ -279,7 +352,7 @@ export default function RoomPage() {
   ]
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
+    <div className="h-screen flex flex-col bg-gray-50 relative">
       {/* Header */}
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
@@ -287,10 +360,7 @@ export default function RoomPage() {
           <h1 className="font-semibold text-gray-800">{room?.name || '加载中...'}</h1>
           <button onClick={() => navigate(`/room/${roomId}/settings`)} className="text-gray-400 hover:text-gray-600 text-sm ml-2">⚙️</button>
         </div>
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <span className="w-2 h-2 bg-green-400 rounded-full"></span>
-          <span className="hidden sm:inline">{members.length} 人在线</span>
-        </div>
+        <div />
       </header>
 
       {/* Desktop tab bar */}
@@ -308,31 +378,77 @@ export default function RoomPage() {
 
       {/* Main content area */}
       <div className="flex-1 flex overflow-hidden">
+        {!showMembers && (
+          <button
+            onClick={() => setShowMembers(true)}
+            className="hidden md:flex absolute left-0 top-1/2 -translate-y-1/2 z-20 w-7 h-12 rounded-r-full bg-white border border-l-0 border-gray-200 shadow-md text-gray-400 hover:text-blue-600 items-center justify-center"
+            title="展开成员面板"
+          >
+            ›
+          </button>
+        )}
         {/* Left: Panel content */}
         <div className="flex-1 flex flex-col overflow-hidden">
         {activePanel === 'chat' && (
           <div className="h-full flex flex-col">
             <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-              {messages.map((msg) => (
-                <div key={msg.id} className={`flex ${msg.actorRole === 'ai' ? 'justify-start' : 'justify-end'}`}>
-                  <div className={`max-w-[80%] rounded-xl px-4 py-2 ${msg.actorRole === 'ai' ? 'bg-white border border-gray-200' : 'bg-blue-600 text-white'}`}>
-                    <div className={`text-xs mb-1 ${msg.actorRole === 'ai' ? 'text-gray-400' : 'text-blue-200'}`}>
-                      {msg.actorRole === 'ai' ? '🤖 ' : ''}{msg.actorName}
+              {messages.map((msg) => {
+                const isOwn = msg.actorId === user?.id
+                const displayName = isOwn ? '我' : msg.actorName
+                const avatar = isOwn ? user?.avatar : getActorAvatar(msg)
+                return (
+                  <div key={msg.id} className={`flex items-end gap-2 ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                    {!isOwn && (msg.actorRole === 'ai' ? (
+                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-400 to-blue-500 flex items-center justify-center text-white text-lg shrink-0">🤖</div>
+                    ) : renderAvatar(displayName, avatar, 'w-12 h-12'))}
+                    <div className={`max-w-[80%] rounded-xl px-4 py-2 ${isOwn ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-800'}`}>
+                      <div className={`text-xs mb-1 ${isOwn ? 'text-blue-200' : 'text-gray-400'}`}>
+                        {msg.actorRole === 'ai' ? '🤖 ' : ''}{displayName}
+                      </div>
+                      <p className="text-sm whitespace-pre-wrap">{renderMessageContent(msg.content, isOwn)}</p>
                     </div>
-                    <p className="text-sm whitespace-pre-wrap">{renderMessageContent(msg.content)}</p>
+                    {isOwn && renderAvatar(displayName, avatar, 'w-12 h-12')}
                   </div>
-                </div>
-              ))}
+                )
+              })}
               <div ref={messagesEndRef} />
             </div>
             <form onSubmit={sendMessage} className="p-4 bg-white border-t border-gray-200 shrink-0 relative">
-              {showMentionPopup && filteredMembers.length > 0 && (
-                <div className="absolute bottom-full left-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto z-10">
-                  {filteredMembers.map((m) => (
-                    <div key={m.id} className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm" onClick={() => insertMention(m)}>
-                      {m.nickname || m.username}
-                    </div>
-                  ))}
+              {showMentionPopup && (filteredMembers.length > 0 || filteredAgents.length > 0) && (
+                <div className="absolute bottom-full left-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto z-10">
+                  {filteredMembers.length > 0 && (
+                    <>
+                      <div className="px-3 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">成员</div>
+                      {filteredMembers.map((m) => (
+                        <div key={m.id || m.userId} className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm flex items-center gap-2" onClick={() => insertMention(m, 'member')}>
+                          {renderAvatar(getMemberDisplayName(m), getMemberAvatar(m), 'w-6 h-6')}
+                          <span className="flex-1">{getMemberDisplayName(m)}</span>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {filteredAgents.length > 0 && (
+                    <>
+                      <div className="px-3 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">AI Agents</div>
+                      {filteredAgents.map((a) => (
+                        <div key={a.id} className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm flex items-center gap-2" onClick={() => insertMention(a, 'agent')}>
+                          <div className="relative">
+                            <div className="w-6 h-6 bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center text-white text-xs">
+                              🤖
+                            </div>
+                            <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 border border-white rounded-full ${
+                              a.status === 'active' ? 'bg-green-400' :
+                              a.status === 'working' ? 'bg-yellow-400' : 'bg-gray-400'
+                            }`}></div>
+                          </div>
+                          <span className="flex-1">{a.name}</span>
+                          <span className="text-xs text-gray-400">
+                            {a.status === 'active' ? '在线' : a.status === 'working' ? '工作中' : '离线'}
+                          </span>
+                        </div>
+                      ))}
+                    </>
+                  )}
                 </div>
               )}
               <div className="flex gap-2">
@@ -471,9 +587,16 @@ export default function RoomPage() {
         )}
         </div>
 
-        {/* Right: Members panel (desktop) */}
+        {/* Left: Members panel (desktop) */}
         {showMembers && (
-          <div className="w-64 border-l border-gray-200 bg-white overflow-y-auto shrink-0 hidden md:block">
+          <div className="order-first w-64 border-r border-gray-200 bg-white overflow-y-auto shrink-0 hidden md:block relative">
+            <button
+              onClick={() => setShowMembers(false)}
+              className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-6 h-12 rounded-full bg-white border border-gray-200 shadow-sm text-gray-400 hover:text-blue-600 flex items-center justify-center"
+              title="收起成员面板"
+            >
+              ‹
+            </button>
             <div className="p-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center justify-between">
                 房间成员
@@ -483,34 +606,76 @@ export default function RoomPage() {
                 {members.map((member) => (
                   <div key={member.id || member.userId} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors">
                     <div className="relative">
-                      <div className="w-9 h-9 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                        {(member.nickname || member.username || '?')[0].toUpperCase()}
-                      </div>
+                      {renderAvatar(getMemberDisplayName(member), getMemberAvatar(member), 'w-9 h-9')}
                       <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-400 border-2 border-white rounded-full"></div>
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-800 truncate">
-                        {member.nickname || member.username}
+                        {getMemberDisplayName(member)}
                       </p>
-                      <p className="text-xs text-gray-400">
-                        {member.role === 'owner' ? '👑 房主' : member.role === 'editor' ? '✏️ 编辑者' : '👁 查看者'}
+                      <p className="text-xs text-gray-400 truncate">
+                        {member.username && member.username !== getMemberDisplayName(member) ? `@${member.username}` : '在线'}
                       </p>
                     </div>
                   </div>
                 ))}
               </div>
+
+              {roomAgents.length > 0 && (
+                <>
+                  <h3 className="text-sm font-semibold text-gray-700 mt-6 mb-4 flex items-center justify-between">
+                    AI Agents
+                    <span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{roomAgents.length}</span>
+                  </h3>
+                  <div className="space-y-1">
+                    {roomAgents.map((agent) => (
+                      <div key={agent.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors">
+                        <div className="relative">
+                          <div className="w-9 h-9 bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
+                            🤖
+                          </div>
+                          <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-white rounded-full ${
+                            agent.status === 'active' ? 'bg-green-400' :
+                            agent.status === 'working' ? 'bg-yellow-400' : 'bg-gray-400'
+                          }`}></div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800 truncate">
+                            {agent.name}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            {agent.roleType === 'assistant' ? '⭐ 助理' : '🔧 专家'}
+                            {agent.status === 'active' && ' · 在线'}
+                            {agent.status === 'working' && ' · 工作中'}
+                            {agent.status === 'inactive' && ' · 离线'}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
       </div>
 
+      {!showMobileMembers && (
+        <button
+          onClick={() => setShowMobileMembers(true)}
+          className="md:hidden fixed left-3 bottom-20 z-40 bg-white border border-gray-200 shadow-lg rounded-full px-3 py-2 text-sm text-gray-600"
+        >
+          👥 成员
+        </button>
+      )}
+
       {/* Mobile members drawer */}
-      {showMembers && (
-        <div className="md:hidden fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={() => setShowMembers(false)}>
+      {showMobileMembers && (
+        <div className="md:hidden fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={() => setShowMobileMembers(false)}>
           <div className="w-full max-w-md bg-white rounded-t-2xl max-h-[70vh] overflow-y-auto animate-slideUp" onClick={(e) => e.stopPropagation()}>
             <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between rounded-t-2xl">
               <h3 className="font-semibold text-gray-800">成员列表 <span className="text-sm font-normal text-gray-400">({members.length})</span></h3>
-              <button onClick={() => setShowMembers(false)} className="text-gray-400 hover:text-gray-600 p-1">
+              <button onClick={() => setShowMobileMembers(false)} className="text-gray-400 hover:text-gray-600 p-1">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -520,19 +685,51 @@ export default function RoomPage() {
               {members.map((member) => (
                 <div key={member.id || member.userId} className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors">
                   <div className="relative">
-                    <div className="w-11 h-11 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white font-semibold">
-                      {(member.nickname || member.username || '?')[0].toUpperCase()}
-                    </div>
+                    {renderAvatar(getMemberDisplayName(member), getMemberAvatar(member), 'w-11 h-11')}
                     <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-400 border-2 border-white rounded-full"></div>
                   </div>
                   <div className="flex-1">
-                    <p className="font-medium text-gray-800">{member.nickname || member.username}</p>
+                    <p className="font-medium text-gray-800">{getMemberDisplayName(member)}</p>
                     <p className="text-sm text-gray-400">
-                      {member.role === 'owner' ? '👑 房主' : member.role === 'editor' ? '✏️ 编辑者' : '👁 查看者'}
+                      {member.username && member.username !== getMemberDisplayName(member) ? `@${member.username}` : '在线'}
                     </p>
                   </div>
                 </div>
               ))}
+              {roomAgents.length > 0 && (
+                <>
+                  <h4 className="font-semibold text-gray-700 mt-4 mb-2 px-1">AI Agents ({roomAgents.length})</h4>
+                  {roomAgents.map((agent) => (
+                    <div key={agent.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-gray-50 transition-colors">
+                      <div className="relative">
+                        <div className="w-11 h-11 bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center text-white font-semibold">
+                          🤖
+                        </div>
+                        <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 border-2 border-white rounded-full ${
+                          agent.status === 'active' ? 'bg-green-400' :
+                          agent.status === 'working' ? 'bg-yellow-400' : 'bg-gray-400'
+                        }`}></div>
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-800">{agent.name}</p>
+                        <p className="text-sm text-gray-400">
+                          {agent.roleType === 'assistant' ? '⭐ 助理' : '🔧 专家'}
+                          {agent.status === 'active' && ' · 在线'}
+                          {agent.status === 'working' && ' · 工作中'}
+                          {agent.status === 'inactive' && ' · 离线'}
+                        </p>
+                        {agent.specialties && agent.specialties.length > 0 && (
+                          <div className="flex gap-1 mt-1 flex-wrap">
+                            {agent.specialties.map((s: string) => (
+                              <span key={s} className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">{s}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
           </div>
         </div>

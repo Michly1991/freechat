@@ -1,6 +1,7 @@
 import db from '../storage/db.js'
 import { v4 as uuidv4 } from 'uuid'
-import type { Message, Mention, MAX_MESSAGES_PER_ROOM } from '@freechat/shared'
+import type { Message, Mention } from '@freechat/shared'
+import { MAX_MESSAGES_PER_ROOM } from '@freechat/shared'
 import { roomService } from './room.service.js'
 
 export class MessageService {
@@ -34,7 +35,7 @@ export class MessageService {
     // Update room last active time
     await roomService.updateLastActive(roomId)
 
-    // Cleanup old messages (keep only last 50)
+    // Cleanup old messages (keep only latest messages)
     this.cleanupOldMessages(roomId)
 
     return {
@@ -51,7 +52,7 @@ export class MessageService {
     }
   }
 
-  async getMessages(roomId: string, limit: number = 50, before?: string): Promise<Message[]> {
+  async getMessages(roomId: string, limit: number = MAX_MESSAGES_PER_ROOM, before?: string): Promise<Message[]> {
     let query = 'SELECT * FROM messages WHERE room_id = ? AND deleted = 0'
     const params: any[] = [roomId]
 
@@ -110,13 +111,13 @@ export class MessageService {
   private cleanupOldMessages(roomId: string): void {
     const count: any = db.prepare('SELECT COUNT(*) as count FROM messages WHERE room_id = ? AND deleted = 0').get(roomId)
     
-    if (count.count > 50) {
+    if (count.count > MAX_MESSAGES_PER_ROOM) {
       const oldest: any[] = db.prepare(`
         SELECT id FROM messages 
         WHERE room_id = ? AND deleted = 0 
         ORDER BY created_at ASC 
         LIMIT ?
-      `).all(roomId, count.count - 50)
+      `).all(roomId, count.count - MAX_MESSAGES_PER_ROOM)
 
       const ids = oldest.map(row => row.id)
       if (ids.length > 0) {

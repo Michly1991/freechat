@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { membersService } from '../services/members.service.js'
 import { roomService } from '../services/room.service.js'
 import db from '../storage/db.js'
+import { getFriendStatus } from './friends.js'
 
 export async function registerProfileRoutes(app: FastifyInstance) {
   // GET /api/rooms/:roomId/profiles - get all profiles
@@ -149,6 +150,7 @@ export async function registerProfileRoutes(app: FastifyInstance) {
 
   // GET /api/users/search?q=xxx - search users
   app.get('/api/users/search', async (request, reply) => {
+    const user = (request as any).user
     const { q } = request.query as any
 
     if (!q || q.length < 1) {
@@ -174,6 +176,7 @@ export async function registerProfileRoutes(app: FastifyInstance) {
         avatar: row.avatar,
         role: row.role,
         createdAt: row.created_at,
+        friendStatus: getFriendStatus(user.id, row.id),
       }))
 
       return reply.send({ success: true, data: { users } })

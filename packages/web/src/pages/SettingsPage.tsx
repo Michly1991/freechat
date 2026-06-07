@@ -7,16 +7,41 @@ export default function SettingsPage() {
   const { user, updateUser, logout } = useAuthStore()
   const navigate = useNavigate()
   const [nickname, setNickname] = useState(user?.nickname || '')
+  const [avatar, setAvatar] = useState(user?.avatar || '')
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [oldPwd, setOldPwd] = useState('')
   const [newPwd, setNewPwd] = useState('')
   const [msg, setMsg] = useState('')
   const [pwdMsg, setPwdMsg] = useState('')
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setMsg('请选择图片文件')
+      return
+    }
+
+    try {
+      setUploadingAvatar(true)
+      const result = await api.uploadAvatar(file)
+      setAvatar(result.avatar)
+      updateUser(result.user)
+      setMsg('头像上传成功')
+      setTimeout(() => setMsg(''), 2000)
+    } catch (err: any) {
+      setMsg('头像上传失败: ' + err.message)
+    } finally {
+      setUploadingAvatar(false)
+      e.target.value = ''
+    }
+  }
+
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      const result = await api.updateProfile({ nickname })
-      updateUser(result)
+      const result = await api.updateUserProfile({ nickname, avatar })
+      updateUser(result as any)
       setMsg('保存成功')
       setTimeout(() => setMsg(''), 2000)
     } catch (err: any) {
@@ -57,6 +82,22 @@ export default function SettingsPage() {
         <section className="bg-white rounded-xl p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-800 mb-4">基本信息</h2>
           <form onSubmit={handleSaveProfile} className="space-y-4">
+            <div className="flex items-center gap-4">
+              {avatar ? (
+                <img src={avatar} alt="头像" className="w-16 h-16 rounded-full object-cover border border-gray-200" onError={() => setAvatar('')} />
+              ) : (
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xl font-semibold">
+                  {(nickname || user?.username || '?')[0].toUpperCase()}
+                </div>
+              )}
+              <div>
+                <label className="inline-flex items-center px-4 py-2 bg-blue-50 text-blue-600 rounded-lg cursor-pointer hover:bg-blue-100 text-sm">
+                  {uploadingAvatar ? '上传中...' : '上传头像'}
+                  <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" onChange={handleAvatarUpload} disabled={uploadingAvatar} />
+                </label>
+                <p className="text-xs text-gray-400 mt-1">支持 png / jpg / webp / gif，最大 2MB</p>
+              </div>
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">用户名</label>
               <input
