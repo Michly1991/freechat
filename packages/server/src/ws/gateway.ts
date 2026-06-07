@@ -278,7 +278,8 @@ export class WebSocketGateway {
     if (!text) return false
     if (text.length <= 2) return false
     if (/^(好|好的|收到|嗯|哦|哈哈|呵呵|ok|OK|1|测试|谢谢|谢了)[。.!！?？]*$/.test(text)) return false
-    return /[?？]|帮我|怎么|如何|为什么|下一步|总结|安排|任务|卡住|阻塞|方案|决定|谁来|能不能|可以吗|咋办|处理|实现|优化|修复|设计|评估|建议/.test(text)
+    // 只过滤明显无意义/确认类短消息。其余消息交给助理结合上下文判断是否 [SILENT]，避免规则过窄导致用户感觉“它不理我”。
+    return true
   }
 
   private async maybeAutoInvokeAssistant(roomId: string, actorName: string, content: string) {
