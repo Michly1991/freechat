@@ -8,11 +8,13 @@ import { registerAuthRoutes } from './routes/auth.js'
 import { registerRoomRoutes } from './routes/rooms.js'
 import { registerFileRoutes } from './routes/files.js'
 import { registerTabRoutes } from './routes/tabs.js'
+import { registerTabConfigRoutes } from './routes/tab-config.js'
 import { registerAgentRoutes } from './routes/agents.js'
 import { registerProfileRoutes } from './routes/profiles.js'
 import { registerFriendRoutes } from './routes/friends.js'
 import { registerDmRoutes } from './routes/dm.js'
 import { registerConversationRoutes } from './routes/conversations.js'
+import { registerMessageRoutes } from './routes/messages.js'
 import { registerAgentToolRoutes } from './routes/agent-tools.js'
 import { authenticate } from './auth/middleware.js'
 import { initDatabase } from './storage/db.js'
@@ -74,11 +76,13 @@ async function buildApp() {
   await registerRoomRoutes(app)
   await registerFileRoutes(app)
   await registerTabRoutes(app)
+  await registerTabConfigRoutes(app)
   await registerAgentRoutes(app)
   await registerFriendRoutes(app)
   await registerProfileRoutes(app)
   await registerDmRoutes(app)
   await registerConversationRoutes(app)
+  await registerMessageRoutes(app)
   await registerAgentToolRoutes(app)
 
   // Error handler

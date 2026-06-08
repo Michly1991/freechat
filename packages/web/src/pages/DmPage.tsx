@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../lib/api'
+import { useFeedback } from '../components/FeedbackProvider'
 
 interface DmMessage {
   id: string
@@ -46,6 +47,7 @@ export default function DmPage() {
   const { conversationId } = useParams<{ conversationId: string }>()
   const navigate = useNavigate()
   const { user } = useAuthStore()
+  const feedback = useFeedback()
   const [conversation, setConversation] = useState<any>(null)
   const [messages, setMessages] = useState<DmMessage[]>([])
   const [input, setInput] = useState('')
@@ -86,7 +88,7 @@ export default function DmPage() {
         return next
       })
     } catch (err: any) {
-      alert(err.message || '单聊加载失败')
+      feedback.error(err.message || '单聊加载失败')
       navigate('/')
     }
   }
@@ -105,7 +107,7 @@ export default function DmPage() {
         return next
       })
     } catch (err: any) {
-      alert(err.message || '发送失败')
+      feedback.error(err.message || '发送失败')
     } finally {
       setSending(false)
     }

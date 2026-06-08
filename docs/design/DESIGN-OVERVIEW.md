@@ -11,7 +11,7 @@ FreeChat 是一个 AI 协同办公云系统，设计分为两大部分：
 ### 核心特性
 
 1. **实时双向通信**：基于 WebSocket 的消息总线
-2. **隔离的项目空间**：每个房间独立的 `RoomID` 和目录存储
+2. **隔离的项目空间**：每个房间独立的 `RoomID` 和目录存储；前端文件 Tab、Agent CLI、上传/删除接口必须统一使用 `config.workspace.root/{RoomID}/files/`。
 3. **动态 UI 引擎**：Tab 页签为内嵌 HTML，支持热更新
 4. **智能 @提及机制**：精准 @人或 Agent，触发高亮和推送
 5. **人机平权 API**：人类和 Agent 通过统一的 WebSocket API 操作
@@ -21,6 +21,7 @@ FreeChat 是一个 AI 协同办公云系统，设计分为两大部分：
 - **后端**：Node.js + Fastify + ws + TypeScript + SQLite
 - **前端**：React 18 + Vite + TypeScript + Zustand + Tailwind CSS
 - **部署**：本地直接部署（第一版不使用 Docker）
+- **文件工作区路径**：`WORKSPACE_ROOT` 必须解析为绝对路径，避免后端启动目录不同导致 Agent 写入目录和前端文件 Tab 读取目录不一致。
 
 ### 核心模块
 
@@ -41,6 +42,7 @@ FreeChat 是一个 AI 协同办公云系统，设计分为两大部分：
 - HTML 内容热更新
 - iframe 沙箱安全渲染
 - 所见即所得的多端同步
+- 每个 Tab 通过 `workspace-data/{roomId}/meta/tabs.json` 配置可见文件项；未加入配置的文件不在对应 Tab 显示。详见 `DESIGN-TAB-CONFIG.md`。
 
 #### 4. 任务看板
 - 8 种状态：todo / assigned / doing / review / blocked / done / failed / cancelled
@@ -53,6 +55,8 @@ FreeChat 是一个 AI 协同办公云系统，设计分为两大部分：
 - 成员邀请（链接/搜索）
 - 权限模型（owner/editor/viewer）
 - 房间设置
+- 永久删除项目仅允许 `owner` 操作；后端必须强制校验，非 owner 返回 HTTP 403 和明确错误文案 `你没有权限永久删除该项目`。
+- 前端危险操作区和首页项目会话的删除入口必须根据权限给出可见反馈：无权限点击时提示 `你没有权限永久删除该项目`，不能出现点击无效；有权限时展示二次确认后再调用删除接口。
 
 #### 6. 用户系统
 - 注册/登录（JWT）

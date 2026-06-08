@@ -1,3 +1,5 @@
+import { addClientLog } from './clientLog'
+
 const API_BASE = '/api'
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
@@ -12,12 +14,31 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   }
 
-  const res = await fetch(`${API_BASE}${url}`, {
-    ...options,
-    headers: { ...headers, ...options?.headers },
-  })
+  const method = options?.method || 'GET'
+  const startedAt = Date.now()
+  addClientLog('info', 'api', `${method} ${url} start`, { token: token ? 'present' : 'missing' })
 
-  const data = await res.json()
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}${url}`, {
+      ...options,
+      headers: { ...headers, ...options?.headers },
+    })
+  } catch (err: any) {
+    addClientLog('error', 'api', `${method} ${url} network error`, { message: err?.message })
+    throw err
+  }
+
+  let data: any = null
+  try {
+    data = await res.json()
+  } catch (err: any) {
+    addClientLog('error', 'api', `${method} ${url} invalid json`, { status: res.status, message: err?.message })
+    throw err
+  }
+
+  const elapsed = Date.now() - startedAt
+  addClientLog(res.ok ? 'info' : 'error', 'api', `${method} ${url} ${res.status}`, { elapsed, error: data?.error?.message || data?.error })
   if (!res.ok) {
     throw new Error(data.error?.message || `请求失败 (${res.status})`)
   }
@@ -52,6 +73,9 @@ export const api = {
   createRoom: (body: { name: string; description?: string; memberIds?: string[] }) =>
     request<{ room: any }>('/rooms', { method: 'POST', body: JSON.stringify(body) }),
   getRoom: (id: string) => request<{ room: any; members: any[] }>(`/rooms/${id}`),
+  getRoomMessages: (id: string, limit = 100) => request<{ messages: any[] }>(`/rooms/${id}/messages?limit=${limit}`),
+  sendRoomMessage: (id: string, body: { content: string; mentions?: any[]; reply_to?: string }) =>
+    request<{ message: any }>(`/rooms/${id}/messages`, { method: 'POST', body: JSON.stringify(body) }),
   updateRoom: (id: string, body: { name?: string; description?: string }) =>
     request(`/rooms/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteRoom: (id: string) => request(`/rooms/${id}`, { method: 'DELETE' }),
@@ -88,6 +112,18 @@ export const api = {
   mkdir: (roomId: string, path: string) =>
     request(`/rooms/${roomId}/files/mkdir`, {
       method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
+  getTabConfig: (roomId: string, tabKey = 'files') =>
+    request<{ tab: any }>(`/rooms/${roomId}/tab-config/${encodeURIComponent(tabKey)}`),
+  addTabConfigFile: (roomId: string, path: string, tabKey = 'files') =>
+    request<{ tab: any }>(`/rooms/${roomId}/tab-config/${encodeURIComponent(tabKey)}/files`, {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
+  removeTabConfigFile: (roomId: string, path: string, tabKey = 'files') =>
+    request<{ tab: any }>(`/rooms/${roomId}/tab-config/${encodeURIComponent(tabKey)}/files`, {
+      method: 'DELETE',
       body: JSON.stringify({ path }),
     }),
 

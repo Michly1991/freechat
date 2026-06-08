@@ -324,7 +324,7 @@ export class WebSocketGateway {
         roomId,
         type: 'broadcast',
         action: 'agent.status_update',
-        payload: { agentId, status: 'working' },
+        payload: { agentId, status: 'working', onlineStatus: 'working', lastActiveAt: Date.now() },
         timestamp: Date.now()
       })
 
@@ -333,23 +333,12 @@ export class WebSocketGateway {
         const result = await agentService.spawnClaudeCode(roomId, agentId, content)
         await agentService.updateAgent(agentId, { status: 'active' } as any)
 
-        if (result.movedFiles && result.movedFiles.length > 0) {
-          this.broadcastToRoom(roomId, {
-            msgId: uuidv4(),
-            roomId,
-            type: 'broadcast',
-            action: 'files.updated',
-            payload: { movedFiles: result.movedFiles },
-            timestamp: Date.now()
-          })
-        }
-
         this.broadcastToRoom(roomId, {
           msgId: uuidv4(),
           roomId,
           type: 'broadcast',
           action: 'agent.status_update',
-          payload: { agentId, status: 'active' },
+          payload: { agentId, status: 'active', onlineStatus: 'online', lastActiveAt: Date.now() },
           timestamp: Date.now()
         })
 
@@ -372,13 +361,13 @@ export class WebSocketGateway {
           timestamp: Date.now()
         })
       } catch (err: any) {
-        await agentService.updateAgent(agentId, { status: 'active' } as any).catch(() => {})
+        await agentService.updateAgent(agentId, { status: 'error' } as any).catch(() => {})
         this.broadcastToRoom(roomId, {
           msgId: uuidv4(),
           roomId,
           type: 'broadcast',
           action: 'agent.status_update',
-          payload: { agentId, status: 'active' },
+          payload: { agentId, status: 'error', onlineStatus: 'error', lastActiveAt: Date.now(), lastError: err?.message || String(err) },
           timestamp: Date.now()
         })
         console.error(`Agent ${agentId} invocation failed:`, err)
@@ -554,9 +543,40 @@ export class WebSocketGateway {
     }
   }
 
-  // Public method for services to broadcast messages
+  // Public method for services/routes to broadcast messages
   broadcast(roomId: string, message: any) {
     this.broadcastToRoom(roomId, message)
+  }
+
+  async sendRoomMessage(roomId: string, user: any, payload: any) {
+    const msg = await messageService.createMessage(
+      roomId,
+      user.id,
+      user.nickname || user.username,
+      user.role === 'agent' ? 'ai' : 'human',
+      payload.content,
+      payload.mentions,
+      payload.reply_to
+    )
+
+    this.broadcastToRoom(roomId, {
+      msgId: msg.id,
+      roomId,
+      type: 'broadcast',
+      action: 'chat.message',
+      payload: msg,
+      timestamp: Date.now()
+    })
+
+    const mentions = payload.mentions || []
+    const agentMentions = mentions.filter((m: any) => m?.role === 'ai' && m?.id)
+    if (agentMentions.length > 0) {
+      void this.invokeMentionedAgents(roomId, payload.content, mentions)
+    } else if ((user.role === 'user' || user.role === 'admin')) {
+      void this.maybeAutoInvokeAssistant(roomId, user.nickname || user.username, payload.content)
+    }
+
+    return msg
   }
 }
 

@@ -2,7 +2,9 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../lib/api'
-import { Bot, CheckSquare, FileText, Folder, MessageCircle, PanelLeftClose, PanelLeftOpen, PanelsTopLeft, Pencil, Settings, ShieldCheck, UserRound, Users, Wrench, X } from 'lucide-react'
+import { addClientLog, clearClientLogs, formatClientLogs, getClientLogs, subscribeClientLogs, type ClientLogEntry } from '../lib/clientLog'
+import { useFeedback } from '../components/FeedbackProvider'
+import { Bot, CheckSquare, Clipboard, FileText, Folder, MessageCircle, PanelLeftClose, PanelLeftOpen, PanelsTopLeft, Pencil, Settings, ShieldCheck, Trash2, UserRound, Users, Wrench, X } from 'lucide-react'
 
 interface Message {
   id: string
@@ -22,8 +24,12 @@ interface FileNode {
 
 interface Tab {
   id: string
-  name: string
+  title?: string
+  name?: string
   content: string
+  icon?: string
+  updated_at?: number
+  updatedAt?: number
 }
 
 type Panel = 'chat' | 'files' | 'tabs' | 'tasks'
@@ -64,6 +70,7 @@ export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate = useNavigate()
   const { user, token } = useAuthStore()
+  const feedback = useFeedback()
   const [room, setRoom] = useState<any>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -73,6 +80,9 @@ export default function RoomPage() {
   const [tasks, setTasks] = useState<any[]>([])
   const [files, setFiles] = useState<FileNode[]>([])
   const [currentFile, setCurrentFile] = useState<{ path: string; content: string } | null>(null)
+  const [fileDirty, setFileDirty] = useState(false)
+  const [fileDialogType, setFileDialogType] = useState<'file' | 'folder' | null>(null)
+  const [fileDialogPath, setFileDialogPath] = useState('')
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [showMentionPopup, setShowMentionPopup] = useState(false)
@@ -83,13 +93,54 @@ export default function RoomPage() {
   const [newTabContent, setNewTabContent] = useState('')
   const [showCreateTab, setShowCreateTab] = useState(false)
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
+  const [editingTabTitle, setEditingTabTitle] = useState('')
+  const [editingTabContent, setEditingTabContent] = useState('')
+  const [tabError, setTabError] = useState('')
   const [showMembers, setShowMembers] = useState(true)
   const [showMobileMembers, setShowMobileMembers] = useState(false)
   const [selectedProfile, setSelectedProfile] = useState<any | null>(null)
+  const [wsStatus, setWsStatus] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting')
+  const [sendError, setSendError] = useState('')
+  const [wsNoticeDismissed, setWsNoticeDismissed] = useState(false)
+  const [showDiagnostics, setShowDiagnostics] = useState(false)
+  const [clientLogs, setClientLogs] = useState<ClientLogEntry[]>(getClientLogs())
   const wsRef = useRef<WebSocket | null>(null)
+  const reconnectTimerRef = useRef<number | null>(null)
+  const reconnectAttemptsRef = useRef(0)
+  const manuallyClosedRef = useRef(false)
+  const wsConnectIdRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const initialScrollDoneRef = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const getCurrentToken = () => {
+    if (token) return token
+    try {
+      return JSON.parse(localStorage.getItem('auth-storage') || '{}')?.state?.token || ''
+    } catch {
+      return ''
+    }
+  }
+
+  useEffect(() => {
+    const unsubscribe = subscribeClientLogs(setClientLogs)
+    return () => { unsubscribe() }
+  }, [])
+
+  useEffect(() => {
+    addClientLog('info', 'auth', 'auth state changed', { token: getCurrentToken() ? 'present' : 'missing', user: user?.username || user?.nickname || null })
+  }, [token, user?.id])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'd') {
+        event.preventDefault()
+        setShowDiagnostics((value) => !value)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   useEffect(() => {
     if (!roomId) return
@@ -97,9 +148,24 @@ export default function RoomPage() {
     api.markConversationRead('project', roomId).catch(() => {})
     const cachedMessages = readCachedMessages(roomId)
     if (cachedMessages.length > 0) setMessages(cachedMessages)
+    manuallyClosedRef.current = false
+    addClientLog('info', 'ui', 'room page mounted', { roomId, host: window.location.host, href: window.location.href })
     loadRoom()
     connectWs()
-    return () => { wsRef.current?.close() }
+    return () => {
+      manuallyClosedRef.current = true
+      if (reconnectTimerRef.current) window.clearTimeout(reconnectTimerRef.current)
+      const ws = wsRef.current
+      wsRef.current = null
+      if (ws) {
+        ws.onopen = null
+        ws.onmessage = null
+        ws.onerror = null
+        ws.onclose = null
+        addClientLog('info', 'ws', 'cleanup close old websocket')
+      ws.close()
+      }
+    }
   }, [roomId])
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
@@ -121,23 +187,70 @@ export default function RoomPage() {
       setRoom(data.room)
       setMembers(data.members)
       // Load files and tabs
-      try { const fd = await api.getFiles(roomId!); setFiles(fd.files || []) } catch {}
-      try { const td = await api.getTabs(roomId!); setTabs(td.tabs || []) } catch {}
-      try { const ra = await api.getRoomAgents(roomId!); setRoomAgents(ra.agents || []) } catch {}
-    } catch { navigate('/') }
+      try { const fd = await api.getFiles(roomId!); setFiles(fd.files || []) } catch (err: any) { addClientLog('error', 'ui', 'load files failed', { message: err?.message }) }
+      try { const td = await api.getTabs(roomId!); setTabs(td.tabs || []) } catch (err: any) { addClientLog('error', 'ui', 'load tabs failed', { message: err?.message }) }
+      try { const ra = await api.getRoomAgents(roomId!); setRoomAgents(ra.agents || []) } catch (err: any) { addClientLog('error', 'ui', 'load room agents failed', { message: err?.message }) }
+      try {
+        const md = await api.getRoomMessages(roomId!, 100)
+        setMessages((prev) => {
+          const next = mergeMessages(prev, md.messages || [])
+          if (roomId) writeCachedMessages(roomId, next)
+          return next
+        })
+      } catch (err: any) { addClientLog('error', 'ui', 'load messages failed', { message: err?.message }) }
+    } catch (err: any) {
+      addClientLog('error', 'ui', 'load room failed, navigate home', { message: err?.message })
+      navigate('/')
+    }
+  }
+
+  const scheduleReconnect = () => {
+    if (manuallyClosedRef.current) return
+    if (reconnectTimerRef.current) window.clearTimeout(reconnectTimerRef.current)
+    const delay = Math.min(5000, 1000 * Math.max(1, reconnectAttemptsRef.current))
+    addClientLog('warn', 'ws', 'reconnect scheduled', { delay, attempts: reconnectAttemptsRef.current })
+    reconnectTimerRef.current = window.setTimeout(() => {
+      reconnectAttemptsRef.current += 1
+      connectWs()
+    }, delay)
   }
 
   const connectWs = () => {
+    if (!roomId) return
+    const currentToken = getCurrentToken()
+    if (!currentToken) {
+      setWsStatus('closed')
+      setSendError('登录状态未就绪，请刷新或重新登录')
+      addClientLog('error', 'ws', 'connect skipped: token missing', { roomId })
+      return
+    }
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+      addClientLog('info', 'ws', 'connect skipped: socket already active', { readyState: wsRef.current.readyState })
+      return
+    }
+
+    setWsStatus('connecting')
+    const connectId = ++wsConnectIdRef.current
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws?token=${token}`)
+    const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(currentToken)}`
+    addClientLog('info', 'ws', 'connecting', { url: `${protocol}//${window.location.host}/ws`, token: 'present', roomId, connectId })
+    const ws = new WebSocket(wsUrl)
     wsRef.current = ws
     ws.onopen = () => {
+      if (wsConnectIdRef.current !== connectId) return
+      reconnectAttemptsRef.current = 0
+      addClientLog('info', 'ws', 'open', { connectId })
+      setWsStatus('open')
+      setSendError('')
+      addClientLog('info', 'ws', 'send room.join/chat.history/task.list', { roomId })
       ws.send(JSON.stringify({ action: 'room.join', payload: { room_id: roomId } }))
       ws.send(JSON.stringify({ action: 'chat.history', payload: { room_id: roomId, limit: 100 } }))
       ws.send(JSON.stringify({ action: 'task.list', payload: { room_id: roomId } }))
     }
     ws.onmessage = (event) => {
+      if (wsConnectIdRef.current !== connectId) return
       const msg = JSON.parse(event.data)
+      addClientLog('info', 'ws', 'message received', { action: msg.action, type: msg.type })
       if (msg.action === 'chat.message') {
         setMessages((prev) => {
           const next = mergeMessages(prev, [msg.payload])
@@ -165,7 +278,7 @@ export default function RoomPage() {
       } else if (msg.action === 'room.members_update') {
         setMembers(msg.payload.members || [])
       } else if (msg.action === 'agent.status_update') {
-        setRoomAgents((prev) => prev.map((a) => a.id === msg.payload.agentId ? { ...a, status: msg.payload.status } : a))
+        setRoomAgents((prev) => prev.map((a) => a.id === msg.payload.agentId ? { ...a, ...msg.payload } : a))
       } else if (msg.action === 'task.list_result') {
         setTasks(msg.payload.tasks || [])
       } else if (msg.action === 'task.changed') {
@@ -178,16 +291,59 @@ export default function RoomPage() {
         loadTabs()
       }
     }
+    ws.onerror = () => {
+      if (wsConnectIdRef.current !== connectId) return
+      addClientLog('error', 'ws', 'error event', { connectId })
+      setWsStatus('error')
+      setSendError('连接异常，正在尝试重连...')
+    }
+    ws.onclose = (event) => {
+      if (wsConnectIdRef.current !== connectId) return
+      if (wsRef.current === ws) wsRef.current = null
+      addClientLog('warn', 'ws', 'close', { code: event.code, reason: event.reason, wasClean: event.wasClean, connectId })
+      if (manuallyClosedRef.current) return
+
+      setWsStatus('closed')
+      if (event.code === 4001) {
+        setSendError(event.reason || '登录已过期，请重新登录')
+        return
+      }
+
+      setSendError(event.reason ? `连接已断开：${event.reason}，正在重连...` : '连接已断开，正在重连...')
+      scheduleReconnect()
+    }
+  }
+
+  const sendWs = (action: string, payload: any): boolean => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      addClientLog('warn', 'ws', 'send skipped: socket not open', { action, readyState: wsRef.current?.readyState ?? null })
+      setSendError('连接未就绪，请稍后再试，正在重连...')
+      connectWs()
+      return false
+    }
+
+    try {
+      addClientLog('info', 'ws', 'send', { action })
+      wsRef.current.send(JSON.stringify({ action, payload }))
+      setSendError('')
+      return true
+    } catch {
+      addClientLog('error', 'ws', 'send failed', { action })
+      setSendError('发送失败，正在重连...')
+      try { wsRef.current.close() } catch {}
+      connectWs()
+      return false
+    }
   }
 
   const loadFiles = useCallback(async () => {
     if (!roomId) return
-    try { const fd = await api.getFiles(roomId); setFiles(fd.files || []) } catch {}
+    try { const fd = await api.getFiles(roomId); setFiles(fd.files || []) } catch (err: any) { feedback.error(err?.message || '加载文件失败'); addClientLog('error', 'ui', 'load files failed', { message: err?.message }) }
   }, [roomId])
 
   const loadTabs = useCallback(async () => {
     if (!roomId) return
-    try { const td = await api.getTabs(roomId); setTabs(td.tabs || []) } catch {}
+    try { const td = await api.getTabs(roomId); setTabs(td.tabs || []) } catch (err: any) { feedback.error(err?.message || '加载标签失败'); addClientLog('error', 'ui', 'load tabs failed', { message: err?.message }) }
   }, [roomId])
 
   const buildMentionsForSend = (content: string) => {
@@ -210,11 +366,32 @@ export default function RoomPage() {
     return mentions.filter((m) => content.includes(`@${m.name}`))
   }
 
-  const sendMessage = (e: React.FormEvent) => {
+  const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
     const content = input.trim()
-    if (!content || !wsRef.current) return
-    wsRef.current.send(JSON.stringify({ action: 'chat.send', payload: { content, mentions: buildMentionsForSend(content) } }))
+    if (!content || !roomId) return
+    const mentions = buildMentionsForSend(content)
+
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      if (!sendWs('chat.send', { content, mentions })) return
+    } else {
+      try {
+        addClientLog('warn', 'ui', 'send message via http fallback', { roomId })
+        const res = await api.sendRoomMessage(roomId, { content, mentions })
+        setMessages((prev) => {
+          const next = mergeMessages(prev, [res.message])
+          writeCachedMessages(roomId, next)
+          return next
+        })
+        setSendError('')
+        setWsNoticeDismissed(true)
+      } catch (err: any) {
+        setSendError(err?.message || '发送失败')
+        connectWs()
+        return
+      }
+    }
+
     setInput('')
     scrollToBottom('smooth')
     setSelectedMentions([])
@@ -234,6 +411,28 @@ export default function RoomPage() {
       setShowMentionPopup(false)
     }
   }
+
+
+  const getAgentOnlineStatus = (agent: any) => agent.onlineStatus || (
+    agent.status === 'working' ? 'working' :
+    agent.status === 'inactive' ? 'offline' :
+    agent.status === 'error' ? 'error' : 'online'
+  )
+  const getAgentStatusLabel = (agent: any) => {
+    const status = getAgentOnlineStatus(agent)
+    if (status === 'working') return '工作中'
+    if (status === 'offline') return '离线'
+    if (status === 'error') return '异常'
+    return '在线'
+  }
+  const getAgentStatusDotClass = (agent: any) => {
+    const status = getAgentOnlineStatus(agent)
+    if (status === 'working') return 'bg-yellow-400 animate-pulse'
+    if (status === 'offline') return 'bg-gray-400'
+    if (status === 'error') return 'bg-red-500'
+    return 'bg-green-400'
+  }
+  const defaultAssistant = roomAgents.find((agent) => agent.roleType === 'assistant') || roomAgents[0]
 
   const getMemberDisplayName = (member: any) => member.nickname || member.username || member.displayName || '未命名用户'
   const getMemberAvatar = (member: any) => member.avatar || ''
@@ -256,7 +455,7 @@ export default function RoomPage() {
         name: target.name,
         subtitle: target.roleType === 'assistant' ? '助理 Agent' : '专家 Agent',
         roleType: target.roleType,
-        status: target.status === 'active' ? '在线' : target.status === 'working' ? '工作中' : '离线',
+        status: getAgentStatusLabel(target),
         specialties: target.specialties || [],
       })
     }
@@ -298,67 +497,133 @@ export default function RoomPage() {
   // File operations
   const openFile = async (node: FileNode) => {
     if (node.type === 'directory') return
+    if (fileDirty && currentFile) {
+      const ok = await feedback.confirm({ title: '切换文件？', message: '当前文件有未保存内容，切换后会丢失修改。', confirmText: '继续切换' })
+      if (!ok) return
+    }
     try {
       const data = await api.getFileContent(roomId!, node.path)
       setCurrentFile({ path: node.path, content: data.content })
-    } catch {}
+      setFileDirty(false)
+    } catch (err: any) {
+      feedback.error(err?.message || '打开文件失败')
+      addClientLog('error', 'ui', 'open file failed', { path: node.path, message: err?.message })
+    }
   }
 
   const saveFile = async () => {
-    if (!currentFile) return
+    if (!currentFile || !roomId) return
     try {
-      await api.saveFile(roomId!, currentFile.path, currentFile.content)
+      await api.saveFile(roomId, currentFile.path, currentFile.content)
+      setFileDirty(false)
+      feedback.success('文件已保存')
       loadFiles()
-    } catch {}
+    } catch (err: any) {
+      feedback.error(err?.message || '保存文件失败')
+      addClientLog('error', 'ui', 'save file failed', { path: currentFile.path, message: err?.message })
+    }
   }
 
   const deleteFile = async (path: string) => {
-    if (!confirm('确定删除此文件？')) return
-    try { await api.deleteFile(roomId!, path); loadFiles(); if (currentFile?.path === path) setCurrentFile(null) } catch {}
+    if (!roomId) return
+    const ok = await feedback.confirm({ title: '删除文件？', message: `确定删除 ${path} 吗？`, confirmText: '删除', danger: true })
+    if (!ok) return
+    try {
+      await api.deleteFile(roomId, path)
+      feedback.success('文件已删除')
+      loadFiles()
+      if (currentFile?.path === path) { setCurrentFile(null); setFileDirty(false) }
+    } catch (err: any) {
+      feedback.error(err?.message || '删除文件失败')
+    }
   }
 
-  const createFile = async () => {
-    const name = prompt('输入文件名（含路径）:')
-    if (!name) return
-    try { await api.saveFile(roomId!, name, ''); loadFiles() } catch {}
+  const createFile = () => {
+    setFileDialogType('file')
+    setFileDialogPath('')
   }
 
-  const createFolder = async () => {
-    const name = prompt('输入文件夹名:')
-    if (!name) return
-    try { await api.mkdir(roomId!, name); loadFiles() } catch {}
+  const createFolder = () => {
+    setFileDialogType('folder')
+    setFileDialogPath('')
+  }
+
+  const submitFileDialog = async () => {
+    if (!roomId || !fileDialogType) return
+    const name = fileDialogPath.trim().replace(/^\/+/, '')
+    if (!name) { feedback.warning('路径不能为空'); return }
+    if (name.includes('..')) { feedback.error('路径不能包含 ..'); return }
+    try {
+      if (fileDialogType === 'file') await api.saveFile(roomId, name, '')
+      else await api.mkdir(roomId, name)
+      feedback.success(fileDialogType === 'file' ? '文件已创建' : '目录已创建')
+      setFileDialogType(null)
+      setFileDialogPath('')
+      loadFiles()
+    } catch (err: any) {
+      feedback.error(err?.message || '创建失败')
+    }
   }
 
   // Tab operations
   const createTab = async () => {
-    if (!newTabName.trim()) return
+    if (!newTabName.trim() || !roomId) return
     try {
-      await api.createTab(roomId!, { title: newTabName, content: newTabContent || '<h1>Hello</h1>' })
+      setTabError('')
+      await api.createTab(roomId, { title: newTabName, content: newTabContent || '<h1>Hello</h1>' })
       setNewTabName('')
       setNewTabContent('')
       setShowCreateTab(false)
+      feedback.success('标签页已创建')
       loadTabs()
-    } catch {}
+    } catch (err: any) {
+      const msg = err?.message || '创建标签失败'
+      setTabError(msg)
+      feedback.error(msg)
+    }
   }
 
   const deleteTab = async (tabId: string) => {
-    try { await api.deleteTab(roomId!, tabId); loadTabs(); if (activeTabId === tabId) setActiveTabId(null) } catch {}
+    if (!roomId) return
+    const ok = await feedback.confirm({ title: '删除标签页？', message: '确定删除这个标签页吗？', confirmText: '删除', danger: true })
+    if (!ok) return
+    try {
+      setTabError('')
+      await api.deleteTab(roomId, tabId)
+      feedback.success('标签页已删除')
+      loadTabs()
+      if (activeTabId === tabId) setActiveTabId(null)
+    } catch (err: any) {
+      const msg = err?.message || '删除标签失败'
+      setTabError(msg)
+      feedback.error(msg)
+    }
   }
 
-  const updateTab = async (tabId: string, content: string) => {
-    try { await api.updateTab(roomId!, tabId, { content }); loadTabs(); setEditingTabId(null) } catch {}
+  const updateTab = async (tabId: string) => {
+    if (!roomId) return
+    try {
+      setTabError('')
+      await api.updateTab(roomId, tabId, { title: editingTabTitle, content: editingTabContent })
+      feedback.success('标签页已保存')
+      loadTabs()
+      setEditingTabId(null)
+    } catch (err: any) {
+      const msg = err?.message || '保存标签失败'
+      setTabError(msg)
+      feedback.error(msg)
+    }
   }
 
   // Task operations
   const createTask = () => {
-    if (!newTaskTitle.trim() || !wsRef.current) return
-    wsRef.current.send(JSON.stringify({ action: 'task.create', payload: { title: newTaskTitle.trim(), status: 'todo' } }))
+    if (!newTaskTitle.trim()) return
+    if (!sendWs('task.create', { title: newTaskTitle.trim(), status: 'todo' })) return
     setNewTaskTitle('')
   }
 
   const updateTaskStatus = (task: any, status: string) => {
-    if (!wsRef.current) return
-    wsRef.current.send(JSON.stringify({ action: 'task.update', payload: { id: task.id, status } }))
+    sendWs('task.update', { id: task.id, status })
   }
 
   const statusColors: Record<string, string> = {
@@ -412,12 +677,36 @@ export default function RoomPage() {
   )
 
   // Mobile bottom nav
+  const getTabTitle = (tab: Tab) => tab.title || tab.name || '未命名'
+  const beginEditTab = (tab: Tab) => {
+    setEditingTabId(tab.id)
+    setEditingTabTitle(getTabTitle(tab))
+    setEditingTabContent(tab.content || '')
+    setTabError('')
+  }
+
   const panels: { key: Panel; label: string; icon: string }[] = [
     { key: 'chat', label: '聊天', icon: 'message' },
     { key: 'files', label: '文件', icon: 'folder' },
     { key: 'tabs', label: '标签', icon: 'panels' },
     { key: 'tasks', label: '任务', icon: 'check' },
   ]
+
+
+  const diagnosticsText = formatClientLogs(clientLogs)
+  const copyDiagnostics = async () => {
+    const status = [
+      `Host: ${window.location.host}`,
+      `Room: ${roomId || ''}`,
+      `WebSocket: ${wsStatus}`,
+      `Token: ${getCurrentToken() ? 'present' : 'missing'}`,
+      `User: ${user?.username || user?.nickname || ''}`,
+      '',
+      diagnosticsText,
+    ].join('\n')
+    await navigator.clipboard?.writeText(status)
+    addClientLog('info', 'ui', 'diagnostics copied')
+  }
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 relative">
@@ -426,6 +715,18 @@ export default function RoomPage() {
         <div className="flex items-center gap-3 min-w-0">
           <button onClick={() => navigate('/')} className="text-gray-500 hover:text-gray-700 shrink-0">← 返回</button>
           <h1 className="font-semibold text-gray-800 truncate">{room?.name || '加载中...'}</h1>
+          {defaultAssistant && (
+            <button
+              type="button"
+              onClick={() => openMemberProfile(defaultAssistant, 'agent')}
+              className="hidden sm:flex items-center gap-1.5 rounded-full bg-gray-50 border border-gray-200 px-2 py-1 text-xs text-gray-500 hover:bg-blue-50 hover:text-blue-600 shrink-0"
+              title={`助理${getAgentStatusLabel(defaultAssistant)}`}
+            >
+              <span className={`w-2 h-2 rounded-full ${getAgentStatusDotClass(defaultAssistant)}`}></span>
+              <span>助理{getAgentStatusLabel(defaultAssistant)}</span>
+            </button>
+          )}
+          <button onClick={() => setShowDiagnostics(true)} className="text-gray-400 hover:text-gray-600 text-sm ml-1 shrink-0" title="诊断日志（Ctrl/⌘+Shift+D）"><Wrench className="w-4 h-4" /></button>
           <button onClick={() => navigate(`/room/${roomId}/settings`)} className="text-gray-400 hover:text-gray-600 text-sm ml-1 shrink-0"><Settings className="w-4 h-4" /></button>
         </div>
         <button
@@ -529,18 +830,23 @@ export default function RoomPage() {
                               <Bot className="w-4 h-4" />
                             </div>
                             <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 border border-white rounded-full ${
-                              a.status === 'active' ? 'bg-green-400' :
-                              a.status === 'working' ? 'bg-yellow-400' : 'bg-gray-400'
+                              getAgentStatusDotClass(a)
                             }`}></div>
                           </div>
                           <span className="flex-1">{a.name}</span>
                           <span className="text-xs text-gray-400">
-                            {a.status === 'active' ? '在线' : a.status === 'working' ? '工作中' : '离线'}
+                            {getAgentStatusLabel(a)}
                           </span>
                         </div>
                       ))}
                     </>
                   )}
+                </div>
+              )}
+              {sendError && !wsNoticeDismissed && (
+                <div className="mb-2 flex items-center justify-between gap-2 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  <span>{sendError.replace('正在重连...', '实时同步暂不可用，但消息可正常发送')}</span>
+                  <button type="button" onClick={() => setWsNoticeDismissed(true)} className="text-amber-500 hover:text-amber-700">×</button>
                 </div>
               )}
               <div className="flex gap-2">
@@ -552,7 +858,13 @@ export default function RoomPage() {
                   placeholder="输入消息，@提及成员..."
                   className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
-                <button type="submit" className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors">发送</button>
+                <button
+                  type="submit"
+                  disabled={!input.trim()}
+                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  发送
+                </button>
               </div>
             </form>
           </div>
@@ -560,29 +872,39 @@ export default function RoomPage() {
 
         {activePanel === 'files' && (
           <div className="h-full flex">
-            <div className="w-64 border-r border-gray-200 bg-white overflow-y-auto p-3 shrink-0 hidden sm:block">
+            <div className={`${currentFile ? 'hidden sm:block' : 'block'} w-full sm:w-64 border-r border-gray-200 bg-white overflow-y-auto p-3 shrink-0`}>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-gray-700">文件</h3>
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700">文件</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">仅显示已加入当前 Tab 配置的文件</p>
+                </div>
                 <div className="flex gap-1">
                   <button onClick={createFile} className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100">+文件</button>
                   <button onClick={createFolder} className="text-xs bg-gray-50 text-gray-600 px-2 py-1 rounded hover:bg-gray-100">+目录</button>
                 </div>
               </div>
-              {renderFileTree(files)}
+              {files.length > 0 ? renderFileTree(files) : (
+                <div className="rounded-lg border border-dashed border-gray-200 p-4 text-sm text-gray-400 text-center">
+                  当前 Tab 没有配置要显示的文件
+                </div>
+              )}
             </div>
-            <div className="flex-1 flex flex-col overflow-hidden">
+            <div className={`${currentFile ? 'flex' : 'hidden sm:flex'} flex-1 flex-col overflow-hidden`}>
               {currentFile ? (
                 <>
                   <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200">
-                    <span className="text-sm text-gray-600 font-mono">{currentFile.path}</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <button onClick={() => setCurrentFile(null)} className="sm:hidden text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">← 文件列表</button>
+                      <span className="text-sm text-gray-600 font-mono truncate">{currentFile.path}{fileDirty ? ' *' : ''}</span>
+                    </div>
                     <div className="flex gap-2">
                       <button onClick={saveFile} className="text-xs bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600">保存</button>
-                      <button onClick={() => setCurrentFile(null)} className="text-xs bg-gray-200 text-gray-600 px-3 py-1 rounded hover:bg-gray-300">关闭</button>
+                      <button onClick={() => setCurrentFile(null)} className="hidden sm:inline text-xs bg-gray-200 text-gray-600 px-3 py-1 rounded hover:bg-gray-300">关闭</button>
                     </div>
                   </div>
                   <textarea
                     value={currentFile.content}
-                    onChange={(e) => setCurrentFile({ ...currentFile, content: e.target.value })}
+                    onChange={(e) => { setCurrentFile({ ...currentFile, content: e.target.value }); setFileDirty(true) }}
                     className="flex-1 p-4 font-mono text-sm resize-none focus:outline-none"
                   />
                 </>
@@ -600,8 +922,8 @@ export default function RoomPage() {
             <div className="flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-200 overflow-x-auto shrink-0">
               {tabs.map((tab) => (
                 <div key={tab.id} className={`flex items-center gap-1 px-3 py-1 rounded-t text-sm cursor-pointer ${activeTabId === tab.id ? 'bg-blue-50 text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>
-                  <span onClick={() => setActiveTabId(tab.id)}>{tab.name}</span>
-                  <button onClick={() => setEditingTabId(editingTabId === tab.id ? null : tab.id)} className="text-xs text-gray-400 hover:text-gray-600"><Pencil className="w-4 h-4" /></button>
+                  <span onClick={() => setActiveTabId(tab.id)}>{tab.icon || '📄'} {getTabTitle(tab)}</span>
+                  <button onClick={() => editingTabId === tab.id ? setEditingTabId(null) : beginEditTab(tab)} className="text-xs text-gray-400 hover:text-gray-600"><Pencil className="w-4 h-4" /></button>
                   <button onClick={() => deleteTab(tab.id)} className="text-xs text-red-400 hover:text-red-600">×</button>
                 </div>
               ))}
@@ -614,14 +936,27 @@ export default function RoomPage() {
                 <button onClick={createTab} className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">创建</button>
               </div>
             )}
+            {tabError && <div className="px-4 py-2 text-xs text-red-600 bg-red-50 border-b border-red-100">{tabError}</div>}
             <div className="flex-1 overflow-hidden">
               {activeTabId && tabs.find((t) => t.id === activeTabId) ? (
                 editingTabId === activeTabId ? (
                   <div className="h-full flex flex-col">
+                    <div className="flex flex-col sm:flex-row gap-2 p-3 bg-white border-b border-gray-200">
+                      <input
+                        value={editingTabTitle}
+                        onChange={(e) => setEditingTabTitle(e.target.value)}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded text-sm"
+                        placeholder="标签标题"
+                      />
+                      <div className="flex gap-2">
+                        <button onClick={() => updateTab(activeTabId)} className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">保存</button>
+                        <button onClick={() => setEditingTabId(null)} className="bg-gray-100 text-gray-600 px-4 py-2 rounded text-sm hover:bg-gray-200">取消</button>
+                      </div>
+                    </div>
                     <textarea
-                      defaultValue={tabs.find((t) => t.id === activeTabId)!.content}
+                      value={editingTabContent}
+                      onChange={(e) => setEditingTabContent(e.target.value)}
                       className="flex-1 p-4 font-mono text-sm resize-none focus:outline-none"
-                      onBlur={(e) => updateTab(activeTabId, e.target.value)}
                     />
                   </div>
                 ) : (
@@ -639,6 +974,12 @@ export default function RoomPage() {
         {activePanel === 'tasks' && (
           <div className="h-full flex flex-col">
             <div className="p-4 bg-white border-b border-gray-200 shrink-0">
+              {sendError && !wsNoticeDismissed && (
+                <div className="mb-2 flex items-center justify-between gap-2 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  <span>{sendError.replace('正在重连...', '实时同步暂不可用，但消息可正常发送')}</span>
+                  <button type="button" onClick={() => setWsNoticeDismissed(true)} className="text-amber-500 hover:text-amber-700">×</button>
+                </div>
+              )}
               <div className="flex gap-2">
                 <input
                   value={newTaskTitle}
@@ -727,8 +1068,7 @@ export default function RoomPage() {
                             <Bot className="w-5 h-5" />
                           </div>
                           <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-white rounded-full ${
-                            agent.status === 'active' ? 'bg-green-400' :
-                            agent.status === 'working' ? 'bg-yellow-400' : 'bg-gray-400'
+                            getAgentStatusDotClass(agent)
                           }`}></div>
                         </div>
                         <div className="flex-1 min-w-0">
@@ -738,9 +1078,7 @@ export default function RoomPage() {
                           <p className="text-xs text-gray-400 flex items-center gap-1">
                             {agent.roleType === 'assistant' ? <ShieldCheck className="w-3 h-3" /> : <Wrench className="w-3 h-3" />}
                             <span>{agent.roleType === 'assistant' ? '助理' : '专家'}</span>
-                            {agent.status === 'active' && <span>· 在线</span>}
-                            {agent.status === 'working' && <span>· 工作中</span>}
-                            {agent.status === 'inactive' && <span>· 离线</span>}
+                            <span>· {getAgentStatusLabel(agent)}</span>
                           </p>
                         </div>
                       </button>
@@ -792,8 +1130,7 @@ export default function RoomPage() {
                           <Bot className="w-5 h-5" />
                         </div>
                         <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 border-2 border-white rounded-full ${
-                          agent.status === 'active' ? 'bg-green-400' :
-                          agent.status === 'working' ? 'bg-yellow-400' : 'bg-gray-400'
+                          getAgentStatusDotClass(agent)
                         }`}></div>
                       </div>
                       <div className="flex-1">
@@ -801,9 +1138,7 @@ export default function RoomPage() {
                         <p className="text-sm text-gray-400 flex items-center gap-1">
                           {agent.roleType === 'assistant' ? <ShieldCheck className="w-3 h-3" /> : <Wrench className="w-3 h-3" />}
                           <span>{agent.roleType === 'assistant' ? '助理' : '专家'}</span>
-                          {agent.status === 'active' && <span>· 在线</span>}
-                          {agent.status === 'working' && <span>· 工作中</span>}
-                          {agent.status === 'inactive' && <span>· 离线</span>}
+                          <span>· {getAgentStatusLabel(agent)}</span>
                         </p>
                         {agent.specialties && agent.specialties.length > 0 && (
                           <div className="flex gap-1 mt-1 flex-wrap">
@@ -886,6 +1221,59 @@ export default function RoomPage() {
           </button>
         ))}
       </nav>
+
+      {fileDialogType && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white shadow-2xl">
+            <div className="p-5 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-900">{fileDialogType === 'file' ? '新建文件' : '新建目录'}</h3>
+              <p className="mt-1 text-xs text-gray-500">支持路径，例如 docs/report.md 或 docs</p>
+            </div>
+            <div className="p-5">
+              <input
+                autoFocus
+                value={fileDialogPath}
+                onChange={(e) => setFileDialogPath(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && submitFileDialog()}
+                placeholder={fileDialogType === 'file' ? 'docs/report.md' : 'docs'}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-3 border-t border-gray-100">
+              <button onClick={() => setFileDialogType(null)} className="px-4 py-2 rounded-lg bg-gray-100 text-gray-600 text-sm hover:bg-gray-200">取消</button>
+              <button onClick={submitFileDialog} className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700">创建</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDiagnostics && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 p-3">
+          <div className="w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-xl bg-white shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+              <div>
+                <h3 className="font-semibold text-gray-800">诊断日志</h3>
+                <p className="text-xs text-gray-500">仅保存在当前浏览器内存，不包含完整 token</p>
+              </div>
+              <button onClick={() => setShowDiagnostics(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 border-b border-gray-100 p-4 text-xs">
+              <div><span className="text-gray-400">WS</span><div className="font-mono">{wsStatus}</div></div>
+              <div><span className="text-gray-400">Token</span><div className="font-mono">{getCurrentToken() ? 'present' : 'missing'}</div></div>
+              <div><span className="text-gray-400">Room</span><div className="font-mono truncate">{roomId}</div></div>
+              <div><span className="text-gray-400">Host</span><div className="font-mono truncate">{window.location.host}</div></div>
+              <div><span className="text-gray-400">Logs</span><div className="font-mono">{clientLogs.length}</div></div>
+            </div>
+            <div className="flex gap-2 border-b border-gray-100 p-3">
+              <button onClick={copyDiagnostics} className="inline-flex items-center gap-1 rounded bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700"><Clipboard className="w-3.5 h-3.5" />复制日志</button>
+              <button onClick={() => clearClientLogs()} className="inline-flex items-center gap-1 rounded bg-gray-100 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-200"><Trash2 className="w-3.5 h-3.5" />清空</button>
+            </div>
+            <pre className="flex-1 overflow-auto bg-gray-950 p-4 text-[11px] leading-relaxed text-gray-100 whitespace-pre-wrap">
+{diagnosticsText || '暂无日志'}
+            </pre>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

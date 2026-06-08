@@ -18,7 +18,10 @@ export interface Agent {
   description?: string
   specialties?: string[]
   config?: Record<string, any>
-  status?: 'active' | 'inactive' | 'working'
+  status?: 'active' | 'inactive' | 'working' | 'error'
+  onlineStatus?: 'online' | 'working' | 'offline' | 'error'
+  lastActiveAt?: number
+  lastError?: string
   sessionId?: string
 }
 

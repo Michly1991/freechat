@@ -80,7 +80,7 @@ export class RoomService {
 
   async getUserRooms(userId: string): Promise<Room[]> {
     const rows: any[] = db.prepare(`
-      SELECT r.* FROM rooms r
+      SELECT r.*, rm.role as member_role FROM rooms r
       INNER JOIN room_members rm ON r.id = rm.room_id
       WHERE rm.user_id = ?
       ORDER BY r.last_active_at DESC
@@ -93,7 +93,9 @@ export class RoomService {
       createdBy: row.created_by,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      lastActiveAt: row.last_active_at
+      lastActiveAt: row.last_active_at,
+      memberRole: row.member_role,
+      canDelete: row.member_role === 'owner'
     }))
   }
 
@@ -133,7 +135,7 @@ export class RoomService {
       : null
 
     if (userId && member?.role !== 'owner') {
-      throw { code: 'FORBIDDEN', message: 'Only room owner can delete this project' }
+      throw { code: 'FORBIDDEN', message: '你没有权限永久删除该项目' }
     }
 
     const defaultAssistantRows: any[] = db.prepare(`

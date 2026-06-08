@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../lib/api'
+import { useFeedback } from '../components/FeedbackProvider'
 import { BellOff, MessageCircle, MoreHorizontal, Pin, Plus, Settings, Users, FolderKanban } from 'lucide-react'
 
 export default function HomePage() {
@@ -23,6 +24,7 @@ export default function HomePage() {
   const [joining, setJoining] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const navigate = useNavigate()
+  const feedback = useFeedback()
   const { user, logout } = useAuthStore()
 
   useEffect(() => {
@@ -58,23 +60,23 @@ export default function HomePage() {
 
   const searchUsers = async () => {
     if (!searchQ.trim()) return
-    try { const data = await api.searchUsers(searchQ.trim()); setSearchResults(data.users || []) } catch (err: any) { alert(err.message) }
+    try { const data = await api.searchUsers(searchQ.trim()); setSearchResults(data.users || []) } catch (err: any) { feedback.error(err.message || '操作失败') }
   }
 
   const sendFriendRequest = async (targetUserId: string) => {
-    try { await api.sendFriendRequest(targetUserId); alert('好友申请已发送'); searchUsers(); loadFriendRequests() } catch (err: any) { alert(err.message) }
+    try { await api.sendFriendRequest(targetUserId); feedback.success('好友申请已发送'); searchUsers(); loadFriendRequests() } catch (err: any) { feedback.error(err.message || '操作失败') }
   }
 
   const acceptFriendRequest = async (requestId: string) => {
-    try { await api.acceptFriendRequest(requestId); loadFriends(); loadFriendRequests() } catch (err: any) { alert(err.message) }
+    try { await api.acceptFriendRequest(requestId); loadFriends(); loadFriendRequests() } catch (err: any) { feedback.error(err.message || '操作失败') }
   }
 
   const rejectFriendRequest = async (requestId: string) => {
-    try { await api.rejectFriendRequest(requestId); loadFriendRequests() } catch (err: any) { alert(err.message) }
+    try { await api.rejectFriendRequest(requestId); loadFriendRequests() } catch (err: any) { feedback.error(err.message || '操作失败') }
   }
 
   const openDm = async (friendId: string) => {
-    try { const data = await api.openDm(friendId); navigate(`/dm/${data.conversation.id}`) } catch (err: any) { alert(err.message) }
+    try { const data = await api.openDm(friendId); navigate(`/dm/${data.conversation.id}`) } catch (err: any) { feedback.error(err.message || '操作失败') }
   }
 
   const toggleConversationPref = async (conv: any, key: 'pinned' | 'muted', e: React.MouseEvent) => {
@@ -82,7 +84,7 @@ export default function HomePage() {
     try {
       await api.updateConversationPrefs(conv.type, conv.id, { [key]: !conv[key] })
       loadConversations()
-    } catch (err: any) { alert(err.message) }
+    } catch (err: any) { feedback.error(err.message || '操作失败') }
   }
 
   const toggleSelectedFriend = (friendId: string) => {
@@ -105,7 +107,7 @@ export default function HomePage() {
       }
     } catch (err: any) {
       console.error('创建失败:', err)
-      alert('创建失败: ' + (err.message || JSON.stringify(err)))
+      feedback.error('创建失败: ' + (err.message || JSON.stringify(err)))
     }
   }
 
@@ -130,7 +132,7 @@ export default function HomePage() {
         await loadRooms()
       }
     } catch (err: any) {
-      alert('加入失败: ' + (err.message || JSON.stringify(err)))
+      feedback.error('加入失败: ' + (err.message || JSON.stringify(err)))
     } finally {
       setJoining(false)
     }
@@ -138,15 +140,22 @@ export default function HomePage() {
 
   const handleDeleteRoom = async (room: any, e: React.MouseEvent) => {
     e.stopPropagation()
-    const ok = window.confirm(`确定要永久删除项目「${room.name}」吗？\n\n这会硬删除房间、消息、任务、标签页、邀请、文件和默认助理 Agent，删除后不可恢复。`)
+    if (!room.canDelete && room.memberRole !== 'owner') {
+      feedback.warning('你没有权限永久删除该项目')
+      return
+    }
+
+    const ok = await feedback.confirm({ title: `永久删除项目「${room.name}」？`, message: '这会硬删除房间、消息、任务、标签页、邀请、文件和默认助理 Agent，删除后不可恢复。', confirmText: '永久删除', danger: true })
     if (!ok) return
 
     try {
       setDeletingId(room.id)
       await api.deleteRoom(room.id)
+      feedback.success('项目已删除')
       setRooms((prev) => prev.filter((r) => r.id !== room.id))
+      setConversations((prev) => prev.filter((conv) => !(conv.type === 'project' && conv.id === room.id)))
     } catch (err: any) {
-      alert('删除失败: ' + (err.message || JSON.stringify(err)))
+      feedback.error('删除失败: ' + (err.message || JSON.stringify(err)))
     } finally {
       setDeletingId(null)
     }
@@ -259,6 +268,16 @@ export default function HomePage() {
                       <div className="hidden sm:flex gap-2 text-xs text-gray-400">
                         <button onClick={(e) => toggleConversationPref(conv, 'pinned', e)}>{conv.pinned ? '取消置顶' : '置顶'}</button>
                         <button onClick={(e) => toggleConversationPref(conv, 'muted', e)}>{conv.muted ? '取消免打扰' : '免打扰'}</button>
+                        {conv.type === 'project' && (
+                          <button
+                            disabled={deletingId === conv.id}
+                            onClick={(e) => handleDeleteRoom(conv, e)}
+                            className={conv.canDelete || conv.memberRole === 'owner' ? 'text-red-400 hover:text-red-600 disabled:opacity-60' : 'text-gray-300 hover:text-red-500'}
+                            title={conv.canDelete || conv.memberRole === 'owner' ? '永久删除项目' : '你没有权限永久删除该项目'}
+                          >
+                            {deletingId === conv.id ? '删除中...' : '删除'}
+                          </button>
+                        )}
                       </div>
                       <button onClick={(e) => toggleConversationPref(conv, 'pinned', e)} className="sm:hidden text-gray-300 leading-none"><MoreHorizontal className="w-5 h-5" /></button>
                     </div>

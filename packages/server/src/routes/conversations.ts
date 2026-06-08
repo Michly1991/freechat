@@ -51,7 +51,7 @@ export async function registerConversationRoutes(app: FastifyInstance) {
     const user = (request as any).user
 
     const projects = db.prepare(`
-      SELECT r.* FROM rooms r
+      SELECT r.*, rm.role as member_role FROM rooms r
       INNER JOIN room_members rm ON r.id = rm.room_id
       WHERE rm.user_id = ?
     `).all(user.id) as any[]
@@ -79,6 +79,8 @@ export async function registerConversationRoutes(app: FastifyInstance) {
         pinned: !!pref.pinned,
         muted: !!pref.muted,
         targetPath: `/room/${room.id}`,
+        memberRole: room.member_role,
+        canDelete: room.member_role === 'owner',
       }
     })
 

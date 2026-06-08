@@ -8,6 +8,7 @@ import { messageService } from '../services/message.service.js'
 import { taskService } from '../services/task.service.js'
 import { roomService } from '../services/room.service.js'
 import { agentService } from '../services/agent.service.js'
+import { tabConfigService } from '../services/tab-config.service.js'
 import { getGateway } from '../ws/gateway.js'
 
 function safeRelativePath(input = ''): string {
@@ -47,6 +48,18 @@ function broadcast(roomId: string, action: string, payload: any) {
     payload,
     timestamp: Date.now()
   })
+}
+
+function throwTabNotFound(tabId?: string) {
+  throw { code: 'TAB_NOT_FOUND', message: tabId ? `Tab not found: ${tabId}` : 'Tab not found' }
+}
+
+function validateTabIds(roomId: string, tabIds: string[]) {
+  if (tabIds.length === 0) return
+  const rows = db.prepare(`SELECT id FROM tabs WHERE room_id = ? AND id IN (${tabIds.map(() => '?').join(',')})`).all(roomId, ...tabIds) as any[]
+  const existing = new Set(rows.map((r) => r.id))
+  const missing = tabIds.filter((id) => !existing.has(id))
+  if (missing.length > 0) throwTabNotFound(missing.join(', '))
 }
 
 export async function registerAgentToolRoutes(app: FastifyInstance) {
@@ -98,7 +111,8 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
         case 'file.list': {
           await mkdir(filesDir, { recursive: true })
           const files = await buildFileTree(filesDir)
-          return { success: true, data: { files } }
+          const tab = await tabConfigService.getTab(roomId, 'files')
+          return { success: true, data: { files: tabConfigService.filterFileTree(files, tab), tabConfig: tab } }
         }
         case 'file.read': {
           const rel = safeRelativePath(args.path)
@@ -110,8 +124,113 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           const fullPath = join(filesDir, rel)
           await mkdir(dirname(fullPath), { recursive: true })
           await writeFile(fullPath, String(args.content || ''), 'utf8')
+          if (args.showInTab === true || args.addToTab === true) {
+            await tabConfigService.addFile(roomId, String(args.tabKey || 'files'), rel)
+          }
           broadcast(roomId, 'files.updated', { path: rel })
           return { success: true, data: { path: rel } }
+        }
+        case 'tab-config.list': {
+          const tab = await tabConfigService.getTab(roomId, String(args.tabKey || 'files'))
+          return { success: true, data: { tab } }
+        }
+        case 'tab-config.add-file': {
+          const rel = safeRelativePath(args.path)
+          const tab = await tabConfigService.addFile(roomId, String(args.tabKey || 'files'), rel)
+          broadcast(roomId, 'files.updated', { path: rel, tabKey: String(args.tabKey || 'files') })
+          return { success: true, data: { tab } }
+        }
+        case 'tab-config.remove-file': {
+          const rel = safeRelativePath(args.path)
+          const tab = await tabConfigService.removeFile(roomId, String(args.tabKey || 'files'), rel)
+          broadcast(roomId, 'files.updated', { path: rel, tabKey: String(args.tabKey || 'files') })
+          return { success: true, data: { tab } }
+        }
+        case 'tab.list': {
+          const tabs = db.prepare(`
+            SELECT * FROM tabs WHERE room_id = ? ORDER BY sort_order ASC, created_at ASC
+          `).all(roomId)
+          return { success: true, data: { tabs } }
+        }
+        case 'tab.create': {
+          const title = String(args.title || '').trim()
+          if (!title) throw { code: 'VALIDATION_ERROR', message: 'title is required' }
+          const tabId = `tab_${uuidv4()}`
+          const now = Date.now()
+          const maxOrder: any = db.prepare('SELECT COALESCE(MAX(sort_order), -1) as max_order FROM tabs WHERE room_id = ?').get(roomId)
+          db.prepare(`
+            INSERT INTO tabs (id, room_id, title, content, icon, sort_order, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(tabId, roomId, title, String(args.content || ''), args.icon || '📄', (maxOrder?.max_order ?? -1) + 1, agent.id, now, now)
+          await roomService.updateLastActive(roomId)
+          const tab = db.prepare('SELECT * FROM tabs WHERE id = ? AND room_id = ?').get(tabId, roomId)
+          broadcast(roomId, 'tabs.updated', { action: 'add', tab })
+          return { success: true, data: { tab } }
+        }
+        case 'tab.create-from-file': {
+          const title = String(args.title || '').trim()
+          if (!title) throw { code: 'VALIDATION_ERROR', message: 'title is required' }
+          const rel = safeRelativePath(args.path)
+          const content = await readFile(join(filesDir, rel), 'utf8')
+          const tabId = `tab_${uuidv4()}`
+          const now = Date.now()
+          const maxOrder: any = db.prepare('SELECT COALESCE(MAX(sort_order), -1) as max_order FROM tabs WHERE room_id = ?').get(roomId)
+          db.prepare(`
+            INSERT INTO tabs (id, room_id, title, content, icon, sort_order, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(tabId, roomId, title, content, args.icon || '📄', (maxOrder?.max_order ?? -1) + 1, agent.id, now, now)
+          await roomService.updateLastActive(roomId)
+          const tab = db.prepare('SELECT * FROM tabs WHERE id = ? AND room_id = ?').get(tabId, roomId)
+          broadcast(roomId, 'tabs.updated', { action: 'add', tab })
+          return { success: true, data: { tab } }
+        }
+        case 'tab.update': {
+          const tabId = String(args.tabId || args.id || '').trim()
+          if (!tabId) throw { code: 'VALIDATION_ERROR', message: 'tabId is required' }
+
+          let content = args.content
+          if (args.path) {
+            const rel = safeRelativePath(args.path)
+            content = await readFile(join(filesDir, rel), 'utf8')
+          }
+
+          const updates: string[] = []
+          const values: any[] = []
+          if (args.title !== undefined) { updates.push('title = ?'); values.push(String(args.title)) }
+          if (content !== undefined) { updates.push('content = ?'); values.push(String(content)) }
+          if (args.icon !== undefined) { updates.push('icon = ?'); values.push(String(args.icon)) }
+          if (updates.length === 0) throw { code: 'VALIDATION_ERROR', message: 'no fields to update' }
+          updates.push('updated_at = ?')
+          values.push(Date.now(), tabId, roomId)
+          const result = db.prepare(`UPDATE tabs SET ${updates.join(', ')} WHERE id = ? AND room_id = ?`).run(...values)
+          if (result.changes === 0) throwTabNotFound(tabId)
+          await roomService.updateLastActive(roomId)
+          const tab = db.prepare('SELECT * FROM tabs WHERE id = ? AND room_id = ?').get(tabId, roomId)
+          if (!tab) throwTabNotFound(tabId)
+          broadcast(roomId, 'tabs.updated', { action: 'update', tab })
+          return { success: true, data: { tab } }
+        }
+        case 'tab.delete': {
+          const tabId = String(args.tabId || args.id || '').trim()
+          if (!tabId) throw { code: 'VALIDATION_ERROR', message: 'tabId is required' }
+          const result = db.prepare('DELETE FROM tabs WHERE id = ? AND room_id = ?').run(tabId, roomId)
+          if (result.changes === 0) throwTabNotFound(tabId)
+          await roomService.updateLastActive(roomId)
+          broadcast(roomId, 'tabs.updated', { action: 'delete', tabId })
+          return { success: true }
+        }
+        case 'tab.reorder': {
+          if (!Array.isArray(args.tabIds)) throw { code: 'VALIDATION_ERROR', message: 'tabIds must be an array' }
+          validateTabIds(roomId, args.tabIds)
+          const updateStmt = db.prepare('UPDATE tabs SET sort_order = ?, updated_at = ? WHERE id = ? AND room_id = ?')
+          const now = Date.now()
+          const transaction = db.transaction((ids: string[]) => {
+            ids.forEach((id, index) => updateStmt.run(index, now, id, roomId))
+          })
+          transaction(args.tabIds)
+          await roomService.updateLastActive(roomId)
+          broadcast(roomId, 'tabs.updated', { action: 'reorder', tabIds: args.tabIds })
+          return { success: true }
         }
         case 'members.list': {
           const members = await roomService.getRoomMembers(roomId)
@@ -126,7 +245,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           return reply.code(400).send({ success: false, error: { code: 'UNKNOWN_ACTION', message: `Unknown action: ${action}` } })
       }
     } catch (err: any) {
-      return reply.code(err.code === 'INVALID_PATH' || err.code === 'VALIDATION_ERROR' ? 400 : 500).send({
+      return reply.code(err.code === 'TAB_NOT_FOUND' ? 404 : (err.code === 'INVALID_PATH' || err.code === 'VALIDATION_ERROR' ? 400 : 500)).send({
         success: false,
         error: { code: err.code || 'INTERNAL_ERROR', message: err.message || String(err) }
       })

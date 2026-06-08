@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
 import { spawn } from 'child_process'
-import { chmod, mkdir, readdir, rename, writeFile } from 'fs/promises'
+import { chmod, mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { config } from '../config.js'
 import { aiConfigService } from './ai-config.service.js'
@@ -25,6 +25,7 @@ interface AgentRow {
   session_id: string | null
   created_at: number
   updated_at: number
+  agent_last_active_at?: number | null
 }
 
 export interface AgentConfig {
@@ -34,7 +35,7 @@ export interface AgentConfig {
   description?: string
   specialties?: string[]
   config?: Record<string, any>
-  status?: 'active' | 'inactive' | 'working'
+  status?: 'active' | 'inactive' | 'working' | 'error'
 }
 
 export interface AgentCreateResult {
@@ -209,7 +210,12 @@ export class AgentService {
    */
   async getRoomAgents(roomId: string): Promise<Agent[]> {
     const rows = db.prepare(`
-      SELECT a.* FROM agents a
+      SELECT a.*, (
+        SELECT MAX(last_active_at)
+        FROM agent_sessions s
+        WHERE s.room_id = ra.room_id AND s.agent_id = a.id
+      ) as agent_last_active_at
+      FROM agents a
       INNER JOIN room_agents ra ON a.id = ra.agent_id
       WHERE ra.room_id = ?
       ORDER BY ra.added_at ASC
@@ -217,32 +223,17 @@ export class AgentService {
     return rows.map(r => this.rowToAgent(r))
   }
 
-  private async syncMisplacedWorkspaceFiles(roomId: string): Promise<string[]> {
-    const workspaceDir = join(config.workspace.root, roomId)
-    const filesDir = join(workspaceDir, 'files')
-    await mkdir(filesDir, { recursive: true })
-
-    const reserved = new Set(['AGENTS.md', 'freechat', 'files'])
-    const entries = await readdir(workspaceDir, { withFileTypes: true })
-    const moved: string[] = []
-
-    for (const entry of entries) {
-      if (!entry.isFile()) continue
-      if (reserved.has(entry.name) || entry.name.startsWith('.')) continue
-
-      const from = join(workspaceDir, entry.name)
-      const to = join(filesDir, entry.name)
-      await rename(from, to)
-      moved.push(entry.name)
-    }
-
-    return moved
-  }
-
-  private async prepareRoomWorkspace(roomId: string, agent: Agent): Promise<string> {
-    const workspaceDir = join(config.workspace.root, roomId)
+  async prepareAgentWorkspace(roomId: string, agent: Agent): Promise<string> {
+    const workspaceDir = join(config.workspace.root, roomId, 'agents', agent.id)
     const metaDir = join(workspaceDir, '.freechat')
+    const skillsDir = join(workspaceDir, 'skills')
+    const resDir = join(workspaceDir, 'res')
+    const scriptsDir = join(workspaceDir, 'scripts')
+
     await mkdir(metaDir, { recursive: true })
+    await mkdir(skillsDir, { recursive: true })
+    await mkdir(resDir, { recursive: true })
+    await mkdir(scriptsDir, { recursive: true })
 
     const toolToken = createAgentToolToken(roomId, agent.id)
     const toolApiUrl = `http://127.0.0.1:${config.port}`
@@ -258,14 +249,102 @@ export class AgentService {
 
     const cliPath = join(workspaceDir, 'freechat')
     await writeFile(cliPath, `#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+
 const API_URL = ${JSON.stringify(toolApiUrl)};
 const ROOM_ID = ${JSON.stringify(roomId)};
 const TOKEN = ${JSON.stringify(toolToken)};
 
+function usage() {
+  console.log([
+    'FreeChat Agent CLI',
+    '',
+    'Principle:',
+    '  - Project-visible files must go through ./freechat file ...',
+    '  - Files are not visible in the File Tab unless added to tab config.',
+    '  - User-visible UI pages must go through ./freechat tab ...',
+    '',
+    'Common workflows:',
+    '  ./freechat chat send "我开始处理这个任务"',
+    '  ./freechat file write docs/progress.md "进度内容" --show',
+    '  ./freechat file write-local ui/dashboard.html res/dashboard.html --show',
+    '  ./freechat tab create-local "数据看板" res/dashboard.html',
+    '  ./freechat tab update-local <tabId> res/dashboard.html',
+    '',
+    'Commands:',
+    '  ./freechat chat send <content>',
+    '  ./freechat task list [status]',
+    '  ./freechat task create <title> [description]',
+    '  ./freechat task update <taskId> <field> <value> [field value...]',
+    '  ./freechat file list',
+    '  ./freechat file read <path>',
+    '  ./freechat file write <path> <content> [--show|--hide]',
+    '  ./freechat file write-local <path> <localPath> [--show|--hide]',
+    '  ./freechat file show <path> [tabKey]',
+    '  ./freechat file hide <path> [tabKey]',
+    '  ./freechat tab-config list [tabKey]',
+    '  ./freechat tab-config add-file <path> [tabKey]',
+    '  ./freechat tab-config remove-file <path> [tabKey]',
+    '  ./freechat tab list',
+    '  ./freechat tab create <title> <htmlContent>',
+    '  ./freechat tab create-file <title> <projectFilePath>',
+    '  ./freechat tab create-local <title> <localPath>',
+    '  ./freechat tab update <tabId> <htmlContent>',
+    '  ./freechat tab update-file <tabId> <projectFilePath>',
+    '  ./freechat tab update-local <tabId> <localPath>',
+    '  ./freechat tab delete <tabId>',
+    '  ./freechat tab reorder <tabId> [tabId...]',
+    '  ./freechat members list',
+    '  ./freechat room info',
+    '  ./freechat raw <action> \'<jsonArgs>\'',
+    '',
+    'Compatibility aliases:',
+    '  tab create-from-file/update-from-file, tab create-from-local/update-from-local',
+    '  file write <path> <content> true  (same as --show)',
+  ].join('\n'));
+}
+
+function die(message) {
+  console.error(message);
+  console.error('Run ./freechat help for usage.');
+  process.exit(2);
+}
+
+function readLocalFile(localPath) {
+  if (!localPath) die('localPath is required');
+  const resolved = path.resolve(process.cwd(), localPath);
+  if (!fs.existsSync(resolved)) die('Local file not found: ' + localPath);
+  return fs.readFileSync(resolved, 'utf8');
+}
+
+function stripFlags(items) {
+  const flags = new Set(items.filter((x) => String(x).startsWith('--')));
+  return { args: items.filter((x) => !String(x).startsWith('--')), flags };
+}
+
+function parseShowFlag(items) {
+  const { args, flags } = stripFlags(items);
+  const tail = args[args.length - 1];
+  const legacyShow = tail === 'true' || tail === '1';
+  const legacyHide = tail === 'false' || tail === '0';
+  const cleanedArgs = (legacyShow || legacyHide) ? args.slice(0, -1) : args;
+  return { args: cleanedArgs, show: flags.has('--show') || flags.has('--add-to-tab') || legacyShow, hide: flags.has('--hide') || legacyHide };
+}
+
+function pairsToObject(items) {
+  const out = {};
+  for (let i = 0; i < items.length; i += 2) {
+    if (!items[i]) continue;
+    out[items[i]] = items[i + 1];
+  }
+  return out;
+}
+
 async function call(action, args = {}) {
-  const res = await fetch(\`${toolApiUrl}/api/agent-tools/${roomId}\`, {
+  const res = await fetch(API_URL + '/api/agent-tools/' + ROOM_ID, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: \`Bearer ${toolToken}\` },
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
     body: JSON.stringify({ action, args })
   });
   const text = await res.text();
@@ -278,62 +357,208 @@ async function call(action, args = {}) {
   console.log(JSON.stringify(data.data ?? data, null, 2));
 }
 
-function pairsToObject(items) {
-  const out = {};
-  for (let i = 0; i < items.length; i += 2) out[items[i]] = items[i + 1];
-  return out;
-}
-
 const [domain, cmd, ...rest] = process.argv.slice(2);
 if (!domain || ['-h', '--help', 'help'].includes(domain)) {
-  console.log(\`FreeChat Agent CLI
-
-Commands:
-  ./freechat chat send <content>
-  ./freechat task list [status]
-  ./freechat task create <title> [description]
-  ./freechat task update <taskId> <field> <value> [field value...]
-  ./freechat file list
-  ./freechat file read <path>
-  ./freechat file write <path> <content>
-  ./freechat members list
-  ./freechat room info
-  ./freechat raw <action> '<jsonArgs>'
-\`);
+  usage();
   process.exit(0);
 }
 
-if (domain === 'chat' && cmd === 'send') call('chat.send', { content: rest.join(' ') });
-else if (domain === 'task' && cmd === 'list') call('task.list', { status: rest[0] });
-else if (domain === 'task' && cmd === 'create') call('task.create', { title: rest[0], description: rest.slice(1).join(' ') || undefined });
-else if (domain === 'task' && cmd === 'update') call('task.update', { taskId: rest[0], updates: pairsToObject(rest.slice(1)) });
-else if (domain === 'file' && cmd === 'list') call('file.list');
-else if (domain === 'file' && cmd === 'read') call('file.read', { path: rest[0] });
-else if (domain === 'file' && cmd === 'write') call('file.write', { path: rest[0], content: rest.slice(1).join(' ') });
-else if (domain === 'members' && cmd === 'list') call('members.list');
-else if (domain === 'room' && cmd === 'info') call('room.info');
-else if (domain === 'raw') call(cmd, rest[0] ? JSON.parse(rest[0]) : {});
-else {
-  console.error('Unknown command. Run ./freechat help');
-  process.exit(1);
+if (domain === 'chat' && cmd === 'send') {
+  const content = rest.join(' ').trim();
+  if (!content) die('content is required');
+  call('chat.send', { content });
+} else if (domain === 'task' && cmd === 'list') {
+  call('task.list', { status: rest[0] });
+} else if (domain === 'task' && cmd === 'create') {
+  if (!rest[0]) die('title is required');
+  call('task.create', { title: rest[0], description: rest.slice(1).join(' ') || undefined });
+} else if (domain === 'task' && cmd === 'update') {
+  if (!rest[0]) die('taskId is required');
+  call('task.update', { taskId: rest[0], updates: pairsToObject(rest.slice(1)) });
+} else if (domain === 'file' && cmd === 'list') {
+  call('file.list');
+} else if (domain === 'file' && cmd === 'read') {
+  if (!rest[0]) die('path is required');
+  call('file.read', { path: rest[0] });
+} else if (domain === 'file' && cmd === 'write') {
+  const parsed = parseShowFlag(rest);
+  if (!parsed.args[0]) die('path is required');
+  const content = parsed.args.slice(1).join(' ');
+  call('file.write', { path: parsed.args[0], content, addToTab: parsed.show && !parsed.hide });
+} else if (domain === 'file' && cmd === 'write-local') {
+  const parsed = parseShowFlag(rest);
+  if (!parsed.args[0]) die('path is required');
+  const content = readLocalFile(parsed.args[1]);
+  call('file.write', { path: parsed.args[0], content, addToTab: parsed.show && !parsed.hide });
+} else if (domain === 'file' && cmd === 'show') {
+  if (!rest[0]) die('path is required');
+  call('tab-config.add-file', { path: rest[0], tabKey: rest[1] || 'files' });
+} else if (domain === 'file' && cmd === 'hide') {
+  if (!rest[0]) die('path is required');
+  call('tab-config.remove-file', { path: rest[0], tabKey: rest[1] || 'files' });
+} else if (domain === 'tab-config' && cmd === 'list') {
+  call('tab-config.list', { tabKey: rest[0] || 'files' });
+} else if (domain === 'tab-config' && cmd === 'add-file') {
+  if (!rest[0]) die('path is required');
+  call('tab-config.add-file', { path: rest[0], tabKey: rest[1] || 'files' });
+} else if (domain === 'tab-config' && cmd === 'remove-file') {
+  if (!rest[0]) die('path is required');
+  call('tab-config.remove-file', { path: rest[0], tabKey: rest[1] || 'files' });
+} else if (domain === 'tab' && cmd === 'list') {
+  call('tab.list');
+} else if (domain === 'tab' && cmd === 'create') {
+  if (!rest[0]) die('title is required');
+  call('tab.create', { title: rest[0], content: rest.slice(1).join(' ') });
+} else if (domain === 'tab' && ['create-file', 'create-from-file'].includes(cmd)) {
+  if (!rest[0] || !rest[1]) die('title and projectFilePath are required');
+  call('tab.create-from-file', { title: rest[0], path: rest[1] });
+} else if (domain === 'tab' && ['create-local', 'create-from-local'].includes(cmd)) {
+  if (!rest[0] || !rest[1]) die('title and localPath are required');
+  call('tab.create', { title: rest[0], content: readLocalFile(rest[1]) });
+} else if (domain === 'tab' && cmd === 'update') {
+  if (!rest[0]) die('tabId is required');
+  call('tab.update', { tabId: rest[0], content: rest.slice(1).join(' ') });
+} else if (domain === 'tab' && ['update-file', 'update-from-file'].includes(cmd)) {
+  if (!rest[0] || !rest[1]) die('tabId and projectFilePath are required');
+  call('tab.update', { tabId: rest[0], path: rest[1] });
+} else if (domain === 'tab' && ['update-local', 'update-from-local'].includes(cmd)) {
+  if (!rest[0] || !rest[1]) die('tabId and localPath are required');
+  call('tab.update', { tabId: rest[0], content: readLocalFile(rest[1]) });
+} else if (domain === 'tab' && cmd === 'delete') {
+  if (!rest[0]) die('tabId is required');
+  call('tab.delete', { tabId: rest[0] });
+} else if (domain === 'tab' && cmd === 'reorder') {
+  if (rest.length === 0) die('at least one tabId is required');
+  call('tab.reorder', { tabIds: rest });
+} else if (domain === 'members' && cmd === 'list') {
+  call('members.list');
+} else if (domain === 'room' && cmd === 'info') {
+  call('room.info');
+} else if (domain === 'raw') {
+  call(cmd, rest[0] ? JSON.parse(rest[0]) : {});
+} else {
+  die('Unknown command: ' + [domain, cmd].filter(Boolean).join(' '));
 }
 `, 'utf8')
     await chmod(cliPath, 0o700)
 
-    await writeFile(join(workspaceDir, 'AGENTS.md'), `# FreeChat Agent Workspace\n\n你正在 FreeChat 项目工作区内运行。\n\n- 当前目录就是项目根目录。\n- 优先阅读 .freechat/ 下的上下文文件。\n- 必须使用根目录的 \`./freechat\` CLI 同步对话、任务、文件和成员信息。\n- 用户可见的项目文件必须通过 \`./freechat file read/write/list\` 读写；不要用 shell 重定向、cat/echo、Write/Edit 等方式直接创建或读取业务文件。\n- \`./freechat file write <path> <content>\` 写入的是前端文件面板可见的项目文件区；\`./freechat file read <path>\` 也从这个文件区读取。\n- 复杂任务要先 \`./freechat chat send\` 汇报开始，再用 \`./freechat task create/update\` 同步进度，必要时用 \`./freechat file read/write\` 读写资料，完成后发总结。\n- 不要越权操作，不要删除用户资料。\n- 如果你是助理 Agent，可以做总结、协调和拍板；专家 Agent 只负责专业执行和同步状态。\n`, 'utf8')
+    const agentGuide = `# ${agent.name} Agent 工作区
+
+你是 FreeChat 房间中的 ${agent.roleType === 'assistant' ? '助理 Agent' : '专家 Agent'}。
+
+## 当前 Agent
+- Agent ID: ${agent.id}
+- 名称: ${agent.name}
+- 类型: ${agent.roleType}
+- 描述: ${agent.description || ''}
+- 专长: ${(agent.specialties || []).join(', ') || '未设置'}
+
+## 目录约定
+- \`skills/\`：只放你自己的技能说明、方法论、模板。
+- \`res/\`：只放你自己的临时资料、草稿、缓存、中间产物。
+- \`scripts/\`：只放你自己的脚本。
+- \`.freechat/\`：系统注入的房间上下文和 API 说明。
+- 当前目录是你的私有 Agent 工作区，不是用户项目文件区。
+
+## 强制规则
+1. 不要直接写入用户项目文件目录，不要访问或修改 \`../../files\`。
+2. 用户可见的项目文件必须通过 API 写入：
+   - 写文本：\`./freechat file write <path> <content>\`
+   - 写本地文件：\`./freechat file write-local <path> <localPath>\`
+   - 显示到文件 Tab：加 \`--show\`，或执行 \`./freechat file show <path>\`
+3. 读取用户项目文件必须通过 API：\`./freechat file read <path>\` 或 \`./freechat file list\`。
+4. 用户可见界面必须通过 Tab API 创建/更新：
+   - 推荐：\`./freechat tab create-local <title> res/page.html\`
+   - 从项目文件：\`./freechat tab create-file <title> ui/page.html\`
+5. 你自己的草稿、脚本、技能、资源可以放在当前工作区的 \`res/\`、\`scripts/\`、\`skills/\`。
+6. 长任务开始时先用 \`./freechat chat send\` 汇报，必要时同步任务状态。
+
+## 推荐工作流
+- 文档/交付物：先写到项目文件，必要时 \`--show\`。
+- 界面/看板：先在 \`res/\` 生成 HTML，再用 \`tab create-local/update-local\` 发布。
+- 大段内容不要塞进命令行参数，优先使用 \`write-local/create-local/update-local\`。
+`
+
+    await writeFile(join(workspaceDir, 'AGENT.md'), agentGuide, 'utf8')
+    await writeFile(join(workspaceDir, 'CLAUDE.md'), `${agentGuide}\n\n启动后请先遵守本文件和 .freechat/API.md。\n`, 'utf8')
 
     await writeFile(join(metaDir, 'ROOM.md'), `# Room Context\n\n- Room ID: ${roomId}\n- Name: ${room?.name || ''}\n- Description: ${room?.description || ''}\n- Current Agent: ${agent.name}\n- Agent ID: ${agent.id}\n- Agent Role: ${agent.roleType}\n`, 'utf8')
 
     await writeFile(join(metaDir, 'MEMBERS.md'), `# Members\n\n## Humans\n${members.map((m) => `- ${m.nickname || m.username} (@${m.username}) - ${m.role}`).join('\n') || '- none'}\n\n## Agents\n${agents.map((a) => `- ${a.name} (${a.roleType}) - ${a.status || 'active'}`).join('\n') || '- none'}\n`, 'utf8')
 
-    await writeFile(join(metaDir, 'API.md'), `# FreeChat CLI Contract\n\nAgent 必须通过根目录的 \`./freechat\` CLI 同步工作进度：\n\n\`\`\`bash\n./freechat chat send "我开始处理这个任务"\n./freechat task list\n./freechat task create "拆分任务标题" "任务说明"\n./freechat task update <taskId> status doing\n./freechat task update <taskId> status review reviewNote "已完成，等待确认"\n./freechat task update <taskId> status done\n./freechat file list\n./freechat file read docs/example.md\n./freechat file write docs/progress.md "进度内容"\n./freechat members list\n./freechat room info\n\`\`\`\n\n规则：\n\n- 长任务开始时先发消息，再创建/更新任务。\n- 处理中把任务设为 doing，完成后设为 review 或 done。\n- 阻塞时设为 blocked 并写 blockedReason。\n- 文件写入必须通过 \`./freechat file write\`，文件读取必须通过 \`./freechat file read\`。\n- 不要直接在房间根目录创建业务文件；如果误写，服务端会在 Agent 执行结束后尝试移动到 files 区，但这只是兜底。\n`, 'utf8')
+    await writeFile(join(metaDir, 'API.md'), `# FreeChat CLI Contract
+
+Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文件和用户可见界面。
+
+## 快速工作流
+
+### 聊天汇报
+
+\`\`\`bash
+./freechat chat send "我开始处理这个任务"
+\`\`\`
+
+### 项目文件
+
+\`\`\`bash
+./freechat file list
+./freechat file read docs/example.md
+./freechat file write docs/progress.md "进度内容" --show
+./freechat file write-local docs/report.md res/report.md --show
+./freechat file show docs/report.md
+./freechat file hide docs/report.md
+\`\`\`
+
+说明：文件写入项目区后，只有加入 Tab 配置才会出现在页面“文件”Tab。\`--show\` 等价于写入后加入文件 Tab。
+
+### 动态界面 Tab
+
+\`\`\`bash
+./freechat tab list
+./freechat tab create-local "项目看板" res/dashboard.html
+./freechat tab update-local <tabId> res/dashboard.html
+./freechat tab create-file "项目看板" ui/dashboard.html
+./freechat tab update-file <tabId> ui/dashboard.html
+./freechat tab delete <tabId>
+./freechat tab reorder <tabId> [tabId...]
+\`\`\`
+
+推荐：先在 \`res/\` 里生成 HTML，检查后用 \`tab create-local\` 发布；如果 HTML 也需要作为项目交付物留档，再使用 \`file write-local ui/dashboard.html res/dashboard.html --show\`。
+
+### 任务
+
+\`\`\`bash
+./freechat task list
+./freechat task create "拆分任务标题" "任务说明"
+./freechat task update <taskId> status doing
+./freechat task update <taskId> status review reviewNote "已完成，等待确认"
+./freechat task update <taskId> status done
+\`\`\`
+
+### 房间上下文
+
+\`\`\`bash
+./freechat members list
+./freechat room info
+\`\`\`
+
+## 规则
+
+- 当前目录是 Agent 私有工作区，可以使用 \`skills/\`、\`res/\`、\`scripts/\` 保存自己的资料。
+- 用户可见的项目文件只能通过 \`./freechat file write/write-local\` 写入。
+- 文件是否出现在“文件”Tab 由 Tab 配置控制：\`./freechat file show/hide\` 或 \`./freechat tab-config add-file/remove-file\`。
+- 用户可见界面只能通过 \`./freechat tab create/update/delete\` 管理。
+- 大段 HTML/Markdown 优先放本地文件，再用 \`*-local\` 命令读取。
+- 用户项目文件只能通过 \`./freechat file read/list\` 读取。
+- 不要直接访问或写入 \`../../files\`；即使能访问，也视为越权。
+`, 'utf8')
 
     return workspaceDir
   }
 
   /**
    * Spawn an agent to process a message.
-   * Server-side agents default to Claude Code CLI with the room workspace as cwd.
+   * Server-side agents default to Claude Code CLI with the agent private workspace as cwd.
    * Provider API is only used when AGENT_RUNTIME=provider-api.
    * Returns the agent's response text.
    */
@@ -341,9 +566,9 @@ else {
     roomId: string,
     agentId: string,
     message: string
-  ): Promise<{ response: string; silent: boolean; movedFiles?: string[] }> {
+  ): Promise<{ response: string; silent: boolean }> {
     const agent = await this.getAgent(agentId)
-    const workspaceDir = await this.prepareRoomWorkspace(roomId, agent)
+    const workspaceDir = await this.prepareAgentWorkspace(roomId, agent)
 
     // Check for existing session
     const existingSession = db.prepare(`
@@ -405,6 +630,8 @@ else {
           // Save to conversation history
           await this.saveMessageToHistory(newSessionId, 'user', message)
           await this.saveMessageToHistory(newSessionId, 'assistant', responseText)
+          this.cleanupAgentHistory(newSessionId)
+          this.cleanupOldAgentSessions(roomId, agentId)
 
           return { response: responseText, silent: false }
         } else {
@@ -418,7 +645,7 @@ else {
       // Fall through to Claude Code CLI
     }
 
-    // Default: Use Claude Code CLI with room workspace as project root
+    // Default: Use Claude Code CLI with this agent's private workspace as cwd
     const args: string[] = [
       '-p',
       message,
@@ -439,23 +666,70 @@ else {
       const proc = spawn('claude', runArgs, {
         cwd: workspaceDir,
         env: { ...process.env },
-        timeout: 120_000, // 2 min timeout
       })
 
       let stdout = ''
       let stderr = ''
+      let settled = false
+      let timedOut = false
+      let killTimer: NodeJS.Timeout | undefined
 
-      proc.stdout.on('data', (data: Buffer) => { stdout += data.toString() })
-      proc.stderr.on('data', (data: Buffer) => { stderr += data.toString() })
+      const cleanup = () => {
+        if (watchdog) clearTimeout(watchdog)
+        if (killTimer) clearTimeout(killTimer)
+      }
 
-      proc.on('close', (code) => {
+      const fail = (err: any) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        reject(err)
+      }
+
+      const succeed = (value: { response: string; silent: boolean; sessionId?: string }) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve(value)
+      }
+
+      const watchdog = setTimeout(() => {
+        timedOut = true
+        const combined = `${stdout.trim()}\n${stderr.trim()}`.trim()
+        try {
+          if (!proc.killed) proc.kill('SIGTERM')
+        } catch {}
+
+        killTimer = setTimeout(() => {
+          try {
+            if (!proc.killed) proc.kill('SIGKILL')
+          } catch {}
+        }, config.agent.killGraceMs)
+
+        fail({
+          code: 'AGENT_TIMEOUT',
+          message: `Claude Code timed out after ${config.agent.timeoutMs}ms. Partial output: ${combined.slice(-2000)}`
+        })
+      }, config.agent.timeoutMs)
+
+      proc.stdout.on('data', (data: Buffer) => {
+        stdout += data.toString()
+        if (stdout.length > 1_000_000) stdout = stdout.slice(-1_000_000)
+      })
+      proc.stderr.on('data', (data: Buffer) => {
+        stderr += data.toString()
+        if (stderr.length > 1_000_000) stderr = stderr.slice(-1_000_000)
+      })
+
+      proc.on('close', (code, signal) => {
+        if (timedOut || settled) return
         const raw = stdout.trim()
         const combined = `${raw}\n${stderr}`.trim()
 
         if (code !== 0) {
-          reject({
+          fail({
             code: 'AGENT_EXECUTION_ERROR',
-            message: `Claude Code exited with code ${code}: ${combined}`
+            message: `Claude Code exited with code ${code}${signal ? ` signal ${signal}` : ''}: ${combined}`
           })
           return
         }
@@ -472,30 +746,36 @@ else {
         }
 
         if (response === '[SILENT]' || response.includes('[SILENT]')) {
-          resolve({ response: '', silent: true, sessionId })
+          succeed({ response: '', silent: true, sessionId })
           return
         }
 
-        resolve({ response: response || '', silent: false, sessionId })
+        succeed({ response: response || '', silent: false, sessionId })
       })
 
       proc.on('error', (err) => {
-        reject({ code: 'AGENT_SPAWN_ERROR', message: `Failed to spawn Claude Code: ${err.message}` })
+        fail({ code: 'AGENT_SPAWN_ERROR', message: `Failed to spawn Claude Code: ${err.message}` })
       })
     })
 
     try {
       const result = await runClaude(args)
-      if (result.sessionId) this.updateSession(roomId, agentId, result.sessionId)
-      const movedFiles = await this.syncMisplacedWorkspaceFiles(roomId)
-      return { response: result.response, silent: result.silent, movedFiles }
+      if (result.sessionId) {
+        this.updateSession(roomId, agentId, result.sessionId)
+        this.cleanupAgentHistory(result.sessionId)
+      }
+      this.cleanupOldAgentSessions(roomId, agentId)
+      return { response: result.response, silent: result.silent }
     } catch (err: any) {
       if (existingSession && String(err.message || '').includes('No conversation found')) {
         const freshArgs = args.filter((arg, index) => arg !== '--resume' && args[index - 1] !== '--resume')
         const result = await runClaude(freshArgs)
-        if (result.sessionId) this.updateSession(roomId, agentId, result.sessionId)
-        const movedFiles = await this.syncMisplacedWorkspaceFiles(roomId)
-        return { response: result.response, silent: result.silent, movedFiles }
+        if (result.sessionId) {
+          this.updateSession(roomId, agentId, result.sessionId)
+          this.cleanupAgentHistory(result.sessionId)
+        }
+        this.cleanupOldAgentSessions(roomId, agentId)
+        return { response: result.response, silent: result.silent }
       }
       throw err
     }
@@ -562,10 +842,58 @@ else {
     }
   }
 
+  private cleanupAgentHistory(sessionId: string): void {
+    try {
+      const limit = Math.max(1, config.agent.historyLimit)
+      const count = db.prepare('SELECT COUNT(*) as count FROM agent_messages WHERE session_id = ?').get(sessionId) as { count: number }
+      if (!count || count.count <= limit) return
+
+      const stale = db.prepare(`
+        SELECT id FROM agent_messages
+        WHERE session_id = ?
+        ORDER BY created_at ASC
+        LIMIT ?
+      `).all(sessionId, count.count - limit) as { id: string }[]
+
+      if (stale.length > 0) {
+        db.prepare(`DELETE FROM agent_messages WHERE id IN (${stale.map(() => '?').join(',')})`).run(...stale.map((m) => m.id))
+      }
+    } catch (err) {
+      console.error('Failed to cleanup agent history:', err)
+    }
+  }
+
+  private cleanupOldAgentSessions(roomId: string, agentId: string): void {
+    try {
+      const retentionMs = Math.max(1, config.agent.sessionRetentionDays) * 24 * 60 * 60 * 1000
+      const cutoff = Date.now() - retentionMs
+      const oldSessions = db.prepare(`
+        SELECT session_id FROM agent_sessions
+        WHERE room_id = ? AND agent_id = ? AND last_active_at < ?
+      `).all(roomId, agentId, cutoff) as { session_id: string }[]
+
+      if (oldSessions.length === 0) return
+      const sessionIds = oldSessions.map((s) => s.session_id)
+      db.prepare(`DELETE FROM agent_messages WHERE session_id IN (${sessionIds.map(() => '?').join(',')})`).run(...sessionIds)
+      db.prepare(`DELETE FROM agent_sessions WHERE room_id = ? AND agent_id = ? AND session_id IN (${sessionIds.map(() => '?').join(',')})`).run(roomId, agentId, ...sessionIds)
+    } catch (err) {
+      console.error('Failed to cleanup old agent sessions:', err)
+    }
+  }
+
   /**
    * Convert a DB row to an Agent object
    */
   private rowToAgent(row: AgentRow): Agent {
+    const status = (row.status as 'active' | 'inactive' | 'working' | 'error') || 'active'
+    const onlineStatus = status === 'working'
+      ? 'working'
+      : status === 'inactive'
+        ? 'offline'
+        : status === 'error'
+          ? 'error'
+          : 'online'
+
     return {
       id: row.id,
       name: row.name,
@@ -574,7 +902,9 @@ else {
       description: row.description || undefined,
       specialties: row.specialties ? JSON.parse(row.specialties) : undefined,
       config: row.config ? JSON.parse(row.config) : undefined,
-      status: (row.status as 'active' | 'inactive' | 'working') || 'active',
+      status,
+      onlineStatus,
+      lastActiveAt: row.agent_last_active_at || undefined,
       sessionId: row.session_id || undefined,
     }
   }

@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
+import { useAuthStore } from '../stores/authStore'
+import { useFeedback } from '../components/FeedbackProvider'
 
 export default function RoomSettingsPage() {
   const { roomId } = useParams<{ roomId: string }>()
   const navigate = useNavigate()
+  const { user } = useAuthStore()
+  const feedback = useFeedback()
   const [room, setRoom] = useState<any>(null)
   const [members, setMembers] = useState<any[]>([])
   const [agents, setAgents] = useState<any[]>([])
@@ -19,6 +23,8 @@ export default function RoomSettingsPage() {
   const [profileForm, setProfileForm] = useState({ role_title: '', persona: '', specialties: '' })
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const currentMember = members.find((member) => (member.id || member.userId) === user?.id)
+  const canDeleteRoom = currentMember?.role === 'owner'
 
   useEffect(() => {
     if (!roomId) return
@@ -38,7 +44,7 @@ export default function RoomSettingsPage() {
   }
 
   const saveRoom = async () => {
-    try { await api.updateRoom(roomId!, { name: editName, description: editDesc }); alert('保存成功') } catch (e: any) { alert(e.message) }
+    try { await api.updateRoom(roomId!, { name: editName, description: editDesc }); feedback.success('保存成功') } catch (e: any) { feedback.error(e.message || '保存失败') }
   }
 
   const deleteRoom = async () => {
@@ -47,10 +53,10 @@ export default function RoomSettingsPage() {
     try {
       await api.deleteRoom(roomId)
       setShowDeleteConfirm(false)
-      alert('项目已删除')
+      feedback.success('项目已删除')
       navigate('/')
     } catch (e: any) {
-      alert('删除失败: ' + (e.message || JSON.stringify(e)))
+      feedback.error('删除失败: ' + (e.message || JSON.stringify(e)))
     } finally {
       setDeleting(false)
     }
@@ -62,21 +68,21 @@ export default function RoomSettingsPage() {
       setInviteCode(data.code)
       setInviteUrl(data.url?.startsWith('http') ? data.url : `${window.location.origin}/join?code=${data.code}`)
     } catch (e: any) {
-      alert('生成失败: ' + (e.message || JSON.stringify(e)))
+      feedback.error('生成失败: ' + (e.message || JSON.stringify(e)))
     }
   }
 
   const removeAgent = async (agentId: string) => {
-    try { await api.removeRoomAgent(roomId!, agentId); loadAll() } catch {}
+    try { await api.removeRoomAgent(roomId!, agentId); feedback.success('Agent 已移除'); loadAll() } catch (e: any) { feedback.error(e.message || '移除失败') }
   }
 
   const addAgent = async (agentId: string) => {
-    try { await api.addRoomAgent(roomId!, agentId); loadAll() } catch {}
+    try { await api.addRoomAgent(roomId!, agentId); feedback.success('Agent 已添加'); loadAll() } catch (e: any) { feedback.error(e.message || '添加失败') }
   }
 
   const searchAgents = async () => {
     if (!searchQ.trim()) return
-    try { const data = await api.searchMarket(searchQ); setSearchResults(data.agents || []) } catch {}
+    try { const data = await api.searchMarket(searchQ); setSearchResults(data.agents || []) } catch (e: any) { feedback.error(e.message || '搜索失败') }
   }
 
   const startEditProfile = (member: any) => {
@@ -98,7 +104,7 @@ export default function RoomSettingsPage() {
       })
       setEditingMemberId(null)
       loadAll()
-    } catch (e: any) { alert(e.message) }
+    } catch (e: any) { feedback.error(e.message || '保存失败') }
   }
 
   return (
@@ -135,14 +141,14 @@ export default function RoomSettingsPage() {
                 <label className="text-sm text-gray-600 block mb-1">邀请码</label>
                 <div className="flex items-center gap-2">
                   <input value={inviteCode} readOnly className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50 font-mono" />
-                  <button onClick={() => { navigator.clipboard.writeText(inviteCode); alert('邀请码已复制') }} className="text-sm bg-gray-200 px-3 py-2 rounded hover:bg-gray-300">复制</button>
+                  <button onClick={() => { navigator.clipboard.writeText(inviteCode); feedback.success('邀请码已复制') }} className="text-sm bg-gray-200 px-3 py-2 rounded hover:bg-gray-300">复制</button>
                 </div>
               </div>
               <div>
                 <label className="text-sm text-gray-600 block mb-1">邀请链接</label>
                 <div className="flex items-center gap-2">
                   <input value={inviteUrl} readOnly className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50" />
-                  <button onClick={() => { navigator.clipboard.writeText(inviteUrl); alert('链接已复制') }} className="text-sm bg-gray-200 px-3 py-2 rounded hover:bg-gray-300">复制</button>
+                  <button onClick={() => { navigator.clipboard.writeText(inviteUrl); feedback.success('链接已复制') }} className="text-sm bg-gray-200 px-3 py-2 rounded hover:bg-gray-300">复制</button>
                 </div>
               </div>
             </div>
@@ -232,11 +238,27 @@ export default function RoomSettingsPage() {
         <section className="bg-white rounded-lg border border-red-200 p-5">
           <h2 className="text-lg font-semibold text-red-600 mb-2">危险操作</h2>
           <p className="text-sm text-gray-500 mb-4">永久删除这个项目及其所有关联数据。此操作不可恢复。</p>
-          <button onClick={() => setShowDeleteConfirm(true)} className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700">永久删除项目</button>
+          {!canDeleteRoom && (
+            <p className="text-sm text-red-500 mb-3">只有项目所有者可以永久删除项目。</p>
+          )}
+          <button
+            onClick={() => {
+              if (!canDeleteRoom) {
+                feedback.warning('你没有权限永久删除该项目')
+                return
+              }
+              setShowDeleteConfirm(true)
+            }}
+            className={`px-4 py-2 rounded-lg text-sm ${canDeleteRoom ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+            aria-disabled={!canDeleteRoom}
+            title={canDeleteRoom ? '永久删除项目' : '你没有权限永久删除该项目'}
+          >
+            永久删除项目
+          </button>
         </section>
       </div>
 
-      {showDeleteConfirm && room && (
+      {showDeleteConfirm && room && canDeleteRoom && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => !deleting && setShowDeleteConfirm(false)}>
           <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-red-600 mb-2">永久删除项目</h3>

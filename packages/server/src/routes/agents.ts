@@ -267,7 +267,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
 
         return reply.send({ success: true, data: { response: result.response } })
       } catch (execErr: any) {
-        await agentService.updateAgent(agentId, { status: 'active' } as any)
+        await agentService.updateAgent(agentId, { status: 'error' } as any)
         throw execErr
       }
     } catch (err: any) {
