@@ -553,7 +553,7 @@ export default function RoomPage() {
     const Icon = isAssistant ? Sparkles : Bot
     const gradient = isAssistant ? 'from-violet-400 via-fuchsia-400 to-blue-500' : 'from-green-400 to-blue-500'
     return (
-      <div className="relative shrink-0">
+      <div className="relative shrink-0 fc-avatar-pop">
         <div className={`${size} bg-gradient-to-br ${gradient} rounded-full flex items-center justify-center text-white font-medium shadow-sm`}>
           <Icon className={iconSize} />
         </div>
@@ -848,7 +848,7 @@ export default function RoomPage() {
       summary.failed ? `失败${summary.failed}` : '',
     ].filter(Boolean)
     return (
-      <div key={task.id} className="bg-white rounded-xl p-3 sm:p-3 shadow-sm border border-gray-100">
+      <div key={task.id} className={`fc-enter fc-card-hover bg-white rounded-xl p-3 sm:p-3 shadow-sm border ${getEffectiveTaskStatus(task) === 'review' ? 'border-purple-200 fc-review-glow' : 'border-gray-100'}`}>
         <p className="text-sm font-medium text-gray-800 leading-5 break-words">{task.title}</p>
         {task.description && <p className="text-xs text-gray-400 mt-1 line-clamp-2">{task.description}</p>}
         <div className="flex flex-wrap items-center gap-2 mt-3">
@@ -865,24 +865,24 @@ export default function RoomPage() {
               <span>{summary.progress}%</span>
             </div>
             <div className="mt-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
-              <div className={`h-full rounded-full ${summary.blocked ? 'bg-red-400' : 'bg-blue-500'}`} style={{ width: `${summary.progress}%` }} />
+              <div className={`h-full rounded-full fc-progress-bar ${summary.progress > 0 ? 'fc-progress-shine' : ''} ${summary.blocked ? 'bg-red-400' : 'bg-blue-500'}`} style={{ width: `${summary.progress}%` }} />
             </div>
             {summaryParts.length > 0 && <p className="mt-1 text-[11px] text-gray-400 truncate">{summaryParts.join(' · ')}</p>}
           </button>
         )}
         <div className="mt-3 flex gap-2">
           {nextStatus && label && (
-            <button onClick={() => updateTaskStatus(task, nextStatus)} className="flex-1 sm:flex-none rounded-lg bg-blue-50 px-3 py-2 text-sm sm:text-xs font-medium text-blue-600 hover:bg-blue-100 active:bg-blue-200">{label}</button>
+            <button onClick={() => updateTaskStatus(task, nextStatus)} className="fc-pressable flex-1 sm:flex-none rounded-lg bg-blue-50 px-3 py-2 text-sm sm:text-xs font-medium text-blue-600 hover:bg-blue-100 active:bg-blue-200">{label}</button>
           )}
-          <button onClick={() => toggleTaskExpanded(task.id)} className="rounded-lg bg-gray-50 px-3 py-2 text-sm sm:text-xs font-medium text-gray-500 hover:bg-gray-100">{expanded ? '收起' : '子任务'}</button>
-          <button onClick={() => deleteTask(task)} className="rounded-lg bg-red-50 px-3 py-2 text-sm sm:text-xs font-medium text-red-500 hover:bg-red-100 active:bg-red-200">删除</button>
+          <button onClick={() => toggleTaskExpanded(task.id)} className="fc-pressable rounded-lg bg-gray-50 px-3 py-2 text-sm sm:text-xs font-medium text-gray-500 hover:bg-gray-100">{expanded ? '收起' : '子任务'}</button>
+          <button onClick={() => deleteTask(task)} className="fc-pressable rounded-lg bg-red-50 px-3 py-2 text-sm sm:text-xs font-medium text-red-500 hover:bg-red-100 active:bg-red-200">删除</button>
         </div>
         {expanded && (
           <div className="mt-3 border-t border-gray-100 pt-3 space-y-2">
             {subtasks.length === 0 ? <p className="text-xs text-gray-400">暂无子任务</p> : subtasks.map((subtask: any) => (
-              <div key={subtask.id} className="rounded-lg bg-gray-50 p-2">
+              <div key={subtask.id} className="fc-enter rounded-lg bg-gray-50 p-2 transition-colors hover:bg-blue-50/60">
                 <div className="flex items-start gap-2">
-                  <button onClick={() => updateSubtaskStatus(subtask, subtask.status === 'done' ? 'todo' : 'done')} className={`mt-0.5 w-5 h-5 rounded border text-xs flex items-center justify-center ${subtask.status === 'done' ? 'bg-green-500 border-green-500 text-white' : 'bg-white border-gray-300 text-transparent'}`}>✓</button>
+                  <button onClick={() => updateSubtaskStatus(subtask, subtask.status === 'done' ? 'todo' : 'done')} className={`fc-pressable mt-0.5 w-5 h-5 rounded border text-xs flex items-center justify-center ${subtask.status === 'done' ? 'bg-green-500 border-green-500 text-white' : 'bg-white border-gray-300 text-transparent'}`}>✓</button>
                   <div className="min-w-0 flex-1">
                     <p className={`text-xs font-medium break-words ${subtask.status === 'done' ? 'line-through text-gray-400' : 'text-gray-700'}`}>{subtask.title}</p>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -975,7 +975,7 @@ export default function RoomPage() {
       return opt.input.multiline ? <textarea {...commonProps} rows={3} /> : <input {...commonProps} />
     }
     return (
-      <div id={`interaction-${interaction.id}`} className={`max-w-[92%] sm:max-w-[520px] rounded-2xl border p-4 shadow-sm ${isPending || canChange ? (tone === 'red' ? 'border-red-200 bg-red-50' : tone === 'amber' ? 'border-amber-200 bg-amber-50' : tone === 'purple' ? 'border-purple-200 bg-purple-50' : 'border-blue-200 bg-blue-50') : 'border-gray-200 bg-gray-50'}`}>
+      <div id={`interaction-${interaction.id}`} className={`fc-enter fc-card-hover max-w-[92%] sm:max-w-[520px] rounded-2xl border p-4 shadow-sm ${isPending || canChange ? (tone === 'red' ? 'border-red-200 bg-red-50' : tone === 'amber' ? 'border-amber-200 bg-amber-50' : tone === 'purple' ? 'border-purple-200 bg-purple-50' : 'border-blue-200 bg-blue-50') : 'border-gray-200 bg-gray-50'}`}>
         <div className="flex items-start gap-3">
           <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold ${(isPending || canChange) ? (tone === 'red' ? 'bg-red-600 text-white' : tone === 'amber' ? 'bg-amber-500 text-white' : tone === 'purple' ? 'bg-purple-600 text-white' : 'bg-blue-600 text-white') : 'bg-green-500 text-white'}`}>{interaction.status === 'resolved' && !canChange ? '✓' : interaction.priority === 'danger' ? '!' : interaction.type === 'task_plan' ? '计' : interaction.type === 'multi_choice' ? '☑' : '?'}</div>
           <div className="min-w-0 flex-1">
@@ -1018,14 +1018,14 @@ export default function RoomPage() {
                       {selected.includes(opt.value) && renderOptionInput(opt)}
                     </div>
                   ))}
-                  <button onClick={() => respond(selected)} disabled={selected.length === 0 || isSubmitting} className="w-full rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">{isSubmitting ? '提交中...' : canChange ? '修改选择' : '提交选择'}</button>
+                  <button onClick={() => respond(selected)} disabled={selected.length === 0 || isSubmitting} className="fc-pressable w-full rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50">{isSubmitting ? '提交中...' : canChange ? '修改选择' : '提交选择'}</button>
                 </div>
               ) : (
                 <div className="mt-3 space-y-2">
                   {interaction.options?.map((opt: any) => {
                     const active = selected[0] === opt.value
                     return (
-                      <div key={opt.value} className={`rounded-xl border px-3 py-2 ${active ? 'border-blue-300 bg-white' : 'border-blue-100 bg-white/80'}`}>
+                      <div key={opt.value} className={`fc-pressable rounded-xl border px-3 py-2 ${active ? 'border-blue-300 bg-white shadow-sm' : 'border-blue-100 bg-white/80 hover:bg-white'}`}>
                         <button disabled={isSubmitting} onClick={() => opt.input?.enabled ? selectSingle(opt.value) : respond(opt.value)} className="flex w-full items-center justify-between text-left text-sm font-medium text-gray-700 disabled:opacity-60">
                           <span>{opt.label} {opt.input?.required && <span className="text-red-400">*</span>}</span>
                           <span className={`h-4 w-4 rounded-full border ${active ? 'border-blue-600 bg-blue-600' : 'border-gray-300'}`}></span>
@@ -1035,7 +1035,7 @@ export default function RoomPage() {
                     )
                   })}
                   {selected[0] && interaction.options?.find((opt: any) => opt.value === selected[0])?.input?.enabled && (
-                    <button disabled={isSubmitting} onClick={() => respond(selected[0])} className="w-full rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">{isSubmitting ? '提交中...' : canChange ? '修改选择' : '提交选择'}</button>
+                    <button disabled={isSubmitting} onClick={() => respond(selected[0])} className="fc-pressable w-full rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-50">{isSubmitting ? '提交中...' : canChange ? '修改选择' : '提交选择'}</button>
                   )}
                 </div>
               )
@@ -1158,7 +1158,7 @@ export default function RoomPage() {
         {panels.map((p) => (
           <button
             key={p.key}
-            className={`px-4 py-2 text-sm font-medium ${activePanel === p.key ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`fc-pressable px-4 py-2 text-sm font-medium transition-colors ${activePanel === p.key ? 'text-blue-600 border-b-2 border-blue-600 fc-tab-active' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
             onClick={() => setActivePanel(p.key)}
           >
             {p.icon === 'message' && <MessageCircle className="inline w-4 h-4 mr-1" />}
@@ -1203,7 +1203,7 @@ export default function RoomPage() {
                 const showUnreadMarker = unreadMarkerAt && !isOwn && (msg.createdAt || 0) > unreadMarkerAt && !messages.slice(0, messages.findIndex((m) => m.id === msg.id)).some((m) => m.actorId !== user?.id && (m.createdAt || 0) > unreadMarkerAt)
                 const isAgentReceipt = msg.kind === 'agent_receipt'
                 return (
-                    <div key={msg.id} id={`msg-${msg.id}`}>
+                    <div key={msg.id} id={`msg-${msg.id}`} className="fc-enter">
                       {showUnreadMarker && (
                         <div className="my-3 flex items-center gap-3 text-xs text-blue-500">
                           <span className="h-px flex-1 bg-blue-100"></span>
@@ -1668,7 +1668,7 @@ export default function RoomPage() {
         {panels.map((p) => (
           <button
             key={p.key}
-            className={`flex-1 py-2 text-center ${activePanel === p.key ? 'text-blue-600' : 'text-gray-400'}`}
+            className={`fc-pressable flex-1 py-2 text-center transition-colors ${activePanel === p.key ? 'text-blue-600 fc-tab-active' : 'text-gray-400'}`}
             onClick={() => setActivePanel(p.key)}
           >
             <div className="flex justify-center mb-0.5">

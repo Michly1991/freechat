@@ -35,3 +35,100 @@ body {
     font-size: 16px;
   }
 }
+
+@keyframes fc-fade-up {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes fc-soft-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+  50% { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.08); }
+}
+
+@keyframes fc-review-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.08); }
+  50% { box-shadow: 0 0 0 8px rgba(168, 85, 247, 0.12); }
+}
+
+@keyframes fc-shimmer {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+
+.fc-enter {
+  animation: fc-fade-up 220ms ease-out both;
+}
+
+.fc-card-hover {
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background-color 180ms ease;
+}
+
+.fc-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+.fc-pressable {
+  transition: transform 120ms ease, background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.fc-pressable:active {
+  transform: scale(0.97);
+}
+
+.fc-tab-active {
+  animation: fc-soft-pulse 1.8s ease-in-out infinite;
+}
+
+.fc-progress-bar {
+  transition: width 520ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease;
+}
+
+.fc-progress-shine {
+  position: relative;
+  overflow: hidden;
+}
+
+.fc-progress-shine::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+  animation: fc-shimmer 1.8s ease-in-out infinite;
+}
+
+.fc-review-glow {
+  animation: fc-review-glow 2.2s ease-in-out infinite;
+}
+
+.fc-avatar-pop {
+  transition: transform 160ms ease, filter 160ms ease;
+}
+
+.fc-avatar-pop:hover {
+  transform: translateY(-1px) scale(1.05);
+  filter: saturate(1.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-breathing,
+  .fc-enter,
+  .fc-tab-active,
+  .fc-review-glow,
+  .fc-progress-shine::after {
+    animation: none !important;
+  }
+  .fc-card-hover,
+  .fc-pressable,
+  .fc-avatar-pop,
+  .fc-progress-bar {
+    transition: none !important;
+  }
+  .fc-card-hover:hover,
+  .fc-pressable:active,
+  .fc-avatar-pop:hover {
+    transform: none !important;
+  }
+}
