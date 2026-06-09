@@ -66,7 +66,6 @@ export class TaskItemService {
     const summary: any = { total: items.length, done: 0, todo: 0, assigned: 0, doing: 0, review: 0, blocked: 0, failed: 0, cancelled: 0, progress: 0 }
     items.forEach((item) => {
       summary[item.status] = (summary[item.status] || 0) + 1
-      if (DONE_STATUSES.has(item.status)) summary.done += 1
     })
     summary.progress = summary.total > 0 ? Math.round((summary.done / summary.total) * 100) : 0
     return summary
