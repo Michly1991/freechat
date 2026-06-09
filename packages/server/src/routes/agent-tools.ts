@@ -421,6 +421,27 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           broadcast(roomId, 'tabs.updated', { action: 'reorder', tabIds: args.tabIds })
           return { success: true }
         }
+        case 'agent.list_available':
+        case 'agent.list-available': {
+          await agentService.assertRoomAssistant(roomId, agent.id)
+          const agents = await agentService.getAvailableAgentsForRoom(roomId, agent.id)
+          return { success: true, data: { agents } }
+        }
+        case 'agent.add': {
+          await agentService.assertRoomAssistant(roomId, agent.id)
+          const target = await agentService.resolveAvailableAgentForRoom(roomId, agent.id, args.agent || args.agentId || args.name)
+          const roomRole = args.roomRole === 'assistant' ? 'assistant' : (target.roleType === 'assistant' ? 'assistant' : 'specialist')
+          await agentService.addAgentToRoom(roomId, target.id, agent.id, {
+            roomRole,
+            autoEnabled: args.autoEnabled === true,
+            priority: Number(args.priority || 0),
+          })
+          await agentService.refreshRoomAgentContext(roomId)
+          const members = await roomService.getRoomMembers(roomId)
+          const agents = await agentService.getRoomAgents(roomId)
+          broadcast(roomId, 'room.members_update', { members, agents })
+          return { success: true, data: { agent: target, agents } }
+        }
         case 'members.list': {
           const members = await roomService.getRoomMembers(roomId)
           const agents = await agentService.getRoomAgents(roomId)

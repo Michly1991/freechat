@@ -353,6 +353,7 @@ export default function RoomPage() {
         })
       } else if (msg.action === 'room.members_update') {
         setMembers(msg.payload.members || [])
+        if (Array.isArray(msg.payload.agents)) setRoomAgents(msg.payload.agents)
       } else if (msg.action === 'agent.status_update') {
         setRoomAgents((prev) => prev.map((a) => a.id === msg.payload.agentId ? { ...a, ...msg.payload } : a))
       } else if (msg.action === 'task.list_result') {

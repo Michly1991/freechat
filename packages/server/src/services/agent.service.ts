@@ -123,6 +123,44 @@ export class AgentService {
     return rows.map(r => this.rowToAgent(r))
   }
 
+  async getAvailableAgentsForRoom(roomId: string, requesterAgentId: string): Promise<Agent[]> {
+    const requester = db.prepare('SELECT owner_id FROM agents WHERE id = ?').get(requesterAgentId) as any
+    if (!requester) throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found' }
+    const rows = db.prepare(`
+      SELECT a.* FROM agents a
+      WHERE a.owner_id = ?
+        AND a.status != 'inactive'
+        AND (a.config IS NULL OR a.config NOT LIKE '%"defaultRoomAssistant":true%')
+        AND NOT EXISTS (
+          SELECT 1 FROM room_agents ra WHERE ra.room_id = ? AND ra.agent_id = a.id
+        )
+      ORDER BY a.created_at DESC
+    `).all(requester.owner_id, roomId) as AgentRow[]
+    return rows.map(r => this.rowToAgent(r))
+  }
+
+  async assertRoomAssistant(roomId: string, agentId: string): Promise<void> {
+    const row = db.prepare(`
+      SELECT a.role_type, ra.room_role
+      FROM agents a
+      INNER JOIN room_agents ra ON a.id = ra.agent_id
+      WHERE ra.room_id = ? AND a.id = ?
+    `).get(roomId, agentId) as any
+    if (!row) throw { code: 'FORBIDDEN', message: 'Agent is not in this room' }
+    if (row.room_role !== 'assistant' && row.role_type !== 'assistant') {
+      throw { code: 'FORBIDDEN', message: 'Only room assistant agents can add agents' }
+    }
+  }
+
+  async resolveAvailableAgentForRoom(roomId: string, requesterAgentId: string, raw: string): Promise<Agent> {
+    const text = String(raw || '').trim().replace(/^@/, '')
+    if (!text) throw { code: 'VALIDATION_ERROR', message: 'agent name or id is required' }
+    const agents = await this.getAvailableAgentsForRoom(roomId, requesterAgentId)
+    const matched = agents.find((a) => a.id === text || a.name === text || a.name.includes(text) || text.includes(a.name))
+    if (!matched) throw { code: 'AGENT_NOT_FOUND', message: `Available agent not found: ${text}` }
+    return matched
+  }
+
   /**
    * Update agent fields
    */
@@ -296,7 +334,7 @@ export class AgentService {
   assertToolAllowed(agent: Agent, action: string): void {
     const tools: AgentToolPermissions = { ...DEFAULT_AGENT_TOOLS, ...(agent.config?.tools || {}) }
     const first = action.split('.')[0]
-    const domain = first === 'tab-config' ? 'file' : first
+    const domain = first === 'tab-config' ? 'file' : first === 'agent' ? 'members' : first
     const allowed = domain === 'chat' ? tools.chat
       : domain === 'task' ? tools.task
         : domain === 'file' ? tools.file
@@ -341,6 +379,7 @@ export class AgentService {
       '1. 只能通过 ./freechat 操作项目，不要直接访问或修改项目共享目录。',
       '2. 需要用户决策时使用 interaction。',
       '3. 处理长期事项时使用 task/progress。',
+      '3.1 需要查看房间协作者时使用 ./freechat members list；助理需要拉入业务 Agent 时可使用 ./freechat agent list-available 和 ./freechat agent add <名称或ID>。',
       agent.roleType === 'assistant'
         ? '4. 你是默认入口和调度者；用户未明确 @ 专家时，只代表自己/助理响应。若有更合适的专家，应优先通过任务/子任务分派给专家，不要自己硬做。'
         : '4. 专家只处理人类明确 @ 或任务分派给自己的事项；不要抢助理的入口职责。',
@@ -485,6 +524,8 @@ function usage() {
     '  ./freechat tab delete <tabId>',
     '  ./freechat tab reorder <tabId> [tabId...]',
     '  ./freechat members list',
+    '  ./freechat agent list-available',
+    '  ./freechat agent add <agentNameOrId>',
     '  ./freechat room info',
     '  ./freechat interaction confirm <title> [description]',
     '  ./freechat interaction choice <title> <opt1|opt2|...> [description]',
@@ -671,6 +712,12 @@ if (domain === 'chat' && cmd === 'send') {
   call('tab.reorder', { tabIds: rest });
 } else if (domain === 'members' && cmd === 'list') {
   call('members.list');
+} else if (domain === 'agent' && cmd === 'list-available') {
+  call('agent.list_available');
+} else if (domain === 'agent' && cmd === 'add') {
+  if (!rest[0]) die('agentNameOrId is required');
+  const opts = parseNamedOptions(rest.slice(1));
+  call('agent.add', { agent: rest[0], roomRole: opts.roomRole || opts.role, autoEnabled: opts.autoEnabled === 'true', priority: opts.priority });
 } else if (domain === 'room' && cmd === 'info') {
   call('room.info');
 } else if (domain === 'interaction' && ['confirm', 'choice', 'multi_choice'].includes(cmd)) {
@@ -833,6 +880,8 @@ Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文
 
 \`\`\`bash
 ./freechat members list
+./freechat agent list-available
+./freechat agent add <agentNameOrId>
 ./freechat room info
 \`\`\`
 
