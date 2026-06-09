@@ -503,12 +503,13 @@ export default function RoomPage() {
   }
   const getAgentStatusDotClass = (agent: any) => {
     const status = getAgentOnlineStatus(agent)
-    if (status === 'working') return 'bg-yellow-400 animate-pulse'
+    if (status === 'working') return 'bg-yellow-400 agent-breathing shadow-[0_0_0_4px_rgba(250,204,21,0.25)]'
     if (status === 'offline') return 'bg-gray-400'
     if (status === 'error') return 'bg-red-500'
     return 'bg-green-400'
   }
   const defaultAssistant = roomAgents.find((agent) => agent.roleType === 'assistant') || roomAgents[0]
+  const workingAgents = roomAgents.filter((agent) => getAgentOnlineStatus(agent) === 'working')
 
   const getMemberDisplayName = (member: any) => member.nickname || member.username || member.displayName || '未命名用户'
   const getMemberAvatar = (member: any) => member.avatar || ''
@@ -528,10 +529,12 @@ export default function RoomPage() {
     } else {
       setSelectedProfile({
         kind,
+        id: target.id,
         name: target.name,
         subtitle: target.roleType === 'assistant' ? '助理 Agent' : '专家 Agent',
         roleType: target.roleType,
         status: getAgentStatusLabel(target),
+        onlineStatus: getAgentOnlineStatus(target),
         specialties: target.specialties || [],
       })
     }
@@ -541,6 +544,14 @@ export default function RoomPage() {
   ) : (
     <div className={`${size} rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-sm font-semibold shrink-0`}>
       {(name || '?')[0].toUpperCase()}
+    </div>
+  )
+  const renderAgentAvatar = (agent: any, size = 'w-9 h-9', iconSize = 'w-5 h-5') => (
+    <div className="relative shrink-0">
+      <div className={`${size} bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center text-white font-medium`}>
+        <Bot className={iconSize} />
+      </div>
+      <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-white rounded-full ${getAgentStatusDotClass(agent)}`}></div>
     </div>
   )
 
@@ -1108,10 +1119,11 @@ export default function RoomPage() {
         </div>
         <button
           onClick={() => setShowMobileMembers(true)}
-          className="md:hidden flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-blue-50 text-blue-600 text-xs font-medium shrink-0"
+          className="md:hidden relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-blue-50 text-blue-600 text-xs font-medium shrink-0"
         >
           <Users className="w-4 h-4" />
           {members.length + roomAgents.length}
+          {workingAgents.length > 0 && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-yellow-400 agent-breathing shadow-[0_0_0_4px_rgba(250,204,21,0.25)]" />}
         </button>
       </header>
 
@@ -1148,6 +1160,7 @@ export default function RoomPage() {
             title="展开成员面板"
           >
             <PanelLeftOpen className="w-4 h-4" />
+            {workingAgents.length > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-yellow-400 agent-breathing shadow-[0_0_0_4px_rgba(250,204,21,0.25)]" />}
           </button>
         )}
         {/* Left: Panel content */}
@@ -1174,7 +1187,9 @@ export default function RoomPage() {
                       )}
                   <div className={`flex items-end gap-2 ${isOwn ? 'justify-end' : 'justify-start'}`}>
                     {!isOwn && (msg.actorRole === 'ai' ? (
-                      <button type="button" onClick={() => openMemberProfile(actorAgent, 'agent')} className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-green-400 to-blue-500 flex items-center justify-center text-white shrink-0 hover:ring-2 hover:ring-blue-200"><Bot className="w-5 h-5 sm:w-6 sm:h-6" /></button>
+                      <button type="button" onClick={() => openMemberProfile(actorAgent, 'agent')} className="shrink-0 hover:ring-2 hover:ring-blue-200 rounded-full">
+                        {renderAgentAvatar(actorAgent, 'w-10 h-10 sm:w-12 sm:h-12', 'w-5 h-5 sm:w-6 sm:h-6')}
+                      </button>
                     ) : (
                       <button type="button" onClick={() => actorMember && openMemberProfile(actorMember, 'member')} className="shrink-0 hover:ring-2 hover:ring-blue-200 rounded-full">
                         {renderAvatar(displayName, avatar, 'w-10 h-10 sm:w-12 sm:h-12')}
@@ -1225,14 +1240,7 @@ export default function RoomPage() {
                       <div className="px-3 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">AI Agents</div>
                       {filteredAgents.map((a) => (
                         <div key={a.id} className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm flex items-center gap-2" onClick={() => insertMention(a, 'agent')}>
-                          <div className="relative">
-                            <div className="w-6 h-6 bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center text-white text-xs">
-                              <Bot className="w-4 h-4" />
-                            </div>
-                            <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 border border-white rounded-full ${
-                              getAgentStatusDotClass(a)
-                            }`}></div>
-                          </div>
+                          {renderAgentAvatar(a, 'w-6 h-6', 'w-4 h-4')}
                           <span className="flex-1">{a.name}</span>
                           <span className="text-xs text-gray-400">
                             {getAgentStatusLabel(a)}
@@ -1502,14 +1510,7 @@ export default function RoomPage() {
                   <div className="space-y-1">
                     {roomAgents.map((agent) => (
                       <button key={agent.id} type="button" onClick={() => openMemberProfile(agent, 'agent')} className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-blue-50 transition-colors text-left">
-                        <div className="relative">
-                          <div className="w-9 h-9 bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                            <Bot className="w-5 h-5" />
-                          </div>
-                          <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-white rounded-full ${
-                            getAgentStatusDotClass(agent)
-                          }`}></div>
-                        </div>
+                        {renderAgentAvatar(agent, 'w-9 h-9', 'w-5 h-5')}
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-800 truncate">
                             {agent.name}
@@ -1564,14 +1565,7 @@ export default function RoomPage() {
                   <h4 className="px-1 pt-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">AI Agents</h4>
                   {roomAgents.map((agent) => (
                     <button key={agent.id} type="button" onClick={() => openMemberProfile(agent, 'agent')} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-blue-50 transition-colors text-left">
-                      <div className="relative">
-                        <div className="w-11 h-11 bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center text-white font-semibold">
-                          <Bot className="w-5 h-5" />
-                        </div>
-                        <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 border-2 border-white rounded-full ${
-                          getAgentStatusDotClass(agent)
-                        }`}></div>
-                      </div>
+                      {renderAgentAvatar(agent, 'w-11 h-11', 'w-5 h-5')}
                       <div className="flex-1">
                         <p className="font-medium text-gray-800">{agent.name}</p>
                         <p className="text-sm text-gray-400 flex items-center gap-1">
@@ -1601,9 +1595,7 @@ export default function RoomPage() {
           <div className="w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3 min-w-0">
-                {selectedProfile.kind === 'agent' ? (
-                  <div className="w-14 h-14 rounded-full bg-gradient-to-br from-green-400 to-blue-500 flex items-center justify-center text-white shrink-0"><Bot className="w-7 h-7" /></div>
-                ) : renderAvatar(selectedProfile.name, selectedProfile.avatar, 'w-14 h-14')}
+                {selectedProfile.kind === 'agent' ? renderAgentAvatar(selectedProfile, 'w-14 h-14', 'w-7 h-7') : renderAvatar(selectedProfile.name, selectedProfile.avatar, 'w-14 h-14')}
                 <div className="min-w-0">
                   <p className="font-semibold text-gray-800 truncate">{selectedProfile.name}</p>
                   <p className="text-sm text-gray-400 truncate">{selectedProfile.subtitle}</p>
@@ -1621,7 +1613,10 @@ export default function RoomPage() {
               </div>
               <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2">
                 <span className="text-gray-500">状态</span>
-                <span className="font-medium text-gray-700">{selectedProfile.status}</span>
+                <span className="font-medium text-gray-700 inline-flex items-center gap-1.5">
+                  {selectedProfile.kind === 'agent' && <span className={`w-2 h-2 rounded-full ${getAgentStatusDotClass(selectedProfile)}`}></span>}
+                  {selectedProfile.status}
+                </span>
               </div>
               {selectedProfile.kind === 'agent' && (
                 <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2">
