@@ -324,30 +324,7 @@ export class WebSocketGateway {
     await this.invokeMentionedAgents(roomId, prompt, [{ id: assistant.id, name: assistant.name, role: 'ai' }], 'auto')
   }
 
-  private async sendAgentReceipt(roomId: string, agentId: string, agentName: string, reason: 'auto' | 'mention' | 'task' | 'manual' = 'mention') {
-    const receiptMsg = await messageService.createMessage(
-      roomId,
-      agentId,
-      agentName,
-      'ai',
-      '收到，处理中…',
-      undefined,
-      undefined,
-      'agent_receipt',
-      { status: 'accepted', reason }
-    )
-
-    this.broadcastToRoom(roomId, {
-      msgId: receiptMsg.id,
-      roomId,
-      type: 'broadcast',
-      action: 'chat.message',
-      payload: receiptMsg,
-      timestamp: Date.now()
-    })
-  }
-
-  private async invokeMentionedAgents(roomId: string, content: string, mentions: any[], receiptReason: 'auto' | 'mention' | 'task' | 'manual' = 'mention') {
+  private async invokeMentionedAgents(roomId: string, content: string, mentions: any[], _receiptReason: 'auto' | 'mention' | 'task' | 'manual' = 'mention') {
     const agentMentions = mentions.filter((m) => m?.role === 'ai' && m?.id)
     if (agentMentions.length === 0) return
 
@@ -370,7 +347,6 @@ export class WebSocketGateway {
       })
 
       try {
-        await this.sendAgentReceipt(roomId, agentId, agent.name, receiptReason)
         await agentService.updateAgent(agentId, { status: 'working' } as any)
         const result = await agentService.spawnClaudeCode(roomId, agentId, content)
         await agentService.updateAgent(agentId, { status: 'active' } as any)

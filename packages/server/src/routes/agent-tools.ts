@@ -86,8 +86,6 @@ async function invokeAssignedAgent(roomId: string, assigneeId: string | undefine
     try {
       await agentService.updateAgent(assigned.id, { status: 'working' } as any)
       broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'working', onlineStatus: 'working', lastActiveAt: Date.now() })
-      const receipt = await messageService.createMessage(roomId, assigned.id, assigned.name, 'ai', '收到，处理中…', undefined, undefined, 'agent_receipt', { status: 'accepted', reason: 'task' })
-      broadcast(roomId, 'chat.message', receipt)
       const result = await agentService.spawnClaudeCode(roomId, assigned.id, prompt)
       await agentService.updateAgent(assigned.id, { status: 'active' } as any)
       broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'active', onlineStatus: 'online', lastActiveAt: Date.now() })
