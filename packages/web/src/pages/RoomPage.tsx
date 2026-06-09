@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/authStore'
 import { api } from '../lib/api'
 import { addClientLog, clearClientLogs, formatClientLogs, getClientLogs, subscribeClientLogs, type ClientLogEntry } from '../lib/clientLog'
 import { useFeedback } from '../components/FeedbackProvider'
-import { Bot, Clipboard, FileText, Folder, ListTodo, MessageCircle, PanelLeftClose, PanelLeftOpen, PanelsTopLeft, Pencil, Settings, ShieldCheck, Trash2, UserRound, Users, Wrench, X } from 'lucide-react'
+import { Bot, Clipboard, FileText, Folder, ListTodo, MessageCircle, PanelLeftClose, PanelLeftOpen, PanelsTopLeft, Pencil, Settings, ShieldCheck, Sparkles, Trash2, UserRound, Users, Wrench, X } from 'lucide-react'
 
 interface Message {
   id: string
@@ -548,14 +548,19 @@ export default function RoomPage() {
       {(name || '?')[0].toUpperCase()}
     </div>
   )
-  const renderAgentAvatar = (agent: any, size = 'w-9 h-9', iconSize = 'w-5 h-5') => (
-    <div className="relative shrink-0">
-      <div className={`${size} bg-gradient-to-br from-green-400 to-blue-500 rounded-full flex items-center justify-center text-white font-medium`}>
-        <Bot className={iconSize} />
+  const renderAgentAvatar = (agent: any, size = 'w-9 h-9', iconSize = 'w-5 h-5') => {
+    const isAssistant = agent?.roleType === 'assistant'
+    const Icon = isAssistant ? Sparkles : Bot
+    const gradient = isAssistant ? 'from-violet-400 via-fuchsia-400 to-blue-500' : 'from-green-400 to-blue-500'
+    return (
+      <div className="relative shrink-0">
+        <div className={`${size} bg-gradient-to-br ${gradient} rounded-full flex items-center justify-center text-white font-medium shadow-sm`}>
+          <Icon className={iconSize} />
+        </div>
+        <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-white rounded-full ${getAgentStatusDotClass(agent)}`}></div>
       </div>
-      <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-white rounded-full ${getAgentStatusDotClass(agent)}`}></div>
-    </div>
-  )
+    )
+  }
 
   const filteredMembers = members.filter((m) => {
     const id = m.id || m.userId
