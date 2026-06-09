@@ -312,17 +312,42 @@ export class WebSocketGateway {
 
     this.assistantAutoReplyCooldowns.set(roomId, now)
 
-    const recentMessages = await messageService.getMessages(roomId, 10)
+    const recentMessages = await messageService.getMessages(roomId, 12)
     const context = recentMessages
+      .filter((m: any) => m.kind !== 'agent_receipt')
+      .slice(-10)
       .map((m) => `${m.actorRole === 'ai' ? 'AI' : '用户'} ${m.actorName}: ${m.content}`)
       .join('\n')
 
     const prompt = `你是 FreeChat 房间助理，正在旁听项目对话。\n\n最近对话：\n${context}\n\n最新消息来自 ${actorName}: ${content}\n\n请判断是否需要你介入回复。\n- 如果只是闲聊、确认、测试、无意义短消息，或者人类成员可以自然继续，不要回复，只输出 [SILENT]。\n- 如果用户在提问、寻求方案、任务推进、总结、安排、阻塞处理、决策建议，才回复。\n- 如需推进项目，请优先使用 ./freechat CLI 同步任务/进度/文件。\n- 回复要简洁，不要抢话。`
 
-    await this.invokeMentionedAgents(roomId, prompt, [{ id: assistant.id, name: assistant.name, role: 'ai' }])
+    await this.invokeMentionedAgents(roomId, prompt, [{ id: assistant.id, name: assistant.name, role: 'ai' }], 'auto')
   }
 
-  private async invokeMentionedAgents(roomId: string, content: string, mentions: any[]) {
+  private async sendAgentReceipt(roomId: string, agentId: string, agentName: string, reason: 'auto' | 'mention' | 'task' | 'manual' = 'mention') {
+    const receiptMsg = await messageService.createMessage(
+      roomId,
+      agentId,
+      agentName,
+      'ai',
+      '收到，处理中…',
+      undefined,
+      undefined,
+      'agent_receipt',
+      { status: 'accepted', reason }
+    )
+
+    this.broadcastToRoom(roomId, {
+      msgId: receiptMsg.id,
+      roomId,
+      type: 'broadcast',
+      action: 'chat.message',
+      payload: receiptMsg,
+      timestamp: Date.now()
+    })
+  }
+
+  private async invokeMentionedAgents(roomId: string, content: string, mentions: any[], receiptReason: 'auto' | 'mention' | 'task' | 'manual' = 'mention') {
     const agentMentions = mentions.filter((m) => m?.role === 'ai' && m?.id)
     if (agentMentions.length === 0) return
 
@@ -345,6 +370,7 @@ export class WebSocketGateway {
       })
 
       try {
+        await this.sendAgentReceipt(roomId, agentId, agent.name, receiptReason)
         await agentService.updateAgent(agentId, { status: 'working' } as any)
         const result = await agentService.spawnClaudeCode(roomId, agentId, content)
         await agentService.updateAgent(agentId, { status: 'active' } as any)
@@ -518,7 +544,7 @@ export class WebSocketGateway {
         '- 用 ./freechat task progress 写入最近进展，用户会在任务卡片看到。',
         '- 子任务状态要及时维护，父任务会汇总显示子任务状态。',
       ].filter(Boolean).join('\n')
-      void this.invokeMentionedAgents(client.currentRoomId, prompt, [{ id: assigneeId, name: assigneeName || '助理', role: 'ai' }])
+      void this.invokeMentionedAgents(client.currentRoomId, prompt, [{ id: assigneeId, name: assigneeName || '助理', role: 'ai' }], 'task')
     }
   }
 

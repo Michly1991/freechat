@@ -12,7 +12,7 @@ interface Message {
   actorName: string
   actorRole: 'human' | 'ai'
   content: string
-  kind?: 'text' | 'interaction_request' | 'system'
+  kind?: 'text' | 'interaction_request' | 'system' | 'agent_receipt'
   payload?: any
   createdAt: number
 }
@@ -1140,6 +1140,7 @@ export default function RoomPage() {
                 const actorMember = isOwn ? user : getActorMember(msg)
                 const actorAgent = msg.actorRole === 'ai' ? (getActorAgent(msg) || { name: displayName, roleType: 'assistant', status: 'active' }) : null
                 const showUnreadMarker = unreadMarkerAt && !isOwn && (msg.createdAt || 0) > unreadMarkerAt && !messages.slice(0, messages.findIndex((m) => m.id === msg.id)).some((m) => m.actorId !== user?.id && (m.createdAt || 0) > unreadMarkerAt)
+                const isAgentReceipt = msg.kind === 'agent_receipt'
                 return (
                     <div key={msg.id} id={`msg-${msg.id}`}>
                       {showUnreadMarker && (
@@ -1157,15 +1158,15 @@ export default function RoomPage() {
                         {renderAvatar(displayName, avatar, 'w-10 h-10 sm:w-12 sm:h-12')}
                       </button>
                     ))}
-                    <div className={`max-w-[78%] sm:max-w-[80%] rounded-xl px-3 sm:px-4 py-2 ${isOwn ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-800'}`}>
+                    <div className={`max-w-[78%] sm:max-w-[80%] rounded-xl px-3 sm:px-4 py-2 ${isAgentReceipt ? 'bg-gray-50 border border-dashed border-gray-200 text-gray-500' : (isOwn ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-800')}`}>
                       <button
                         type="button"
                         onClick={() => msg.actorRole === 'ai' ? openMemberProfile(actorAgent, 'agent') : actorMember && openMemberProfile(actorMember, 'member')}
-                        className={`block text-xs mb-1 text-left ${isOwn ? 'text-blue-200' : 'text-gray-400 hover:text-blue-500'}`}
+                        className={`block text-xs mb-1 text-left ${isAgentReceipt ? 'text-gray-400' : (isOwn ? 'text-blue-200' : 'text-gray-400 hover:text-blue-500')}`}
                       >
                         {msg.actorRole === 'ai' ? 'AI · ' : ''}{displayName}
                       </button>
-                      {msg.kind === 'interaction_request' ? renderInteractionCard(msg) : <p className="text-sm whitespace-pre-wrap">{renderMessageContent(msg.content, isOwn)}</p>}
+                      {msg.kind === 'interaction_request' ? renderInteractionCard(msg) : <p className={`${isAgentReceipt ? 'text-xs' : 'text-sm'} whitespace-pre-wrap`}>{renderMessageContent(msg.content, isOwn)}</p>}
                     </div>
                     {isOwn && (
                       <button type="button" onClick={() => actorMember && openMemberProfile(actorMember, 'member')} className="shrink-0 hover:ring-2 hover:ring-blue-200 rounded-full">

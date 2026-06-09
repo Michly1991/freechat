@@ -106,7 +106,7 @@ schema_migrations      -- 数据库迁移记录
 - `files.updated` / `tabs.updated`
 - `room.joined` / `room.member_join` / `room.member_leave` / `room.online_update`
 
-前后端共享包维护 `WSMessage` 和 `WSEventAction` 类型，新增事件必须先更新共享类型和设计文档。
+前后端共享包维护 `WSMessage` 和 `WSEventAction` 类型，新增事件必须先更新共享类型和设计文档。消息 `kind` 目前包含普通文本、交互卡、系统消息和 `agent_receipt`（Agent 受理回执）。
 
 多 Agent 触发规则：人类消息可以 @ 一个或多个 Agent；无人 @ 时只触发当前房间唯一 `auto_enabled` Agent；AI 普通消息不再触发其他 Agent，避免 Agent 互相对话造成循环。
 

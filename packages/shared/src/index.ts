@@ -107,7 +107,7 @@ export interface Message {
   actorName: string
   actorRole: 'human' | 'ai'
   content: string
-  kind?: 'text' | 'interaction_request' | 'system'
+  kind?: 'text' | 'interaction_request' | 'system' | 'agent_receipt'
   payload?: Record<string, any>
   mentions?: Mention[]
   replyTo?: string
