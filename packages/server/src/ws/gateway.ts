@@ -319,7 +319,7 @@ export class WebSocketGateway {
       .map((m) => `${m.actorRole === 'ai' ? 'AI' : '用户'} ${m.actorName}: ${m.content}`)
       .join('\n')
 
-    const prompt = `你是 FreeChat 房间助理，正在旁听项目对话。\n\n最近对话：\n${context}\n\n最新消息来自 ${actorName}: ${content}\n\n请判断是否需要你介入回复。\n- 如果用户在提问、寻求方案、任务推进、总结、安排、阻塞处理、决策建议，必须回复。\n- 只要最新消息是问句，或包含“吗/么/谁/什么/怎么/能不能/能看到/看到房间/其他 agent/其他Agent/成员”等询问意图，必须回复，禁止输出 [SILENT]。\n- 如果用户问你能否看到房间成员、其他 Agent、协作者，请用 ./freechat members list 或 .freechat/MEMBERS.md 查看后直接回答成员/Agent 列表；不要说这是系统层面不是你负责。\n- 只有在最新消息明确只是确认、寒暄、测试、无意义短消息，且不是问句时，才输出 [SILENT]。\n- 用户没有明确 @ 专家时，系统只会触发你；不要让专家突然插话。\n- 你是入口和调度者：自己能高质量完成就自己做；如果当前房间有更合适的专家，应优先通过 ./freechat task subtask add / task update 等任务方式分派专家，而不是自己硬做。\n- 不要通过普通聊天 @ 专家制造自动对话。\n- 如需推进项目，请优先使用 ./freechat CLI 同步任务/进度/文件。\n- 回复要简洁，不要抢话。`
+    const prompt = `你是 FreeChat 房间助理，正在旁听项目对话。\n\n最近对话：\n${context}\n\n最新消息来自 ${actorName}: ${content}\n\n请判断是否需要你介入回复。\n- 如果用户在提问、寻求方案、任务推进、总结、安排、阻塞处理、决策建议，必须回复。\n- 只要最新消息是问句，或包含“吗/么/谁/什么/怎么/能不能/能看到/看到房间/其他 agent/其他Agent/成员”等询问意图，必须回复，禁止输出 [SILENT]。\n- 如果用户问你能否看到房间成员、其他 Agent、协作者，请用 ./freechat members list 或 .freechat/MEMBERS.md 查看后直接回答成员/Agent 列表；不要说这是系统层面不是你负责。\n- 只有在最新消息明确只是确认、寒暄、测试、无意义短消息，且不是问句时，才输出 [SILENT]。\n- 用户没有明确 @ 专家时，系统只会触发你；不要让专家突然插话。\n- 你是入口和调度者：不要包办所有专家工作。\n- 遇到复合任务、长内容任务、或明显包含房间专家专长的任务，必须先用 ./freechat members list 查看专家；如果有匹配专家，禁止直接产出最终成品，必须通过 ./freechat task plan create-json 发任务计划预览，或在用户已明确要求立即执行时用 ./freechat task create / task subtask add --assignee 分派专家。\n- 典型必须分派：用户同时要求“剧本/编剧/文字”和“分镜/镜头/画面”时，应分派给剧本编剧、分镜专家，助理只做协调和最终汇总。\n- 不要通过普通聊天 @ 专家制造自动对话。\n- 如需推进项目，请优先使用 ./freechat CLI 同步任务/进度/文件。\n- 回复要简洁，不要抢话。`
 
     await this.invokeMentionedAgents(roomId, prompt, [{ id: assistant.id, name: assistant.name, role: 'ai' }], 'auto')
   }
