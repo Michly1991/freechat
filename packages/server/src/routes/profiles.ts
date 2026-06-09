@@ -3,6 +3,7 @@ import { membersService } from '../services/members.service.js'
 import { roomService } from '../services/room.service.js'
 import db from '../storage/db.js'
 import { getFriendStatus } from './friends.js'
+import { agentService } from '../services/agent.service.js'
 
 export async function registerProfileRoutes(app: FastifyInstance) {
   // GET /api/rooms/:roomId/profiles - get all profiles
@@ -65,6 +66,7 @@ export async function registerProfileRoutes(app: FastifyInstance) {
           persona: body.persona,
         },
       })
+      await agentService.refreshRoomAgentContext(roomId).catch(() => {})
 
       return reply.send({ success: true, data: { profile } })
     } catch (err: any) {
@@ -107,6 +109,7 @@ export async function registerProfileRoutes(app: FastifyInstance) {
       }
 
       await membersService.batchUpdateProfiles(roomId, profiles)
+      await agentService.refreshRoomAgentContext(roomId).catch(() => {})
       return reply.send({ success: true })
     } catch (err: any) {
       throw err

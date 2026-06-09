@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 import db from '../storage/db.js'
 import { getGateway } from '../ws/gateway.js'
 import { areFriends } from './friends.js'
+import { agentService } from '../services/agent.service.js'
 
 export async function registerRoomRoutes(app: FastifyInstance) {
   // Get user's rooms
@@ -35,6 +36,7 @@ export async function registerRoomRoutes(app: FastifyInstance) {
         : []
       const initialAgents = Array.isArray(agents) ? agents : []
       const room = await roomService.createRoom(name, description || null, user.id, initialMemberIds, initialAgents)
+      await agentService.refreshRoomAgentContext(room.id).catch(() => {})
       return reply.send({ success: true, data: { room } })
     } catch (err: any) {
       throw err
@@ -146,6 +148,7 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     }
 
     await roomService.addMember(id, userId, role)
+    await agentService.refreshRoomAgentContext(id).catch(() => {})
     const members = await roomService.getRoomMembers(id)
     getGateway()?.broadcast(id, {
       msgId: uuidv4(),
@@ -215,6 +218,7 @@ export async function registerRoomRoutes(app: FastifyInstance) {
 
     // Add member
     await roomService.addMember(invite.room_id, user.id, 'editor')
+    await agentService.refreshRoomAgentContext(invite.room_id).catch(() => {})
 
     // Increment used count
     db.prepare('UPDATE room_invites SET used_count = used_count + 1 WHERE code = ?').run(invite_code)

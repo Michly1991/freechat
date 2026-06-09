@@ -349,6 +349,71 @@ export class AgentService {
     ].filter(Boolean).join('\n')
   }
 
+  async buildRoomContextFiles(roomId: string, currentAgent?: Agent): Promise<{ roomMd: string; membersMd: string }> {
+    const room = db.prepare('SELECT id, name, description, created_by, created_at, updated_at FROM rooms WHERE id = ?').get(roomId) as any
+    const members = db.prepare(`
+      SELECT rm.role, rm.joined_at, u.id, u.username, u.nickname, u.avatar,
+             rp.display_name, rp.role_description, rp.custom_data
+      FROM room_members rm
+      INNER JOIN users u ON rm.user_id = u.id
+      LEFT JOIN room_profiles rp ON rm.room_id = rp.room_id AND rm.user_id = rp.member_id
+      WHERE rm.room_id = ?
+      ORDER BY rm.joined_at ASC
+    `).all(roomId) as any[]
+    const agents = await this.getRoomAgents(roomId)
+
+    const roomMd = `# Room Context\n\n- Room ID: ${roomId}\n- Name: ${room?.name || ''}\n- Description: ${room?.description || ''}\n${currentAgent ? `- Current Agent: ${currentAgent.name}\n- Current Agent ID: ${currentAgent.id}\n- Current Agent Role: ${currentAgent.roleType}\n` : ''}`
+
+    const humanLines = members.map((m) => {
+      const custom = m.custom_data ? (() => { try { return JSON.parse(m.custom_data) } catch { return {} } })() : {}
+      const profileSpecs = Array.isArray(custom.specialties) ? custom.specialties.join('、') : ''
+      return [
+        `- ${m.display_name || m.nickname || m.username} (@${m.username})`,
+        `  - ID: ${m.id}`,
+        `  - Room Role: ${m.role}`,
+        custom.roleTitle ? `  - Title: ${custom.roleTitle}` : '',
+        m.role_description ? `  - Role Description: ${m.role_description}` : '',
+        custom.persona ? `  - Persona: ${custom.persona}` : '',
+        profileSpecs ? `  - Specialties: ${profileSpecs}` : '',
+      ].filter(Boolean).join('\n')
+    }).join('\n')
+
+    const agentLines = agents.map((a) => {
+      const cfg = a.config || {}
+      return [
+        `- ${a.name}`,
+        `  - ID: ${a.id}`,
+        `  - Type: ${a.roleType}`,
+        `  - Room Role: ${a.roomRole || (a.roleType === 'assistant' ? 'assistant' : 'specialist')}`,
+        `  - Auto Enabled: ${a.autoEnabled ? 'yes' : 'no'}`,
+        `  - Status: ${a.status || 'active'}`,
+        a.description ? `  - Description: ${a.description}` : '',
+        a.specialties?.length ? `  - Specialties: ${a.specialties.join('、')}` : '',
+        cfg.systemPrompt ? `  - Custom Prompt Summary: ${String(cfg.systemPrompt).slice(0, 300)}` : '',
+      ].filter(Boolean).join('\n')
+    }).join('\n')
+
+    const membersMd = `# Members and Agents\n\n所有当前房间协作者如下。分派专家时必须使用这里的 Agent 名称或 ID，例如：\`./freechat task create "任务" "说明" --assignee "专家名称"\`。\n\n## Humans\n\n${humanLines || '- none'}\n\n## Agents\n\n${agentLines || '- none'}\n`
+    return { roomMd, membersMd }
+  }
+
+  async refreshRoomAgentContext(roomId: string): Promise<void> {
+    const agents = await this.getRoomAgents(roomId)
+    const rootMetaDir = join(config.workspace.root, roomId, '.freechat')
+    await mkdir(rootMetaDir, { recursive: true })
+    const rootCtx = await this.buildRoomContextFiles(roomId)
+    await writeFile(join(rootMetaDir, 'ROOM.md'), rootCtx.roomMd, 'utf8')
+    await writeFile(join(rootMetaDir, 'MEMBERS.md'), rootCtx.membersMd, 'utf8')
+
+    for (const agent of agents) {
+      const metaDir = join(config.workspace.root, roomId, 'agents', agent.id, '.freechat')
+      await mkdir(metaDir, { recursive: true })
+      const ctx = await this.buildRoomContextFiles(roomId, agent)
+      await writeFile(join(metaDir, 'ROOM.md'), ctx.roomMd, 'utf8')
+      await writeFile(join(metaDir, 'MEMBERS.md'), ctx.membersMd, 'utf8')
+    }
+  }
+
   async prepareAgentWorkspace(roomId: string, agent: Agent): Promise<string> {
     const workspaceDir = join(config.workspace.root, roomId, 'agents', agent.id)
     const metaDir = join(workspaceDir, '.freechat')
@@ -363,15 +428,7 @@ export class AgentService {
 
     const toolToken = createAgentToolToken(roomId, agent.id)
     const toolApiUrl = `http://127.0.0.1:${config.port}`
-    const room = db.prepare('SELECT id, name, description, created_by, created_at, updated_at FROM rooms WHERE id = ?').get(roomId) as any
-    const members = db.prepare(`
-      SELECT rm.role, rm.joined_at, u.username, u.nickname
-      FROM room_members rm
-      INNER JOIN users u ON rm.user_id = u.id
-      WHERE rm.room_id = ?
-      ORDER BY rm.joined_at ASC
-    `).all(roomId) as any[]
-    const agents = await this.getRoomAgents(roomId)
+    const contextFiles = await this.buildRoomContextFiles(roomId, agent)
 
     const cliPath = join(workspaceDir, 'freechat')
     await writeFile(cliPath, `#!/usr/bin/env node
@@ -686,9 +743,9 @@ if (domain === 'chat' && cmd === 'send') {
     await writeFile(join(workspaceDir, 'AGENT.md'), agentGuide, 'utf8')
     await writeFile(join(workspaceDir, 'CLAUDE.md'), `${agentGuide}\n\n启动后请先遵守本文件和 .freechat/API.md。\n`, 'utf8')
 
-    await writeFile(join(metaDir, 'ROOM.md'), `# Room Context\n\n- Room ID: ${roomId}\n- Name: ${room?.name || ''}\n- Description: ${room?.description || ''}\n- Current Agent: ${agent.name}\n- Agent ID: ${agent.id}\n- Agent Role: ${agent.roleType}\n`, 'utf8')
+    await writeFile(join(metaDir, 'ROOM.md'), contextFiles.roomMd, 'utf8')
 
-    await writeFile(join(metaDir, 'MEMBERS.md'), `# Members\n\n## Humans\n${members.map((m) => `- ${m.nickname || m.username} (@${m.username}) - ${m.role}`).join('\n') || '- none'}\n\n## Agents\n${agents.map((a) => `- ${a.name} (${a.roleType}) - ${a.status || 'active'}`).join('\n') || '- none'}\n`, 'utf8')
+    await writeFile(join(metaDir, 'MEMBERS.md'), contextFiles.membersMd, 'utf8')
 
     await writeFile(join(metaDir, 'API.md'), `# FreeChat CLI Contract
 
@@ -765,6 +822,8 @@ Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文
 \`\`\`
 
 ### 房间上下文
+
+\`.freechat/MEMBERS.md\` 会列出当前房间的人类成员和所有 Agent（含 ID、类型、房间角色、自动响应、描述、专长）。需要确认协作者时优先读取它，运行时也可用：
 
 \`\`\`bash
 ./freechat members list

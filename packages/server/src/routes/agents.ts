@@ -2,7 +2,6 @@ import { FastifyInstance } from 'fastify'
 import { agentService } from '../services/agent.service.js'
 import { roomService } from '../services/room.service.js'
 import { messageService } from '../services/message.service.js'
-import { membersService } from '../services/members.service.js'
 
 export async function registerAgentRoutes(app: FastifyInstance) {
   // ===== User's own agents =====
@@ -167,8 +166,8 @@ export async function registerAgentRoutes(app: FastifyInstance) {
         priority: Number(priority || 0),
       })
 
-      // Update MEMBERS.md
-      await membersService.updateMembersFile(roomId)
+      // Refresh Agent-visible room context files
+      await agentService.refreshRoomAgentContext(roomId)
 
       const agent = await agentService.getAgent(agentId)
       return reply.send({ success: true, data: { agent } })
@@ -196,8 +195,8 @@ export async function registerAgentRoutes(app: FastifyInstance) {
 
       await agentService.removeAgentFromRoom(roomId, agentId)
 
-      // Update MEMBERS.md
-      await membersService.updateMembersFile(roomId)
+      // Refresh Agent-visible room context files
+      await agentService.refreshRoomAgentContext(roomId)
 
       return reply.send({ success: true })
     } catch (err: any) {

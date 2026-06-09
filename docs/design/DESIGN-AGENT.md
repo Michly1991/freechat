@@ -993,6 +993,30 @@ type AgentRuntimeConfig = {
 
 Agent 运行时会把业务配置拼入 system prompt，同时保留系统边界：只能通过 `./freechat` 操作项目，不直接改共享目录；需要用户决策时使用 interaction；长期事项使用 task/progress。
 
+### Agent 房间上下文与协作者可见性
+
+所有 Agent 必须能看到当前房间的人类成员和 Agent 协作者。服务端维护两类上下文：
+
+- `.freechat/ROOM.md`：房间基本信息和当前 Agent 身份。
+- `.freechat/MEMBERS.md`：人类成员与 Agent 协作者列表。
+
+`MEMBERS.md` 中的 Agent 信息必须包含：
+
+- Agent 名称和 ID。
+- `roleType` / `roomRole`。
+- 是否 `autoEnabled`。
+- 当前状态。
+- 描述和专长。
+- 自定义 prompt 摘要。
+
+刷新策略：
+
+1. Agent 启动前，`prepareAgentWorkspace()` 会重新生成当前 Agent 工作区的 `.freechat/ROOM.md` 和 `.freechat/MEMBERS.md`，确保至少本次运行看到最新协作者。
+2. 新建项目、添加/移除 Agent、添加人员、加入项目、成员资料变更后，服务端会刷新房间内所有 Agent 工作区的上下文文件。
+3. `./freechat members list` 是运行时可信来源，会返回当前房间的人类成员和完整 Agent 列表。
+
+这样助理在分派专家前可以读取 `.freechat/MEMBERS.md` 或调用 `members list`，知道当前房间有哪些专家、专长是什么，以及应该用哪个名称/ID 执行 `--assignee`。
+
 ### 工具权限硬控
 
 工具权限不只写进 prompt，后端在 `POST /api/agent-tools/:roomId` 入口强制校验：
