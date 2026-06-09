@@ -248,6 +248,7 @@ export default function RoomPage() {
       try { const fd = await api.getFiles(roomId!); setFiles(fd.files || []) } catch (err: any) { addClientLog('error', 'ui', 'load files failed', { message: err?.message }) }
       try { const td = await api.getTabs(roomId!); setTabs(td.tabs || []) } catch (err: any) { addClientLog('error', 'ui', 'load tabs failed', { message: err?.message }) }
       try { const ra = await api.getRoomAgents(roomId!); setRoomAgents(ra.agents || []) } catch (err: any) { addClientLog('error', 'ui', 'load room agents failed', { message: err?.message }) }
+      try { const td = await api.getRoomTasks(roomId!); setTasks(td.tasks || []) } catch (err: any) { addClientLog('error', 'ui', 'load tasks failed', { message: err?.message }) }
       try {
         const md = await api.getRoomMessages(roomId!, 100)
         setMessages((prev) => {
@@ -359,8 +360,8 @@ export default function RoomPage() {
       } else if (msg.action === 'task.list_result') {
         setTasks(msg.payload.tasks || [])
       } else if (msg.action === 'task.changed') {
-        if (msg.payload.action === 'add') setTasks((prev) => [msg.payload.task, ...prev])
-        else if (msg.payload.action === 'update') setTasks((prev) => prev.map((t) => (t.id === msg.payload.task.id ? msg.payload.task : t)))
+        if (msg.payload.action === 'add') setTasks((prev) => prev.some((t) => t.id === msg.payload.task.id) ? prev.map((t) => (t.id === msg.payload.task.id ? msg.payload.task : t)) : [msg.payload.task, ...prev])
+        else if (msg.payload.action === 'update') setTasks((prev) => prev.some((t) => t.id === msg.payload.task.id) ? prev.map((t) => (t.id === msg.payload.task.id ? msg.payload.task : t)) : [msg.payload.task, ...prev])
         else if (msg.payload.action === 'delete') setTasks((prev) => prev.filter((t) => t.id !== msg.payload.task_id))
       } else if (msg.action === 'files.updated') {
         loadFiles()

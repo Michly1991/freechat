@@ -74,6 +74,7 @@ export const api = {
     request<{ room: any }>('/rooms', { method: 'POST', body: JSON.stringify(body) }),
   getRoom: (id: string) => request<{ room: any; members: any[] }>(`/rooms/${id}`),
   getRoomMessages: (id: string, limit = 100) => request<{ messages: any[] }>(`/rooms/${id}/messages?limit=${limit}`),
+  getRoomTasks: (id: string, status?: string) => request<{ tasks: any[] }>(`/rooms/${id}/tasks${status ? `?status=${encodeURIComponent(status)}` : ''}`),
   sendRoomMessage: (id: string, body: { content: string; mentions?: any[]; reply_to?: string }) =>
     request<{ message: any }>(`/rooms/${id}/messages`, { method: 'POST', body: JSON.stringify(body) }),
   updateRoom: (id: string, body: { name?: string; description?: string }) =>

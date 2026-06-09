@@ -5,6 +5,7 @@ import db from '../storage/db.js'
 import { getGateway } from '../ws/gateway.js'
 import { areFriends } from './friends.js'
 import { agentService } from '../services/agent.service.js'
+import { taskService } from '../services/task.service.js'
 
 export async function registerRoomRoutes(app: FastifyInstance) {
   // Get user's rooms
@@ -98,6 +99,24 @@ export async function registerRoomRoutes(app: FastifyInstance) {
       }
       throw err
     }
+  })
+
+  // Get room tasks
+  app.get('/api/rooms/:id/tasks', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    const { status } = request.query as any
+
+    const isMember = await roomService.isMember(id, user.id)
+    if (!isMember) {
+      return reply.code(403).send({
+        success: false,
+        error: { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' }
+      })
+    }
+
+    const tasks = await taskService.getRoomTasks(id, status)
+    return reply.send({ success: true, data: { tasks } })
   })
 
   // Get room members
