@@ -108,7 +108,7 @@ schema_migrations      -- 数据库迁移记录
 
 前后端共享包维护 `WSMessage` 和 `WSEventAction` 类型，新增事件必须先更新共享类型和设计文档。消息 `kind` 目前包含普通文本、交互卡、系统消息和 `agent_receipt`（Agent 受理回执）。
 
-多 Agent 触发规则：人类消息可以 @ 一个或多个 Agent；无人 @ 时只触发当前房间唯一 `auto_enabled` Agent；AI 普通消息不再触发其他 Agent，避免 Agent 互相对话造成循环。
+多 Agent 触发规则：人类消息可以 @ 一个或多个 Agent；无人 @ 时只触发当前房间唯一 `auto_enabled` 助理，后端不会自动把未 @ 消息路由给专家；AI 普通消息不再触发其他 Agent，避免 Agent 互相对话造成循环。专家优先处理由助理内部调度实现：助理判断有合适专家时通过任务/子任务分派，而不是系统让专家突然插话。
 
 产品层将人员和 Agent 统一抽象为“协作者”：通讯录中包含“人员 / Agent”两个分类，Agent 的创建与管理放在通讯录 Agent 分类；新建项目时可选择初始人员和 Agent；项目设置页使用一个“添加协作者”弹窗，内部切换“人员 / Agent”，底层仍分别写入 `room_members` 和 `room_agents`。
 

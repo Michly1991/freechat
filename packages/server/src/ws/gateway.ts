@@ -319,7 +319,7 @@ export class WebSocketGateway {
       .map((m) => `${m.actorRole === 'ai' ? 'AI' : '用户'} ${m.actorName}: ${m.content}`)
       .join('\n')
 
-    const prompt = `你是 FreeChat 房间助理，正在旁听项目对话。\n\n最近对话：\n${context}\n\n最新消息来自 ${actorName}: ${content}\n\n请判断是否需要你介入回复。\n- 如果只是闲聊、确认、测试、无意义短消息，或者人类成员可以自然继续，不要回复，只输出 [SILENT]。\n- 如果用户在提问、寻求方案、任务推进、总结、安排、阻塞处理、决策建议，才回复。\n- 如需推进项目，请优先使用 ./freechat CLI 同步任务/进度/文件。\n- 回复要简洁，不要抢话。`
+    const prompt = `你是 FreeChat 房间助理，正在旁听项目对话。\n\n最近对话：\n${context}\n\n最新消息来自 ${actorName}: ${content}\n\n请判断是否需要你介入回复。\n- 如果只是闲聊、确认、测试、无意义短消息，或者人类成员可以自然继续，不要回复，只输出 [SILENT]。\n- 如果用户在提问、寻求方案、任务推进、总结、安排、阻塞处理、决策建议，才回复。\n- 用户没有明确 @ 专家时，系统只会触发你；不要让专家突然插话。\n- 你是入口和调度者：自己能高质量完成就自己做；如果当前房间有更合适的专家，应优先通过 ./freechat task subtask add / task update 等任务方式分派专家，而不是自己硬做。\n- 不要通过普通聊天 @ 专家制造自动对话。\n- 如需推进项目，请优先使用 ./freechat CLI 同步任务/进度/文件。\n- 回复要简洁，不要抢话。`
 
     await this.invokeMentionedAgents(roomId, prompt, [{ id: assistant.id, name: assistant.name, role: 'ai' }], 'auto')
   }
@@ -538,7 +538,8 @@ export class WebSocketGateway {
         '',
         '请立即判断该任务如何处理：',
         '- 如果简单、单 Agent 可完成，不要再创建父任务，直接完成并在聊天中汇报。',
-        '- 如果复杂或需要跨 Agent 协作，请使用 ./freechat task subtask add 拆分子任务，并决定自己做还是分派专家。',
+        '- 如果复杂、需要专门能力，或当前房间有更合适的专家 Agent，请优先使用 ./freechat task subtask add 拆分子任务并分派专家，不要自己硬做。',
+        '- 不要通过普通聊天 @ 专家制造自动对话；专家应通过任务/子任务分派被唤醒。',
         '- 开始处理前可用 ./freechat task update 更新父任务状态，例如 status doing。',
         '- 接管后先用 ./freechat chat send 主动汇报。',
         '- 用 ./freechat task progress 写入最近进展，用户会在任务卡片看到。',
