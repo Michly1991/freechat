@@ -11,10 +11,10 @@ const markdownLimit = 600
 // Existing hotspots are allowed temporarily but may not grow further.
 // Refactor these down over time instead of raising the ceilings.
 const baselines = new Map([
-  ['packages/web/src/pages/RoomPage.tsx', 1750],
-  ['packages/server/src/services/agent.service.ts', 1120],
-  ['packages/server/src/ws/gateway.ts', 850],
-  ['packages/web/src/pages/HomePage.tsx', 730],
+  ['packages/web/src/pages/RoomPage.tsx', 1690],
+  ['packages/server/src/services/agent.service.ts', 980],
+  ['packages/server/src/ws/gateway.ts', 830],
+  ['packages/web/src/pages/HomePage.tsx', 700],
 ])
 
 function extOf(path) {

@@ -5,68 +5,7 @@ import { api } from '../lib/api'
 import { addClientLog, clearClientLogs, formatClientLogs, getClientLogs, subscribeClientLogs, type ClientLogEntry } from '../lib/clientLog'
 import { useFeedback } from '../components/FeedbackProvider'
 import { Bot, Clipboard, FileText, Folder, ListTodo, MessageCircle, PanelLeftClose, PanelLeftOpen, PanelsTopLeft, Pencil, Settings, ShieldCheck, Sparkles, Trash2, UserRound, Users, Wrench, X } from 'lucide-react'
-
-interface Message {
-  id: string
-  actorId: string
-  actorName: string
-  actorRole: 'human' | 'ai'
-  content: string
-  kind?: 'text' | 'interaction_request' | 'system' | 'agent_receipt'
-  payload?: any
-  createdAt: number
-}
-
-interface FileNode {
-  name: string
-  path: string
-  type: 'file' | 'directory'
-  children?: FileNode[]
-}
-
-interface Tab {
-  id: string
-  title?: string
-  name?: string
-  content: string
-  icon?: string
-  updated_at?: number
-  updatedAt?: number
-}
-
-type Panel = 'chat' | 'files' | 'tabs' | 'tasks'
-
-const LOCAL_MESSAGE_CACHE_LIMIT = 100
-const getMessageCacheKey = (roomId: string) => `freechat:room:${roomId}:messages`
-
-function mergeMessages(...groups: Message[][]): Message[] {
-  const map = new Map<string, Message>()
-  groups.flat().forEach((msg) => {
-    if (msg?.id) map.set(msg.id, { ...map.get(msg.id), ...msg })
-  })
-  return Array.from(map.values())
-    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
-    .slice(-LOCAL_MESSAGE_CACHE_LIMIT)
-}
-
-function readCachedMessages(roomId: string): Message[] {
-  try {
-    const raw = localStorage.getItem(getMessageCacheKey(roomId))
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? mergeMessages(parsed) : []
-  } catch {
-    return []
-  }
-}
-
-function writeCachedMessages(roomId: string, messages: Message[]) {
-  try {
-    localStorage.setItem(getMessageCacheKey(roomId), JSON.stringify(mergeMessages(messages)))
-  } catch {
-    // localStorage may be full or disabled; UI should still work.
-  }
-}
+import { mergeMessages, readCachedMessages, writeCachedMessages, type FileNode, type Message, type Panel, type Tab } from './room-page-model'
 
 export default function RoomPage() {
   const { roomId } = useParams<{ roomId: string }>()

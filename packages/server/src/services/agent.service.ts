@@ -9,6 +9,7 @@ import { config } from '../config.js'
 import { aiConfigService } from './ai-config.service.js'
 import { createAgentToolToken } from '../agent-tool-token.js'
 import { renderAgentCli } from './agent-cli-template.js'
+import { renderAgentApiDoc, renderAgentGuide } from './agent-workspace-template.js'
 import type { Agent, AgentRuntimeConfig, AgentToolPermissions, RoomAgentRole } from '@freechat/shared'
 import { DEFAULT_ASSISTANT_AGENT_CONFIG, DEFAULT_SPECIALIST_AGENT_CONFIG, DEFAULT_AGENT_TOOLS } from '@freechat/shared'
 
@@ -498,55 +499,7 @@ export class AgentService {
     await writeFile(cliPath, renderAgentCli({ apiUrl: toolApiUrl, roomId, token: toolToken }), 'utf8')
     await chmod(cliPath, 0o700)
 
-    const agentGuide = `# ${agent.name} Agent 工作区
-
-你是 FreeChat 房间中的 ${agent.roleType === 'assistant' ? '助理 Agent' : '专家 Agent'}。
-
-## 当前 Agent
-- Agent ID: ${agent.id}
-- 名称: ${agent.name}
-- 类型: ${agent.roleType}
-- 描述: ${agent.description || ''}
-- 专长: ${(agent.specialties || []).join(', ') || '未设置'}
-
-## 目录约定
-- \`skills/\`：只放你自己的技能说明、方法论、模板。
-- \`res/\`：只放你自己的临时资料、草稿、缓存、中间产物。
-- \`scripts/\`：只放你自己的脚本。
-- \`.freechat/\`：系统注入的房间上下文和 API 说明。
-- 当前目录是你的私有 Agent 工作区，不是用户项目文件区。
-
-## 强制规则
-1. 不要直接写入用户项目文件目录，不要访问或修改 \`../../files\`。
-2. 用户可见的项目文件必须通过 API 写入：
-   - 写文本：\`./freechat file write <path> <content>\`
-   - 写本地文件：\`./freechat file write-local <path> <localPath>\`
-   - 显示到文件 Tab：加 \`--show\`，或执行 \`./freechat file show <path>\`
-3. 读取用户项目文件必须通过 API：\`./freechat file read <path>\` 或 \`./freechat file list\`。
-4. 用户可见界面必须通过 Tab API 创建/更新：
-   - 推荐：\`./freechat tab create-local <title> res/page.html\`
-   - 从项目文件：\`./freechat tab create-file <title> ui/page.html\`
-5. 你自己的草稿、脚本、技能、资源可以放在当前工作区的 \`res/\`、\`scripts/\`、\`skills/\`。
-6. 不要滥建任务：简单、单 Agent 可直接完成的请求直接处理；只有复杂需求、跨 Agent 协作、需要长期跟踪或需要讨论分发时才创建父任务。
-7. 需要用户确认/选择时，使用 \`./freechat interaction confirm/choice/multi_choice\` 创建交互卡片，不要只发普通文本等待。
-8. 助理 Agent 是默认入口和调度者：用户没有明确 @ 专家时，只由助理接收请求；助理必须判断自己做还是交给专家。当前房间有更合适的专家时，应优先通过任务/子任务分派给专家，不要自己硬做。遇到复合任务、长内容任务、或明显命中专家专长的任务，必须先用 \`./freechat members list\` 查看专家；有匹配专家时禁止直接产出最终成品，必须创建 task plan 预览或用 \`--assignee\` 分派专家。当前房间缺少必要专家时，助理可用 \`./freechat agent create-request <名称> --description <职责> --specialties <专长1,专长2>\` 发起创建专家 Agent 的确认卡；必须等待用户确认，不能直接创建。
-9. 专家 Agent 只在“人类明确 @ 自己”或“任务/子任务分派给自己”时处理，不要主动组织其他 Agent 讨论。
-10. 不要通过普通聊天 @ 另一个 Agent 来制造自动对话；多 Agent 协作必须优先通过任务/子任务分派。
-11. 长任务开始时先用 \`./freechat chat send\` 汇报，必要时同步任务状态。
-12. Markdown 文件保持精简：AGENT.md、CLAUDE.md、.freechat/API.md 等单文件不超过 500 行；内容超长时拆分到 \`res/\` 中，主文件只保留索引和按需读取说明。
-
-## 推荐工作流
-- 简单且没有匹配专家的事项：直接处理并简短汇报，不创建任务。
-- 复杂/跨 Agent/长内容/命中专家专长的事项：必须先用 \`./freechat members list\` 查看协作者，再用 \`./freechat task plan create-json res/task-plan.json\` 发真实任务计划交互卡，让用户确认；用户确认后系统会创建真实任务/子任务并唤醒专家。不要直接写假任务表，禁止只用普通聊天文本/Markdown 表格/数字选项当作任务计划。用户给出大致题材但缺少时长/受众等细节时，不要只追问；先用合理默认假设创建计划卡，并在计划说明里写清可后续调整。
-- 典型必须分派：用户同时要求“剧本/编剧/文字”和“分镜/镜头/画面”时，应拆给剧本编剧与分镜专家，助理只协调和汇总。
-- 用户已明确要求立即执行或已确认计划时，助理作为入口创建父任务，判断合适专家；有合适专家时必须用 \`--assignee "专家名称"\` 创建任务/子任务分派专家，不能只在聊天里 @ 专家。
-- Agent 完成父任务时应提交为待审核（review），不要直接隐藏任务；人类确认后才进入 done。
-- 需要确认/选择/多选：创建 interaction 卡片，用户点击后继续。
-- 文档/交付物：先写到项目文件，必要时 \`--show\`。
-- 界面/看板：先在 \`res/\` 生成 HTML，再用 \`tab create-local/update-local\` 发布。
-- 大段内容不要塞进命令行参数，优先使用 \`write-local/create-local/update-local\`。
-- Markdown 超过 500 行时拆分到 \`res/\`，主文件保留目录/索引，按需读取。
-`
+    const agentGuide = renderAgentGuide(agent)
 
     await writeFile(join(workspaceDir, 'AGENT.md'), agentGuide, 'utf8')
     await writeFile(join(workspaceDir, 'CLAUDE.md'), `${agentGuide}\n\n启动后请先遵守本文件和 .freechat/API.md。\n`, 'utf8')
@@ -555,107 +508,7 @@ export class AgentService {
 
     await writeFile(join(metaDir, 'MEMBERS.md'), contextFiles.membersMd, 'utf8')
 
-    await writeFile(join(metaDir, 'API.md'), `# FreeChat CLI Contract
-
-Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文件和用户可见界面。
-
-## 快速工作流
-
-### 聊天汇报
-
-\`\`\`bash
-./freechat chat send "我开始处理这个任务"
-\`\`\`
-
-### 项目文件
-
-\`\`\`bash
-./freechat file list
-./freechat file read docs/example.md
-./freechat file write docs/progress.md "进度内容" --show
-./freechat file write-local docs/report.md res/report.md --show
-./freechat file show docs/report.md
-./freechat file hide docs/report.md
-\`\`\`
-
-说明：文件写入项目区后，只有加入 Tab 配置才会出现在页面“文件”Tab。\`--show\` 等价于写入后加入文件 Tab。
-
-### 动态界面 Tab
-
-\`\`\`bash
-./freechat tab list
-./freechat tab create-local "项目看板" res/dashboard.html
-./freechat tab update-local <tabId> res/dashboard.html
-./freechat tab create-file "项目看板" ui/dashboard.html
-./freechat tab update-file <tabId> ui/dashboard.html
-./freechat tab delete <tabId>
-./freechat tab reorder <tabId> [tabId...]
-\`\`\`
-
-推荐：先在 \`res/\` 里生成 HTML，检查后用 \`tab create-local\` 发布；如果 HTML 也需要作为项目交付物留档，再使用 \`file write-local ui/dashboard.html res/dashboard.html --show\`。
-
-### 任务
-
-\`\`\`bash
-./freechat task list
-./freechat task create "拆分任务标题" "任务说明"
-./freechat task create "专家任务标题" "任务说明" --assignee "专家名称"
-./freechat task update <taskId> status doing
-./freechat task update <taskId> status review reviewNote "已完成，等待确认"
-./freechat task update <taskId> status done
-./freechat task progress <taskId> "最近进展说明，用户会在任务卡片看到"
-./freechat interaction confirm <title> [description]
-./freechat interaction choice <title> <opt1|opt2|opt3> [description]
-./freechat interaction multi_choice <title> <opt1|opt2|opt3> [description]
-./freechat interaction create-json res/interaction.json
-./freechat interaction list pending
-./freechat interaction consume <interactionId>
-./freechat task subtask list <taskId>
-./freechat task subtask add <taskId> "子任务标题" "说明"
-./freechat task subtask add <taskId> "专家子任务标题" "说明" --assignee "专家名称"
-./freechat task subtask update <subtaskId> status doing
-./freechat task subtask update <subtaskId> status done
-./freechat task subtask delete <subtaskId>
-./freechat task plan create-json res/task-plan.json
-\`\`\`
-
-### 用户确认/选择
-
-\`\`\`bash
-./freechat interaction confirm "是否继续执行？" "这会修改项目文件"
-./freechat interaction choice "请选择方案" "简单实现|完整实现|暂停" "我会按你的选择继续"
-./freechat interaction multi_choice "选择要处理的模块" "前端|后端|测试|文档" "可多选"
-./freechat interaction create-json res/interaction.json
-./freechat interaction list pending
-./freechat interaction consume <interactionId>
-\`\`\`
-
-### 房间上下文
-
-\`.freechat/MEMBERS.md\` 会列出当前房间的人类成员和所有 Agent（含 ID、类型、房间角色、自动响应、描述、专长）。需要确认协作者时优先读取它，运行时也可用：
-
-\`\`\`bash
-./freechat members list
-./freechat agent list-available
-./freechat agent add <agentNameOrId>
-./freechat agent create-request <name> --description <desc> --specialties <a,b>
-./freechat agent create-json <localJsonPath>
-./freechat room info
-\`\`\`
-
-## 规则
-
-- 不要滥建任务：简单、单 Agent 可完成的请求直接处理；复杂需求、跨 Agent 协作、长期跟踪、需要讨论分发时才创建父任务。
-- 助理接管父任务后，自己判断自己做还是拆子任务派给专家；先聊天汇报，再用 \`task progress\` 写入最近进展；子任务状态要及时维护。
-- Markdown 单文件不要超过 500 行；超长内容拆到 \`res/\`，主文件仅保留索引和按需加载说明。
-- 当前目录是 Agent 私有工作区，可以使用 \`skills/\`、\`res/\`、\`scripts/\` 保存自己的资料。
-- 用户可见的项目文件只能通过 \`./freechat file write/write-local\` 写入。
-- 文件是否出现在“文件”Tab 由 Tab 配置控制：\`./freechat file show/hide\` 或 \`./freechat tab-config add-file/remove-file\`。
-- 用户可见界面只能通过 \`./freechat tab create/update/delete\` 管理。
-- 大段 HTML/Markdown 优先放本地文件，再用 \`*-local\` 命令读取。
-- 用户项目文件只能通过 \`./freechat file read/list\` 读取。
-- 不要直接访问或写入 \`../../files\`；即使能访问，也视为越权。
-`, 'utf8')
+    await writeFile(join(metaDir, 'API.md'), renderAgentApiDoc(), 'utf8')
 
     return workspaceDir
   }

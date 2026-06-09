@@ -5,6 +5,7 @@ import { api } from '../lib/api'
 import { useFeedback } from '../components/FeedbackProvider'
 import { BellOff, MessageCircle, Pin, Plus, Settings, Users, FolderKanban, Bot, Pencil, Trash2 } from 'lucide-react'
 import { SwipeActionItem, type SwipeAction } from '../components/SwipeActionItem'
+import { AGENT_TOOL_KEYS, agentToForm, buildAgentPayload, emptyAgentForm, type AgentToolKey } from './home-agent-form'
 
 export default function HomePage() {
   const [rooms, setRooms] = useState<any[]>([])
@@ -14,14 +15,7 @@ export default function HomePage() {
   const [contactKind, setContactKind] = useState<'people' | 'agents'>('people')
   const [showCreateAgent, setShowCreateAgent] = useState(false)
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
-  const [agentForm, setAgentForm] = useState({
-    name: '',
-    roleType: 'assistant' as 'assistant' | 'specialist',
-    description: '',
-    specialties: '',
-    systemPrompt: '',
-    tools: { chat: true, task: true, file: true, tab: true, interaction: true, members: true },
-  })
+  const [agentForm, setAgentForm] = useState(emptyAgentForm())
   const [friendRequests, setFriendRequests] = useState<{ received: any[]; sent: any[] }>({ received: [], sent: [] })
   const [searchQ, setSearchQ] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
@@ -98,8 +92,6 @@ export default function HomePage() {
     try { const data = await api.openDm(friendId); navigate(`/dm/${data.conversation.id}`) } catch (err: any) { feedback.error(err.message || '操作失败') }
   }
 
-  const emptyAgentForm = () => ({ name: '', roleType: 'assistant' as 'assistant' | 'specialist', description: '', specialties: '', systemPrompt: '', tools: { chat: true, task: true, file: true, tab: true, interaction: true, members: true } })
-
   const resetAgentEditor = () => {
     setEditingAgentId(null)
     setShowCreateAgent(false)
@@ -114,18 +106,11 @@ export default function HomePage() {
 
   const openEditAgent = (agent: any) => {
     setEditingAgentId(agent.id)
-    setAgentForm({
-      name: agent.name || '',
-      roleType: agent.roleType || 'specialist',
-      description: agent.description || '',
-      specialties: (agent.specialties || []).join(', '),
-      systemPrompt: agent.config?.systemPrompt || '',
-      tools: { chat: true, task: true, file: true, tab: true, interaction: true, members: true, ...(agent.config?.tools || {}) },
-    })
+    setAgentForm(agentToForm(agent))
     setShowCreateAgent(true)
   }
 
-  const toggleAgentTool = (key: keyof typeof agentForm.tools) => {
+  const toggleAgentTool = (key: AgentToolKey) => {
     setAgentForm((prev) => ({ ...prev, tools: { ...prev.tools, [key]: !prev.tools[key] } }))
   }
 
@@ -133,18 +118,7 @@ export default function HomePage() {
     const name = agentForm.name.trim()
     if (!name) { feedback.warning('请输入 Agent 名称'); return }
     try {
-      const body = {
-        name,
-        roleType: agentForm.roleType,
-        deployment: 'server' as const,
-        description: agentForm.description,
-        specialties: agentForm.specialties.split(',').map((s) => s.trim()).filter(Boolean),
-        config: {
-          systemPrompt: agentForm.systemPrompt,
-          behavior: { replyMode: agentForm.roleType === 'assistant' ? 'auto_when_relevant' : 'mention_only', silentAllowed: true },
-          tools: agentForm.tools,
-        },
-      }
+      const body = buildAgentPayload(agentForm)
       if (editingAgentId) {
         await api.updateAgent(editingAgentId, body)
         feedback.success('Agent 已更新')
@@ -497,7 +471,7 @@ export default function HomePage() {
                   <input value={agentForm.specialties} onChange={(e) => setAgentForm({ ...agentForm, specialties: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm" placeholder="专长，逗号分隔" />
                   <textarea value={agentForm.systemPrompt} onChange={(e) => setAgentForm({ ...agentForm, systemPrompt: e.target.value })} rows={4} className="w-full px-3 py-2 border border-gray-300 rounded text-sm" placeholder="系统提示词" />
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
-                    {(['chat', 'task', 'file', 'tab', 'interaction', 'members'] as const).map((key) => (
+                    {AGENT_TOOL_KEYS.map((key) => (
                       <label key={key} className="flex items-center gap-2 bg-white border border-gray-200 rounded px-3 py-2">
                         <input type="checkbox" checked={agentForm.tools[key]} onChange={() => toggleAgentTool(key)} />{key}
                       </label>
