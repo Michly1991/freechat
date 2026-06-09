@@ -4,7 +4,7 @@ import { useAuthStore } from '../stores/authStore'
 import { api } from '../lib/api'
 import { addClientLog, clearClientLogs, formatClientLogs, getClientLogs, subscribeClientLogs, type ClientLogEntry } from '../lib/clientLog'
 import { useFeedback } from '../components/FeedbackProvider'
-import { Bot, CheckSquare, Clipboard, FileText, Folder, MessageCircle, PanelLeftClose, PanelLeftOpen, PanelsTopLeft, Pencil, Settings, ShieldCheck, Trash2, UserRound, Users, Wrench, X } from 'lucide-react'
+import { Bot, Clipboard, FileText, Folder, ListTodo, MessageCircle, PanelLeftClose, PanelLeftOpen, PanelsTopLeft, Pencil, Settings, ShieldCheck, Trash2, UserRound, Users, Wrench, X } from 'lucide-react'
 
 interface Message {
   id: string
@@ -1147,7 +1147,7 @@ export default function RoomPage() {
             {p.icon === 'message' && <MessageCircle className="inline w-4 h-4 mr-1" />}
             {p.icon === 'folder' && <Folder className="inline w-4 h-4 mr-1" />}
             {p.icon === 'panels' && <PanelsTopLeft className="inline w-4 h-4 mr-1" />}
-            {p.icon === 'check' && <CheckSquare className="inline w-4 h-4 mr-1" />}
+            {p.icon === 'check' && <ListTodo className="inline w-4 h-4 mr-1" />}
             {p.label}
           </button>
         ))}
@@ -1423,7 +1423,7 @@ export default function RoomPage() {
                   return (
                     <div className="h-full flex items-center justify-center text-center text-gray-400">
                       <div>
-                        <CheckSquare className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+                        <ListTodo className="w-10 h-10 mx-auto mb-2 text-gray-300" />
                         <p className="text-sm">暂无任务，先创建一个吧</p>
                       </div>
                     </div>
@@ -1661,7 +1661,7 @@ export default function RoomPage() {
               </span>
               {p.icon === 'folder' && <Folder className="w-5 h-5" />}
               {p.icon === 'panels' && <PanelsTopLeft className="w-5 h-5" />}
-              {p.icon === 'check' && <CheckSquare className="w-5 h-5" />}
+              {p.icon === 'check' && <ListTodo className="w-5 h-5" />}
             </div>
             <div className="text-xs">{p.label}</div>
           </button>
