@@ -7,6 +7,7 @@ import { taskService } from '../services/task.service.js'
 import { taskItemService } from '../services/task-item.service.js'
 import { roomService } from '../services/room.service.js'
 import { agentService } from '../services/agent.service.js'
+import { interactionService } from '../services/interaction.service.js'
 
 interface ClientConnection {
   ws: WebSocket
@@ -299,6 +300,58 @@ export class WebSocketGateway {
     return true
   }
 
+  private async maybeCreateObviousExpertTaskPlan(roomId: string, assistant: any, content: string): Promise<boolean> {
+    const text = String(content || '')
+    const wantsScript = /剧本|编剧|脚本|文字/.test(text)
+    const wantsStoryboard = /分镜|镜头|画面|运镜/.test(text)
+    if (!wantsScript || !wantsStoryboard) return false
+
+    const agents = await agentService.getRoomAgents(roomId)
+    const scriptAgent = agents.find((a) => a.id !== assistant.id && (/剧本|编剧/.test(a.name) || a.specialties?.some((s) => /剧本|编剧|脚本|文字/.test(s))))
+    const storyboardAgent = agents.find((a) => a.id !== assistant.id && (/分镜|镜头/.test(a.name) || a.specialties?.some((s) => /分镜|镜头|画面/.test(s))))
+    if (!scriptAgent || !storyboardAgent) return false
+
+    await agentService.updateAgent(assistant.id, { status: 'working' } as any).catch(() => {})
+    this.broadcastToRoom(roomId, {
+      msgId: uuidv4(),
+      roomId,
+      type: 'broadcast',
+      action: 'agent.status_update',
+      payload: { agentId: assistant.id, status: 'working', onlineStatus: 'working', lastActiveAt: Date.now() },
+      timestamp: Date.now()
+    })
+
+    const result = await interactionService.create(roomId, { id: assistant.id, name: assistant.name, role: 'ai' }, {
+      type: 'task_plan',
+      title: '任务计划预览：剧本与分镜协作',
+      description: '我会先让编剧专家完成文字剧本，再让分镜专家基于剧本输出分镜。未指定时长/受众时先按短视频默认方案处理，后续可调整。',
+      priority: 'important',
+      payload: {
+        taskPlan: {
+          title: '创作热血题材剧本与分镜',
+          description: `根据用户需求创建剧本与分镜：${text}`,
+          priority: 'medium',
+          items: [
+            { title: '创作热血题材文字剧本', description: '完成人物、剧情结构、场景、对白和节奏设计。', assignee: scriptAgent.name },
+            { title: '基于剧本生成分镜脚本', description: '根据剧本输出镜头、画面、运镜、台词/旁白和画面节奏。', assignee: storyboardAgent.name, dependsOn: 0 },
+          ],
+        },
+      },
+    })
+    this.broadcastToRoom(roomId, { msgId: result.message.id, roomId, type: 'broadcast', action: 'chat.message', payload: result.message, timestamp: Date.now() })
+    this.broadcastToRoom(roomId, { msgId: uuidv4(), roomId, type: 'broadcast', action: 'interaction.created', payload: { interaction: result.interaction }, timestamp: Date.now() })
+    await agentService.updateAgent(assistant.id, { status: 'active' } as any).catch(() => {})
+    this.broadcastToRoom(roomId, {
+      msgId: uuidv4(),
+      roomId,
+      type: 'broadcast',
+      action: 'agent.status_update',
+      payload: { agentId: assistant.id, status: 'active', onlineStatus: 'online', lastActiveAt: Date.now() },
+      timestamp: Date.now()
+    })
+    return true
+  }
+
   private async maybeAutoInvokeAssistant(roomId: string, actorName: string, content: string) {
     if (!this.shouldConsiderAssistantAutoReply(content)) return
 
@@ -312,6 +365,8 @@ export class WebSocketGateway {
 
     this.assistantAutoReplyCooldowns.set(roomId, now)
 
+    if (await this.maybeCreateObviousExpertTaskPlan(roomId, assistant, content)) return
+
     const recentMessages = await messageService.getMessages(roomId, 12)
     const context = recentMessages
       .filter((m: any) => m.kind !== 'agent_receipt')
@@ -319,7 +374,7 @@ export class WebSocketGateway {
       .map((m) => `${m.actorRole === 'ai' ? 'AI' : '用户'} ${m.actorName}: ${m.content}`)
       .join('\n')
 
-    const prompt = `你是 FreeChat 房间助理，正在旁听项目对话。\n\n最近对话：\n${context}\n\n最新消息来自 ${actorName}: ${content}\n\n请判断是否需要你介入回复。\n- 如果用户在提问、寻求方案、任务推进、总结、安排、阻塞处理、决策建议，必须回复。\n- 只要最新消息是问句，或包含“吗/么/谁/什么/怎么/能不能/能看到/看到房间/其他 agent/其他Agent/成员”等询问意图，必须回复，禁止输出 [SILENT]。\n- 如果用户问你能否看到房间成员、其他 Agent、协作者，请用 ./freechat members list 或 .freechat/MEMBERS.md 查看后直接回答成员/Agent 列表；不要说这是系统层面不是你负责。\n- 只有在最新消息明确只是确认、寒暄、测试、无意义短消息，且不是问句时，才输出 [SILENT]。\n- 用户没有明确 @ 专家时，系统只会触发你；不要让专家突然插话。\n- 你是入口和调度者：不要包办所有专家工作。\n- 遇到复合任务、长内容任务、或明显包含房间专家专长的任务，必须先用 ./freechat members list 查看专家；如果有匹配专家，禁止直接产出最终成品，必须通过 ./freechat task plan create-json 发真实任务计划交互卡，或在用户已明确要求立即执行时用 ./freechat task create / task subtask add --assignee 分派专家。禁止只用普通聊天文本、Markdown 表格或数字选项假装任务计划。\n- 典型必须分派：用户同时要求“剧本/编剧/文字”和“分镜/镜头/画面”时，应分派给剧本编剧、分镜专家，助理只做协调和最终汇总。\n- 不要通过普通聊天 @ 专家制造自动对话。\n- 如需推进项目，请优先使用 ./freechat CLI 同步任务/进度/文件。\n- 回复要简洁，不要抢话。`
+    const prompt = `你是 FreeChat 房间助理，正在旁听项目对话。\n\n最近对话：\n${context}\n\n最新消息来自 ${actorName}: ${content}\n\n请判断是否需要你介入回复。\n- 如果用户在提问、寻求方案、任务推进、总结、安排、阻塞处理、决策建议，必须回复。\n- 只要最新消息是问句，或包含“吗/么/谁/什么/怎么/能不能/能看到/看到房间/其他 agent/其他Agent/成员”等询问意图，必须回复，禁止输出 [SILENT]。\n- 如果用户问你能否看到房间成员、其他 Agent、协作者，请用 ./freechat members list 或 .freechat/MEMBERS.md 查看后直接回答成员/Agent 列表；不要说这是系统层面不是你负责。\n- 只有在最新消息明确只是确认、寒暄、测试、无意义短消息，且不是问句时，才输出 [SILENT]。\n- 用户没有明确 @ 专家时，系统只会触发你；不要让专家突然插话。\n- 你是入口和调度者：不要包办所有专家工作。\n- 遇到复合任务、长内容任务、或明显包含房间专家专长的任务，必须先用 ./freechat members list 查看专家；如果有匹配专家，禁止直接产出最终成品，必须通过 ./freechat task plan create-json 发真实任务计划交互卡，或在用户已明确要求立即执行时用 ./freechat task create / task subtask add --assignee 分派专家。禁止只用普通聊天文本、Markdown 表格或数字选项假装任务计划。用户给出大致题材但缺少时长/受众等细节时，不要只追问；应先用合理默认假设创建计划卡，并在计划说明里写清可后续调整。\n- 典型必须分派：用户同时要求“剧本/编剧/文字”和“分镜/镜头/画面”时，应分派给剧本编剧、分镜专家，助理只做协调和最终汇总。\n- 不要通过普通聊天 @ 专家制造自动对话。\n- 如需推进项目，请优先使用 ./freechat CLI 同步任务/进度/文件。\n- 回复要简洁，不要抢话。`
 
     await this.invokeMentionedAgents(roomId, prompt, [{ id: assistant.id, name: assistant.name, role: 'ai' }], 'auto')
   }
