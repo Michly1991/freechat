@@ -7,7 +7,8 @@
     "dev": "pnpm -r dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm --filter @freechat/shared build && pnpm -r typecheck",
-    "check": "pnpm typecheck && pnpm build",
+    "check:size": "node scripts/check-file-size.mjs",
+    "check": "pnpm check:size && pnpm typecheck && pnpm build",
     "clean": "pnpm -r clean"
   },
   "keywords": ["collaboration", "ai", "websocket"],
