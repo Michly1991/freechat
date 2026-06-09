@@ -160,7 +160,12 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
         case 'task.update': {
           const taskId = args.taskId || args.id || args.task_id
           await taskService.assertTaskInRoom(taskId, roomId)
-          const task = await taskService.updateTask(taskId, args.updates || {})
+          const updates = { ...(args.updates || {}) }
+          if (updates.status === 'done') {
+            updates.status = 'review'
+            updates.reviewNote = updates.reviewNote || updates.progressNote || 'Agent 已提交完成，等待人工确认。'
+          }
+          const task = await taskService.updateTask(taskId, updates)
           broadcast(roomId, 'task.changed', { action: 'update', task })
           return { success: true, data: { task } }
         }
