@@ -65,6 +65,43 @@ function validateTabIds(roomId: string, tabIds: string[]) {
   if (missing.length > 0) throwTabNotFound(missing.join(', '))
 }
 
+async function resolveAgentAssignee(roomId: string, args: any): Promise<{ assigneeId?: string; assigneeName?: string; assigneeType?: 'human' | 'agent' }> {
+  const raw = args.assigneeId || args.assignee_id || args.assignee || args.assigneeName || args.assignee_name
+  if (!raw && !args.assigneeType && !args.assignee_type) return {}
+  const text = String(raw || '').trim().replace(/^@/, '')
+  if (!text) return {}
+  const roomAgents = await agentService.getRoomAgents(roomId)
+  const agent = roomAgents.find((a) => a.id === text || a.name === text || a.name.includes(text) || text.includes(a.name))
+  if (!agent) throw { code: 'AGENT_ASSIGNEE_NOT_FOUND', message: `Agent assignee not found in room: ${text}` }
+  return { assigneeId: agent.id, assigneeName: agent.name, assigneeType: 'agent' }
+}
+
+async function invokeAssignedAgent(roomId: string, assigneeId: string | undefined, assigningAgentId: string, prompt: string) {
+  if (!assigneeId || assigneeId === assigningAgentId) return
+  const roomAgents = await agentService.getRoomAgents(roomId)
+  const assigned = roomAgents.find((a) => a.id === assigneeId)
+  if (!assigned) return
+
+  void (async () => {
+    try {
+      await agentService.updateAgent(assigned.id, { status: 'working' } as any)
+      broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'working', onlineStatus: 'working', lastActiveAt: Date.now() })
+      const receipt = await messageService.createMessage(roomId, assigned.id, assigned.name, 'ai', '收到，处理中…', undefined, undefined, 'agent_receipt', { status: 'accepted', reason: 'task' })
+      broadcast(roomId, 'chat.message', receipt)
+      const result = await agentService.spawnClaudeCode(roomId, assigned.id, prompt)
+      await agentService.updateAgent(assigned.id, { status: 'active' } as any)
+      broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'active', onlineStatus: 'online', lastActiveAt: Date.now() })
+      if (result.silent || !result.response) return
+      const msg = await messageService.createMessage(roomId, assigned.id, assigned.name, 'ai', result.response)
+      broadcast(roomId, 'chat.message', msg)
+    } catch (err: any) {
+      await agentService.updateAgent(assigneeId, { status: 'error' } as any).catch(() => {})
+      broadcast(roomId, 'agent.status_update', { agentId: assigneeId, status: 'error', onlineStatus: 'error', lastActiveAt: Date.now(), lastError: err?.message || String(err) })
+      console.error(`Assigned agent ${assigneeId} invocation failed:`, err)
+    }
+  })()
+}
+
 export async function registerAgentToolRoutes(app: FastifyInstance) {
   app.post('/api/agent-tools/:roomId', async (request, reply) => {
     const { roomId } = request.params as any
@@ -94,17 +131,32 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           return { success: true, data: { tasks } }
         }
         case 'task.create': {
+          const resolved = await resolveAgentAssignee(roomId, args)
+          const assigneeId = resolved.assigneeId || args.assigneeId || agent.id
+          const assigneeName = resolved.assigneeName || args.assigneeName || agent.name
+          const assigneeType = resolved.assigneeType || args.assigneeType || 'agent'
           const task = await taskService.createTask(
             roomId,
             args.title,
             args.description,
             args.priority || 'medium',
-            args.assigneeId || agent.id,
-            args.assigneeName || agent.name,
-            args.assigneeType || 'agent',
+            assigneeId,
+            assigneeName,
+            assigneeType,
             agent.id
           )
           broadcast(roomId, 'task.changed', { action: 'add', task })
+          if (assigneeType === 'agent') {
+            await invokeAssignedAgent(roomId, assigneeId, agent.id, [
+              '你被分派了一个 FreeChat 任务，请立即处理。',
+              `任务ID: ${task.id}`,
+              `任务标题: ${task.title}`,
+              task.description ? `任务说明: ${task.description}` : '',
+              `分派来源 Agent: ${agent.name}`,
+              '',
+              '请先用 ./freechat task update 标记状态/进展，完成后在聊天中简短汇报。',
+            ].filter(Boolean).join('\n'))
+          }
           return { success: true, data: { task } }
         }
         case 'task.update': {
@@ -137,17 +189,34 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           const taskId = args.taskId || args.task_id || args.id
           if (!taskId) throw { code: 'VALIDATION_ERROR', message: 'taskId is required' }
           await taskService.assertTaskInRoom(taskId, roomId)
+          const resolved = await resolveAgentAssignee(roomId, args)
+          const assigneeId = resolved.assigneeId || args.assigneeId || agent.id
+          const assigneeName = resolved.assigneeName || args.assigneeName || agent.name
+          const assigneeType = resolved.assigneeType || args.assigneeType || 'agent'
           const subtask = await taskItemService.create(taskId, {
             title: args.title,
             description: args.description,
             status: args.status,
-            assigneeId: args.assigneeId || agent.id,
-            assigneeName: args.assigneeName || agent.name,
-            assigneeType: args.assigneeType || 'agent',
+            assigneeId,
+            assigneeName,
+            assigneeType,
             createdBy: agent.id,
           })
           const task = await taskService.getTask(taskId)
           broadcast(roomId, 'task.changed', { action: 'update', task })
+          if (assigneeType === 'agent') {
+            await invokeAssignedAgent(roomId, assigneeId, agent.id, [
+              '你被分派了一个 FreeChat 子任务，请立即处理。',
+              `父任务ID: ${task.id}`,
+              `父任务标题: ${task.title}`,
+              `子任务ID: ${subtask.id}`,
+              `子任务标题: ${subtask.title}`,
+              subtask.description ? `子任务说明: ${subtask.description}` : '',
+              `分派来源 Agent: ${agent.name}`,
+              '',
+              '请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。',
+            ].filter(Boolean).join('\n'))
+          }
           return { success: true, data: { subtask, task } }
         }
         case 'task.subtask_update':

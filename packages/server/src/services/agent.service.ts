@@ -401,11 +401,11 @@ function usage() {
     'Commands:',
     '  ./freechat chat send <content>',
     '  ./freechat task list [status]',
-    '  ./freechat task create <title> [description]',
+    '  ./freechat task create <title> [description] [--assignee <agentNameOrId>]',
     '  ./freechat task update <taskId> <field> <value> [field value...]',
     '  ./freechat task progress <taskId> <note>',
     '  ./freechat task subtask list <taskId>',
-    '  ./freechat task subtask add <taskId> <title> [description]',
+    '  ./freechat task subtask add <taskId> <title> [description] [--assignee <agentNameOrId>]'
     '  ./freechat task subtask update <subtaskId> <field> <value> [field value...]',
     '  ./freechat task subtask delete <subtaskId>',
     '  ./freechat file list',
@@ -479,6 +479,27 @@ function pairsToObject(items) {
   return out;
 }
 
+function parseNamedOptions(items) {
+  const args = [];
+  const options = {};
+  for (let i = 0; i < items.length; i++) {
+    const item = String(items[i]);
+    if (item.startsWith('--')) {
+      const key = item.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+      const next = items[i + 1];
+      if (next !== undefined && !String(next).startsWith('--')) {
+        options[key] = next;
+        i++;
+      } else {
+        options[key] = true;
+      }
+    } else {
+      args.push(items[i]);
+    }
+  }
+  return { args, options };
+}
+
 async function call(action, args = {}) {
   const res = await fetch(API_URL + '/api/agent-tools/' + ROOM_ID, {
     method: 'POST',
@@ -508,8 +529,9 @@ if (domain === 'chat' && cmd === 'send') {
 } else if (domain === 'task' && cmd === 'list') {
   call('task.list', { status: rest[0] });
 } else if (domain === 'task' && cmd === 'create') {
-  if (!rest[0]) die('title is required');
-  call('task.create', { title: rest[0], description: rest.slice(1).join(' ') || undefined });
+  const parsed = parseNamedOptions(rest);
+  if (!parsed.args[0]) die('title is required');
+  call('task.create', { title: parsed.args[0], description: parsed.args.slice(1).join(' ') || undefined, assignee: parsed.options.assignee, assigneeId: parsed.options.assigneeId, assigneeName: parsed.options.assigneeName, priority: parsed.options.priority });
 } else if (domain === 'task' && cmd === 'update') {
   if (!rest[0]) die('taskId is required');
   call('task.update', { taskId: rest[0], updates: pairsToObject(rest.slice(1)) });
@@ -522,8 +544,9 @@ if (domain === 'chat' && cmd === 'send') {
   if (!rest[1]) die('taskId is required');
   call('task.subtask_list', { taskId: rest[1] });
 } else if (domain === 'task' && cmd === 'subtask' && rest[0] === 'add') {
-  if (!rest[1] || !rest[2]) die('taskId and title are required');
-  call('task.subtask_add', { taskId: rest[1], title: rest[2], description: rest.slice(3).join(' ') || undefined });
+  const parsed = parseNamedOptions(rest.slice(1));
+  if (!parsed.args[0] || !parsed.args[1]) die('taskId and title are required');
+  call('task.subtask_add', { taskId: parsed.args[0], title: parsed.args[1], description: parsed.args.slice(2).join(' ') || undefined, assignee: parsed.options.assignee, assigneeId: parsed.options.assigneeId, assigneeName: parsed.options.assigneeName });
 } else if (domain === 'task' && cmd === 'subtask' && rest[0] === 'update') {
   if (!rest[1]) die('subtaskId is required');
   call('task.subtask_update', { itemId: rest[1], updates: pairsToObject(rest.slice(2)) });
@@ -652,7 +675,7 @@ if (domain === 'chat' && cmd === 'send') {
 
 ## 推荐工作流
 - 简单事项：直接处理并简短汇报，不创建任务。
-- 复杂/跨 Agent 事项：助理作为入口创建父任务，判断合适专家；有合适专家时优先拆子任务并分派专家，没有合适专家才自己完成。
+- 复杂/跨 Agent 事项：助理作为入口创建父任务，判断合适专家；有合适专家时必须用 \`--assignee "专家名称"\` 创建任务/子任务分派专家，不能只在聊天里 @ 专家或写假任务表。
 - 需要确认/选择/多选：创建 interaction 卡片，用户点击后继续。
 - 文档/交付物：先写到项目文件，必要时 \`--show\`。
 - 界面/看板：先在 \`res/\` 生成 HTML，再用 \`tab create-local/update-local\` 发布。
@@ -711,6 +734,7 @@ Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文
 \`\`\`bash
 ./freechat task list
 ./freechat task create "拆分任务标题" "任务说明"
+./freechat task create "专家任务标题" "任务说明" --assignee "专家名称"
 ./freechat task update <taskId> status doing
 ./freechat task update <taskId> status review reviewNote "已完成，等待确认"
 ./freechat task update <taskId> status done
@@ -723,6 +747,7 @@ Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文
 ./freechat interaction consume <interactionId>
 ./freechat task subtask list <taskId>
 ./freechat task subtask add <taskId> "子任务标题" "说明"
+./freechat task subtask add <taskId> "专家子任务标题" "说明" --assignee "专家名称"
 ./freechat task subtask update <subtaskId> status doing
 ./freechat task subtask update <subtaskId> status done
 ./freechat task subtask delete <subtaskId>
