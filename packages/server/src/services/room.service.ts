@@ -5,15 +5,46 @@ import bcrypt from 'bcryptjs'
 import { rm } from 'fs/promises'
 import { join } from 'path'
 import { config } from '../config.js'
-import type { Room, RoomMember } from '@freechat/shared'
+import type { Room, RoomMember, RoomAgentRole } from '@freechat/shared'
+
+interface InitialRoomAgent {
+  agentId: string
+  roomRole?: RoomAgentRole
+  autoEnabled?: boolean
+  priority?: number
+}
 
 export class RoomService {
-  async createRoom(name: string, description: string | null, userId: string, initialMemberIds: string[] = []): Promise<Room> {
+  async createRoom(name: string, description: string | null, userId: string, initialMemberIds: string[] = [], initialAgents: InitialRoomAgent[] = []): Promise<Room> {
     const id = `room_${uuidv4()}`
     const assistantAgentId = `agent_${uuidv4()}`
     const now = Date.now()
     const apiKey = `fc_${crypto.randomBytes(32).toString('hex')}`
     const apiKeyHash = await bcrypt.hash(apiKey, 10)
+
+    const ownedAgents = initialAgents
+      .map((agent, index) => ({
+        agentId: String(agent.agentId || ''),
+        roomRole: agent.roomRole === 'assistant' ? 'assistant' : 'specialist' as RoomAgentRole,
+        autoEnabled: agent.autoEnabled === true,
+        priority: Number(agent.priority ?? index + 1),
+      }))
+      .filter((agent) => agent.agentId)
+      .filter((agent, index, arr) => arr.findIndex((item) => item.agentId === agent.agentId) === index)
+      .filter((agent) => {
+        const row = db.prepare('SELECT owner_id FROM agents WHERE id = ? AND status != ?').get(agent.agentId, 'inactive') as any
+        return row?.owner_id === userId
+      })
+    let autoSeen = false
+    for (const agent of ownedAgents) {
+      if (agent.autoEnabled && !autoSeen) {
+        autoSeen = true
+        agent.roomRole = 'assistant'
+      } else {
+        agent.autoEnabled = false
+      }
+    }
+    const hasCustomAutoAgent = ownedAgents.some((agent) => agent.autoEnabled)
 
     const create = db.transaction(() => {
       db.prepare(`
@@ -57,8 +88,15 @@ export class RoomService {
 
       db.prepare(`
         INSERT INTO room_agents (room_id, agent_id, added_by, added_at, room_role, auto_enabled, priority)
-        VALUES (?, ?, ?, ?, 'assistant', 1, 0)
-      `).run(id, assistantAgentId, userId, now)
+        VALUES (?, ?, ?, ?, 'assistant', ?, 0)
+      `).run(id, assistantAgentId, userId, now, hasCustomAutoAgent ? 0 : 1)
+
+      for (const agent of ownedAgents) {
+        db.prepare(`
+          INSERT OR REPLACE INTO room_agents (room_id, agent_id, added_by, added_at, room_role, auto_enabled, priority)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(id, agent.agentId, userId, now, agent.roomRole, agent.autoEnabled ? 1 : 0, agent.priority)
+      }
     })
 
     create()

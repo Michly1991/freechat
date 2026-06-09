@@ -70,7 +70,7 @@ export const api = {
 
   // Rooms
   getRooms: () => request<{ rooms: any[] }>('/rooms'),
-  createRoom: (body: { name: string; description?: string; memberIds?: string[] }) =>
+  createRoom: (body: { name: string; description?: string; memberIds?: string[]; agents?: Array<{ agentId: string; roomRole?: 'assistant' | 'specialist'; autoEnabled?: boolean; priority?: number }> }) =>
     request<{ room: any }>('/rooms', { method: 'POST', body: JSON.stringify(body) }),
   getRoom: (id: string) => request<{ room: any; members: any[] }>(`/rooms/${id}`),
   getRoomMessages: (id: string, limit = 100) => request<{ messages: any[] }>(`/rooms/${id}/messages?limit=${limit}`),

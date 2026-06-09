@@ -25,6 +25,7 @@ export default function HomePage() {
   const [searchQ, setSearchQ] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([])
+  const [selectedAgents, setSelectedAgents] = useState<{ agentId: string; autoEnabled: boolean }[]>([])
   const [activeHomeTab, setActiveHomeTab] = useState<'messages' | 'contacts' | 'settings'>('messages')
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
@@ -167,14 +168,28 @@ export default function HomePage() {
     setSelectedFriendIds((prev) => prev.includes(friendId) ? prev.filter((id) => id !== friendId) : [...prev, friendId])
   }
 
+  const toggleSelectedAgent = (agentId: string) => {
+    setSelectedAgents((prev) => prev.some((a) => a.agentId === agentId) ? prev.filter((a) => a.agentId !== agentId) : [...prev, { agentId, autoEnabled: false }])
+  }
+
+  const setAgentAutoEnabled = (agentId: string, autoEnabled: boolean) => {
+    setSelectedAgents((prev) => prev.map((a) => a.agentId === agentId ? { ...a, autoEnabled } : a))
+  }
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      const result = await api.createRoom({ name: newName, description: newDesc, memberIds: selectedFriendIds })
+      const result = await api.createRoom({
+        name: newName,
+        description: newDesc,
+        memberIds: selectedFriendIds,
+        agents: selectedAgents.map((a) => ({ agentId: a.agentId, roomRole: a.autoEnabled ? 'assistant' : 'specialist', autoEnabled: a.autoEnabled })),
+      })
       setShowCreate(false)
       setNewName('')
       setNewDesc('')
       setSelectedFriendIds([])
+      setSelectedAgents([])
       loadRooms()
       // 创建成功后跳转到房间
       if (result?.room?.id) {
@@ -588,26 +603,56 @@ export default function HomePage() {
                   rows={3}
                 />
               </div>
-              {friends.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    添加好友成员（可选）
-                  </label>
-                  <div className="max-h-36 overflow-y-auto border border-gray-200 rounded-lg p-2 space-y-1">
-                    {friends.map((f) => (
-                      <label key={f.id} className="flex items-center gap-2 p-2 rounded hover:bg-gray-50 cursor-pointer text-sm">
-                        <input type="checkbox" checked={selectedFriendIds.includes(f.id)} onChange={() => toggleSelectedFriend(f.id)} />
-                        {f.avatar ? <img src={f.avatar} className="w-6 h-6 rounded-full object-cover" /> : <span className="w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs">{(f.nickname || f.username || '?')[0].toUpperCase()}</span>}
-                        <span>{f.nickname || f.username}</span>
-                      </label>
-                    ))}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  选择协作者（可选）
+                </label>
+                {friends.length > 0 && (
+                  <div className="mb-3">
+                    <p className="text-xs text-gray-500 mb-1">人员</p>
+                    <div className="max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2 space-y-1">
+                      {friends.map((f) => (
+                        <label key={f.id} className="flex items-center gap-2 p-2 rounded hover:bg-gray-50 cursor-pointer text-sm">
+                          <input type="checkbox" checked={selectedFriendIds.includes(f.id)} onChange={() => toggleSelectedFriend(f.id)} />
+                          {f.avatar ? <img src={f.avatar} className="w-6 h-6 rounded-full object-cover" /> : <span className="w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs">{(f.nickname || f.username || '?')[0].toUpperCase()}</span>}
+                          <span>{f.nickname || f.username}</span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+                {agents.length > 0 && (
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Agent</p>
+                    <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg p-2 space-y-1">
+                      {agents.map((a) => {
+                        const selected = selectedAgents.find((item) => item.agentId === a.id)
+                        return (
+                          <div key={a.id} className="flex items-center justify-between gap-2 p-2 rounded hover:bg-gray-50 text-sm">
+                            <label className="flex items-center gap-2 min-w-0 cursor-pointer flex-1">
+                              <input type="checkbox" checked={!!selected} onChange={() => toggleSelectedAgent(a.id)} />
+                              <span className="truncate">{a.name}</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-600 shrink-0">{a.roleType === 'assistant' ? '助理' : '专家'}</span>
+                            </label>
+                            {selected && (
+                              <select value={selected.autoEnabled ? 'auto' : 'specialist'} onChange={(e) => setAgentAutoEnabled(a.id, e.target.value === 'auto')} className="text-xs border border-gray-200 rounded px-2 py-1">
+                                <option value="specialist">专家</option>
+                                <option value="auto">自动助理</option>
+                              </select>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                    {selectedAgents.filter((a) => a.autoEnabled).length > 1 && <p className="text-xs text-orange-500 mt-1">只会启用第一个自动助理，其他会自动作为专家加入。</p>}
+                  </div>
+                )}
+                {friends.length === 0 && agents.length === 0 && <p className="text-sm text-gray-400">通讯录暂无可选协作者。</p>}
+              </div>
               <div className="flex gap-2 justify-end">
                 <button
                   type="button"
-                  onClick={() => setShowCreate(false)}
+                  onClick={() => { setShowCreate(false); setSelectedAgents([]) }}
                   className="px-4 py-2 text-gray-600 hover:text-gray-800"
                 >
                   取消

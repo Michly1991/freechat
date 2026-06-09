@@ -20,7 +20,7 @@ export async function registerRoomRoutes(app: FastifyInstance) {
   // Create room
   app.post('/api/rooms', async (request, reply) => {
     const user = (request as any).user
-    const { name, description, memberIds } = request.body as any
+    const { name, description, memberIds, agents } = request.body as any
 
     if (!name) {
       return reply.code(400).send({
@@ -33,7 +33,8 @@ export async function registerRoomRoutes(app: FastifyInstance) {
       const initialMemberIds = Array.isArray(memberIds)
         ? memberIds.filter((id: string) => id && id !== user.id && areFriends(user.id, id))
         : []
-      const room = await roomService.createRoom(name, description || null, user.id, initialMemberIds)
+      const initialAgents = Array.isArray(agents) ? agents : []
+      const room = await roomService.createRoom(name, description || null, user.id, initialMemberIds, initialAgents)
       return reply.send({ success: true, data: { room } })
     } catch (err: any) {
       throw err
