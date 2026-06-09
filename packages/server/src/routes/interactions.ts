@@ -6,6 +6,7 @@ import { taskService } from '../services/task.service.js'
 import { taskItemService } from '../services/task-item.service.js'
 import { agentService } from '../services/agent.service.js'
 import { messageService } from '../services/message.service.js'
+import db from '../storage/db.js'
 
 function broadcast(roomId: string, action: string, payload: any) {
   getGateway()?.broadcast(roomId, {
@@ -67,6 +68,35 @@ function buildSubtaskWakePrompt(task: any, subtask: any, reason: string) {
     '',
     '请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。',
   ].filter(Boolean).join('\n')
+}
+
+async function materializeAgentCreateRequest(roomId: string, interaction: any) {
+  if (interaction.result?.value !== 'confirm') return
+  if (interaction.consumedAt) return
+  const spec = interaction.payload?.agentCreate
+  if (!spec?.name) return
+  const ownerId = interaction.resolvedBy || (db.prepare('SELECT created_by FROM rooms WHERE id = ?').get(roomId) as any)?.created_by || interaction.createdBy
+  const created = await agentService.createAgent(ownerId, {
+    name: String(spec.name).trim(),
+    roleType: spec.roleType === 'assistant' ? 'assistant' : 'specialist',
+    deployment: spec.deployment === 'client' ? 'client' : 'server',
+    description: spec.description,
+    specialties: Array.isArray(spec.specialties) ? spec.specialties : [],
+    config: spec.config,
+  } as any)
+  await agentService.addAgentToRoom(roomId, created.agent.id, interaction.createdBy, {
+    roomRole: spec.roomRole === 'assistant' ? 'assistant' : 'specialist',
+    autoEnabled: spec.autoEnabled === true,
+    priority: Number(spec.priority || 0),
+  })
+  await agentService.refreshRoomAgentContext(roomId)
+  const members = await roomService.getRoomMembers(roomId)
+  const agents = await agentService.getRoomAgents(roomId)
+  broadcast(roomId, 'room.members_update', { members, agents })
+  const consumed = interactionService.consume(roomId, interaction.id, interaction.resolvedBy || ownerId)
+  broadcast(roomId, 'interaction.updated', { interaction: consumed })
+  const msg = await messageService.createMessage(roomId, interaction.createdBy, 'Agent 创建', 'ai', `✅ 已创建并加入专家 Agent：${created.agent.name}`)
+  broadcast(roomId, 'chat.message', msg)
 }
 
 async function materializeTaskPlan(roomId: string, interaction: any) {
@@ -164,6 +194,7 @@ export async function registerInteractionRoutes(app: FastifyInstance) {
     try {
       const interaction = interactionService.respond(roomId, id, user.id, body.value ?? body.values, body.inputs || {})
       broadcast(roomId, 'interaction.updated', { interaction })
+      await materializeAgentCreateRequest(roomId, interaction)
       await materializeTaskPlan(roomId, interaction)
       return reply.send({ success: true, data: { interaction } })
     } catch (err: any) {
@@ -182,6 +213,7 @@ export async function registerInteractionRoutes(app: FastifyInstance) {
     try {
       const interaction = interactionService.respond(roomId, id, user.id, body.value ?? body.values, body.inputs || {})
       broadcast(roomId, 'interaction.updated', { interaction })
+      await materializeAgentCreateRequest(roomId, interaction)
       await materializeTaskPlan(roomId, interaction)
       return reply.send({ success: true, data: { interaction } })
     } catch (err: any) {

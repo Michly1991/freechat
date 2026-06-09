@@ -454,6 +454,46 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           const agents = await agentService.getAvailableAgentsForRoom(roomId, agent.id)
           return { success: true, data: { agents } }
         }
+        case 'agent.create_request':
+        case 'agent.create-request':
+        case 'agent.create': {
+          await agentService.assertRoomAssistant(roomId, agent.id)
+          const name = String(args.name || '').trim()
+          if (!name) throw { code: 'VALIDATION_ERROR', message: 'agent name is required' }
+          const roleType = args.roleType === 'assistant' ? 'assistant' : 'specialist'
+          const specialties = Array.isArray(args.specialties) ? args.specialties.map((s: any) => String(s).trim()).filter(Boolean) : []
+          const result = await interactionService.create(roomId, { id: agent.id, name: agent.name, role: 'ai' }, {
+            type: 'confirm',
+            title: `确认创建专家 Agent：${name}`,
+            description: [
+              args.description ? `职责：${args.description}` : '',
+              specialties.length ? `专长：${specialties.join('、')}` : '',
+              '确认后会创建该 Agent 并加入当前项目。',
+            ].filter(Boolean).join('\n'),
+            priority: 'important',
+            payload: {
+              agentCreate: {
+                name,
+                roleType,
+                deployment: args.deployment || 'server',
+                description: args.description,
+                specialties,
+                config: args.config || undefined,
+                roomRole: args.roomRole === 'assistant' ? 'assistant' : 'specialist',
+                autoEnabled: args.autoEnabled === true,
+                priority: Number(args.priority || 0),
+              }
+            },
+            options: [
+              { value: 'confirm', label: '确认创建', style: 'primary' },
+              { value: 'cancel', label: '取消', style: 'secondary' },
+            ],
+            responsePolicy: { allowChange: false, allowCancel: true },
+          } as any)
+          broadcast(roomId, 'interaction.created', { interaction: result.interaction })
+          broadcast(roomId, 'chat.message', result.message)
+          return { success: true, data: result }
+        }
         case 'agent.add': {
           await agentService.assertRoomAssistant(roomId, agent.id)
           const target = await agentService.resolveAvailableAgentForRoom(roomId, agent.id, args.agent || args.agentId || args.name)

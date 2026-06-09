@@ -402,7 +402,7 @@ export class AgentService {
       '1. 只能通过 ./freechat 操作项目，不要直接访问或修改项目共享目录。',
       '2. 需要用户决策时使用 interaction。',
       '3. 处理长期事项时使用 task/progress。',
-      '3.1 需要查看房间协作者时使用 ./freechat members list；助理需要拉入业务 Agent 时可使用 ./freechat agent list-available 和 ./freechat agent add <名称或ID>。',
+      '3.1 需要查看房间协作者时使用 ./freechat members list；助理需要拉入已有业务 Agent 时可使用 ./freechat agent list-available 和 ./freechat agent add <名称或ID>；缺少必要专家时可用 ./freechat agent create-request 发起创建确认卡，但必须等待用户确认。',
       agent.roleType === 'assistant'
         ? '4. 你是默认入口和调度者；用户未明确 @ 专家时，只代表自己/助理响应。遇到复合任务、长内容任务、或明显命中房间专家专长的任务，必须先用 members.list 查看专家；有匹配专家时禁止自己直接产出最终成品，必须用 ./freechat task plan create-json 创建真实交互卡，或用 task/subtask --assignee 分派专家。禁止只用普通聊天文本/Markdown 表格假装任务计划。用户给出大致题材但缺少时长/受众等细节时，不要只追问；应先用合理默认假设创建计划卡，并在计划说明里写清可后续调整。'
         : '4. 专家只处理人类明确 @ 或任务分派给自己的事项；不要抢助理的入口职责。',
@@ -550,6 +550,8 @@ function usage() {
     '  ./freechat members list',
     '  ./freechat agent list-available',
     '  ./freechat agent add <agentNameOrId>',
+    '  ./freechat agent create-request <name> --description <desc> --specialties <a,b>',
+    '  ./freechat agent create-json <localJsonPath>',
     '  ./freechat room info',
     '  ./freechat interaction confirm <title> [description]',
     '  ./freechat interaction choice <title> <opt1|opt2|...> [description]',
@@ -742,6 +744,14 @@ if (domain === 'chat' && cmd === 'send') {
   if (!rest[0]) die('agentNameOrId is required');
   const opts = parseNamedOptions(rest.slice(1));
   call('agent.add', { agent: rest[0], roomRole: opts.roomRole || opts.role, autoEnabled: opts.autoEnabled === 'true', priority: opts.priority });
+} else if (domain === 'agent' && (cmd === 'create-request' || cmd === 'create')) {
+  if (!rest[0]) die('agent name is required');
+  const opts = parseNamedOptions(rest.slice(1));
+  const specialties = opts.specialties ? String(opts.specialties).split(',').map(s => s.trim()).filter(Boolean) : [];
+  call('agent.create_request', { name: rest[0], description: opts.description || opts.desc, specialties, roleType: opts.roleType || opts.role || 'specialist', roomRole: opts.roomRole || 'specialist', autoEnabled: opts.autoEnabled === 'true', priority: opts.priority });
+} else if (domain === 'agent' && cmd === 'create-json') {
+  if (!rest[0]) die('localJsonPath is required');
+  call('agent.create_request', JSON.parse(readLocalFile(rest[0])));
 } else if (domain === 'room' && cmd === 'info') {
   call('room.info');
 } else if (domain === 'interaction' && ['confirm', 'choice', 'multi_choice'].includes(cmd)) {
@@ -799,7 +809,7 @@ if (domain === 'chat' && cmd === 'send') {
 5. 你自己的草稿、脚本、技能、资源可以放在当前工作区的 \`res/\`、\`scripts/\`、\`skills/\`。
 6. 不要滥建任务：简单、单 Agent 可直接完成的请求直接处理；只有复杂需求、跨 Agent 协作、需要长期跟踪或需要讨论分发时才创建父任务。
 7. 需要用户确认/选择时，使用 \`./freechat interaction confirm/choice/multi_choice\` 创建交互卡片，不要只发普通文本等待。
-8. 助理 Agent 是默认入口和调度者：用户没有明确 @ 专家时，只由助理接收请求；助理必须判断自己做还是交给专家。当前房间有更合适的专家时，应优先通过任务/子任务分派给专家，不要自己硬做。遇到复合任务、长内容任务、或明显命中专家专长的任务，必须先用 \`./freechat members list\` 查看专家；有匹配专家时禁止直接产出最终成品，必须创建 task plan 预览或用 \`--assignee\` 分派专家。
+8. 助理 Agent 是默认入口和调度者：用户没有明确 @ 专家时，只由助理接收请求；助理必须判断自己做还是交给专家。当前房间有更合适的专家时，应优先通过任务/子任务分派给专家，不要自己硬做。遇到复合任务、长内容任务、或明显命中专家专长的任务，必须先用 \`./freechat members list\` 查看专家；有匹配专家时禁止直接产出最终成品，必须创建 task plan 预览或用 \`--assignee\` 分派专家。当前房间缺少必要专家时，助理可用 \`./freechat agent create-request <名称> --description <职责> --specialties <专长1,专长2>\` 发起创建专家 Agent 的确认卡；必须等待用户确认，不能直接创建。
 9. 专家 Agent 只在“人类明确 @ 自己”或“任务/子任务分派给自己”时处理，不要主动组织其他 Agent 讨论。
 10. 不要通过普通聊天 @ 另一个 Agent 来制造自动对话；多 Agent 协作必须优先通过任务/子任务分派。
 11. 长任务开始时先用 \`./freechat chat send\` 汇报，必要时同步任务状态。
@@ -908,6 +918,8 @@ Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文
 ./freechat members list
 ./freechat agent list-available
 ./freechat agent add <agentNameOrId>
+./freechat agent create-request <name> --description <desc> --specialties <a,b>
+./freechat agent create-json <localJsonPath>
 ./freechat room info
 \`\`\`
 
