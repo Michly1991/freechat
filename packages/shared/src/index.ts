@@ -10,6 +10,37 @@ export interface User {
   createdAt: number
 }
 
+export type AgentReplyMode = 'mention_only' | 'auto_when_relevant'
+export type RoomAgentRole = 'assistant' | 'specialist'
+
+export interface AgentToolPermissions {
+  chat: boolean
+  task: boolean
+  file: boolean
+  tab: boolean
+  interaction: boolean
+  members: boolean
+}
+
+export interface AgentBehaviorConfig {
+  replyMode: AgentReplyMode
+  silentAllowed: boolean
+}
+
+export interface AgentRuntimeConfig {
+  systemPrompt?: string
+  behavior?: Partial<AgentBehaviorConfig>
+  tools?: Partial<AgentToolPermissions>
+  model?: {
+    provider?: string
+    model?: string
+    temperature?: number
+    maxTokens?: number
+  }
+  defaultRoomAssistant?: boolean
+  roomId?: string
+}
+
 export interface Agent {
   id: string
   name: string
@@ -17,12 +48,34 @@ export interface Agent {
   deployment: 'server' | 'client'
   description?: string
   specialties?: string[]
-  config?: Record<string, any>
+  config?: AgentRuntimeConfig
   status?: 'active' | 'inactive' | 'working' | 'error'
   onlineStatus?: 'online' | 'working' | 'offline' | 'error'
   lastActiveAt?: number
   lastError?: string
   sessionId?: string
+  roomRole?: RoomAgentRole
+  autoEnabled?: boolean
+  roomPriority?: number
+}
+
+export const DEFAULT_AGENT_TOOLS: AgentToolPermissions = {
+  chat: true,
+  task: true,
+  file: true,
+  tab: true,
+  interaction: true,
+  members: true,
+}
+
+export const DEFAULT_ASSISTANT_AGENT_CONFIG: AgentRuntimeConfig = {
+  behavior: { replyMode: 'auto_when_relevant', silentAllowed: true },
+  tools: DEFAULT_AGENT_TOOLS,
+}
+
+export const DEFAULT_SPECIALIST_AGENT_CONFIG: AgentRuntimeConfig = {
+  behavior: { replyMode: 'mention_only', silentAllowed: true },
+  tools: { chat: true, task: true, file: true, tab: false, interaction: true, members: true },
 }
 
 // === Room Types ===

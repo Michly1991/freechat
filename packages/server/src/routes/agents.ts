@@ -29,6 +29,12 @@ export async function registerAgentRoutes(app: FastifyInstance) {
         error: { code: 'VALIDATION_ERROR', message: 'name, roleType, and deployment are required' }
       })
     }
+    if (!['assistant', 'specialist'].includes(roleType) || !['server', 'client'].includes(deployment)) {
+      return reply.code(400).send({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'invalid roleType or deployment' }
+      })
+    }
 
     try {
       const result = await agentService.createAgent(user.id, {
@@ -52,17 +58,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const body = request.body as any
 
     try {
-      // Verify ownership
-      const agent = await agentService.getAgent(id)
-      // Agent service doesn't expose owner_id via Agent type, check directly
-      const db = (await import('../storage/db.js')).default
-      const row = db.prepare('SELECT owner_id FROM agents WHERE id = ?').get(id) as any
-      if (!row || row.owner_id !== user.id) {
-        return reply.code(403).send({
-          success: false,
-          error: { code: 'FORBIDDEN', message: 'You do not own this agent' }
-        })
-      }
+      await agentService.assertAgentOwner(id, user.id)
 
       const updated = await agentService.updateAgent(id, {
         name: body.name,
@@ -88,15 +84,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const { id } = request.params as any
 
     try {
-      const db = (await import('../storage/db.js')).default
-      const row = db.prepare('SELECT owner_id FROM agents WHERE id = ?').get(id) as any
-      if (!row || row.owner_id !== user.id) {
-        return reply.code(403).send({
-          success: false,
-          error: { code: 'FORBIDDEN', message: 'You do not own this agent' }
-        })
-      }
-
+      await agentService.assertAgentOwner(id, user.id)
       await agentService.deleteAgent(id)
       return reply.send({ success: true })
     } catch (err: any) {
@@ -110,15 +98,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const { id } = request.params as any
 
     try {
-      const db = (await import('../storage/db.js')).default
-      const row = db.prepare('SELECT owner_id FROM agents WHERE id = ?').get(id) as any
-      if (!row || row.owner_id !== user.id) {
-        return reply.code(403).send({
-          success: false,
-          error: { code: 'FORBIDDEN', message: 'You do not own this agent' }
-        })
-      }
-
+      await agentService.assertAgentOwner(id, user.id)
       const apiKey = await agentService.regenerateApiKey(id)
       return reply.send({ success: true, data: { apiKey } })
     } catch (err: any) {
@@ -156,7 +136,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
   app.post('/api/rooms/:roomId/agents', async (request, reply) => {
     const user = (request as any).user
     const { roomId } = request.params as any
-    const { agentId } = request.body as any
+    const { agentId, roomRole, autoEnabled, priority } = request.body as any
 
     if (!agentId) {
       return reply.code(400).send({
@@ -166,18 +146,26 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     }
 
     try {
-      const isMember = await roomService.isMember(roomId, user.id)
-      if (!isMember) {
+      const canEdit = await agentService.canEditRoomAgents(roomId, user.id)
+      if (!canEdit) {
         return reply.code(403).send({
           success: false,
-          error: { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' }
+          error: { code: 'FORBIDDEN', message: 'Only project owner/editor can add agents' }
         })
       }
 
-      // Verify agent exists
-      await agentService.getAgent(agentId)
+      if (!await agentService.canUseAgent(agentId, user.id)) {
+        return reply.code(403).send({
+          success: false,
+          error: { code: 'FORBIDDEN', message: 'You can only add your own agents in this version' }
+        })
+      }
 
-      await agentService.addAgentToRoom(roomId, agentId, user.id)
+      await agentService.addAgentToRoom(roomId, agentId, user.id, {
+        roomRole: roomRole === 'assistant' ? 'assistant' : 'specialist',
+        autoEnabled: autoEnabled === true,
+        priority: Number(priority || 0),
+      })
 
       // Update MEMBERS.md
       await membersService.updateMembersFile(roomId)
@@ -198,11 +186,11 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const { roomId, agentId } = request.params as any
 
     try {
-      const isMember = await roomService.isMember(roomId, user.id)
-      if (!isMember) {
+      const canEdit = await agentService.canEditRoomAgents(roomId, user.id)
+      if (!canEdit) {
         return reply.code(403).send({
           success: false,
-          error: { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' }
+          error: { code: 'FORBIDDEN', message: 'Only project owner/editor can remove agents' }
         })
       }
 

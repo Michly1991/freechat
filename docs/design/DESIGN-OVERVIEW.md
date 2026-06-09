@@ -77,6 +77,7 @@ agent_messages         -- provider-api 模式下的 Agent 历史
 agent_runs             -- Agent 每次执行的运行记录/错误追踪
 tabs                   -- Tab 元数据
 room_members           -- 房间成员关联
+room_agents            -- 房间 Agent 关联，含 room_role/auto_enabled/priority
 schema_migrations      -- 数据库迁移记录
 ```
 
@@ -106,6 +107,8 @@ schema_migrations      -- 数据库迁移记录
 - `room.joined` / `room.member_join` / `room.member_leave` / `room.online_update`
 
 前后端共享包维护 `WSMessage` 和 `WSEventAction` 类型，新增事件必须先更新共享类型和设计文档。
+
+多 Agent 触发规则：人类消息可以 @ 一个或多个 Agent；无人 @ 时只触发当前房间唯一 `auto_enabled` Agent；AI 普通消息不再触发其他 Agent，避免 Agent 互相对话造成循环。
 
 ### REST API
 

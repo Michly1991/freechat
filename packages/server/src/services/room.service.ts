@@ -44,15 +44,20 @@ export class RoomService {
         '助理',
         '默认房间助理，可以参与讨论、总结信息、协调专家 Agent，并在需要时做最终决策。',
         JSON.stringify(['协作', '总结', '任务协调', '决策']),
-        JSON.stringify({ defaultRoomAssistant: true, roomId: id }),
+        JSON.stringify({
+          defaultRoomAssistant: true,
+          roomId: id,
+          behavior: { replyMode: 'auto_when_relevant', silentAllowed: true },
+          tools: { chat: true, task: true, file: true, tab: true, interaction: true, members: true }
+        }),
         apiKeyHash,
         now,
         now
       )
 
       db.prepare(`
-        INSERT INTO room_agents (room_id, agent_id, added_by, added_at)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO room_agents (room_id, agent_id, added_by, added_at, room_role, auto_enabled, priority)
+        VALUES (?, ?, ?, ?, 'assistant', 1, 0)
       `).run(id, assistantAgentId, userId, now)
     })
 

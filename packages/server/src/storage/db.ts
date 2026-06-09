@@ -262,10 +262,32 @@ export function initDatabase() {
       agent_id TEXT NOT NULL,
       added_by TEXT NOT NULL,
       added_at INTEGER NOT NULL,
+      room_role TEXT DEFAULT 'specialist',
+      auto_enabled INTEGER DEFAULT 0,
+      priority INTEGER DEFAULT 0,
       PRIMARY KEY (room_id, agent_id),
       FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
       FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
     )
+  `)
+
+  const roomAgentCols = db.prepare('PRAGMA table_info(room_agents)').all() as any[]
+  if (!roomAgentCols.some((col) => col.name === 'room_role')) db.exec("ALTER TABLE room_agents ADD COLUMN room_role TEXT DEFAULT 'specialist'")
+  if (!roomAgentCols.some((col) => col.name === 'auto_enabled')) db.exec('ALTER TABLE room_agents ADD COLUMN auto_enabled INTEGER DEFAULT 0')
+  if (!roomAgentCols.some((col) => col.name === 'priority')) db.exec('ALTER TABLE room_agents ADD COLUMN priority INTEGER DEFAULT 0')
+
+  db.exec(`
+    UPDATE room_agents
+    SET room_role = 'assistant', auto_enabled = 1
+    WHERE agent_id IN (
+      SELECT id FROM agents WHERE role_type = 'assistant' AND config LIKE '%"defaultRoomAssistant":true%'
+    )
+      AND NOT EXISTS (
+        SELECT 1 FROM room_agents ra2
+        WHERE ra2.room_id = room_agents.room_id
+          AND ra2.auto_enabled = 1
+          AND ra2.agent_id != room_agents.agent_id
+      )
   `)
 
   // Room profiles table

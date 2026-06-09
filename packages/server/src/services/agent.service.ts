@@ -8,7 +8,8 @@ import { join } from 'path'
 import { config } from '../config.js'
 import { aiConfigService } from './ai-config.service.js'
 import { createAgentToolToken } from '../agent-tool-token.js'
-import type { Agent } from '@freechat/shared'
+import type { Agent, AgentRuntimeConfig, AgentToolPermissions, RoomAgentRole } from '@freechat/shared'
+import { DEFAULT_ASSISTANT_AGENT_CONFIG, DEFAULT_SPECIALIST_AGENT_CONFIG, DEFAULT_AGENT_TOOLS } from '@freechat/shared'
 
 // Shape of an agent row in the DB
 interface AgentRow {
@@ -26,6 +27,9 @@ interface AgentRow {
   created_at: number
   updated_at: number
   agent_last_active_at?: number | null
+  room_role?: string | null
+  auto_enabled?: number | null
+  room_priority?: number | null
 }
 
 export interface AgentConfig {
@@ -34,13 +38,30 @@ export interface AgentConfig {
   deployment: 'server' | 'client'
   description?: string
   specialties?: string[]
-  config?: Record<string, any>
+  config?: AgentRuntimeConfig
   status?: 'active' | 'inactive' | 'working' | 'error'
 }
 
 export interface AgentCreateResult {
   agent: Agent
   apiKey: string // Only returned once at creation
+}
+
+export interface AddAgentToRoomOptions {
+  roomRole?: RoomAgentRole
+  autoEnabled?: boolean
+  priority?: number
+}
+
+function mergeAgentConfig(roleType: 'assistant' | 'specialist', config?: AgentRuntimeConfig): AgentRuntimeConfig {
+  const base = roleType === 'assistant' ? DEFAULT_ASSISTANT_AGENT_CONFIG : DEFAULT_SPECIALIST_AGENT_CONFIG
+  return {
+    ...base,
+    ...(config || {}),
+    behavior: { ...(base.behavior || {}), ...(config?.behavior || {}) },
+    tools: { ...(base.tools || {}), ...(config?.tools || {}) },
+    model: { ...(base.model || {}), ...(config?.model || {}) },
+  }
 }
 
 export class AgentService {
@@ -55,6 +76,8 @@ export class AgentService {
     const apiKey = `fc_${crypto.randomBytes(32).toString('hex')}`
     const apiKeyHash = await bcrypt.hash(apiKey, 10)
 
+    const mergedConfig = mergeAgentConfig(cfg.roleType, cfg.config)
+
     db.prepare(`
       INSERT INTO agents (id, owner_id, name, role_type, deployment, description, specialties, config, api_key_hash, status, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
@@ -66,7 +89,7 @@ export class AgentService {
       cfg.deployment,
       cfg.description || null,
       cfg.specialties ? JSON.stringify(cfg.specialties) : null,
-      cfg.config ? JSON.stringify(cfg.config) : null,
+      JSON.stringify(mergedConfig),
       apiKeyHash,
       now,
       now
@@ -91,7 +114,12 @@ export class AgentService {
    * List all agents owned by a user
    */
   async getUserAgents(ownerId: string): Promise<Agent[]> {
-    const rows = db.prepare('SELECT * FROM agents WHERE owner_id = ? ORDER BY created_at DESC').all(ownerId) as AgentRow[]
+    const rows = db.prepare(`
+      SELECT * FROM agents
+      WHERE owner_id = ?
+        AND (config IS NULL OR config NOT LIKE '%"defaultRoomAssistant":true%')
+      ORDER BY created_at DESC
+    `).all(ownerId) as AgentRow[]
     return rows.map(r => this.rowToAgent(r))
   }
 
@@ -186,15 +214,57 @@ export class AgentService {
   /**
    * Add an agent to a room
    */
-  async addAgentToRoom(roomId: string, agentId: string, addedBy: string): Promise<void> {
+  async addAgentToRoom(roomId: string, agentId: string, addedBy: string, options: AddAgentToRoomOptions = {}): Promise<void> {
     const now = Date.now()
-    db.prepare(`
-      INSERT OR REPLACE INTO room_agents (room_id, agent_id, added_by, added_at)
-      VALUES (?, ?, ?, ?)
-    `).run(roomId, agentId, addedBy, now)
+    const agent = await this.getAgent(agentId)
+    const roomRole = options.roomRole || (agent.roleType === 'assistant' ? 'assistant' : 'specialist')
+    const autoEnabled = options.autoEnabled === true
+
+    const tx = db.transaction(() => {
+      if (autoEnabled) {
+        db.prepare('UPDATE room_agents SET auto_enabled = 0 WHERE room_id = ?').run(roomId)
+      }
+      db.prepare(`
+        INSERT OR REPLACE INTO room_agents (room_id, agent_id, added_by, added_at, room_role, auto_enabled, priority)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(roomId, agentId, addedBy, now, roomRole, autoEnabled ? 1 : 0, options.priority || 0)
+    })
+    tx()
 
     // Don't add to room_members since agents are not in users table
     // Agent membership is tracked via room_agents table
+  }
+
+  async assertAgentOwner(agentId: string, userId: string): Promise<void> {
+    const row = db.prepare('SELECT owner_id FROM agents WHERE id = ?').get(agentId) as any
+    if (!row) throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found' }
+    if (row.owner_id !== userId) throw { code: 'FORBIDDEN', message: 'You do not own this agent' }
+  }
+
+  async canUseAgent(agentId: string, userId: string): Promise<boolean> {
+    const row = db.prepare('SELECT owner_id FROM agents WHERE id = ?').get(agentId) as any
+    return !!row && row.owner_id === userId
+  }
+
+  async canEditRoomAgents(roomId: string, userId: string): Promise<boolean> {
+    const row = db.prepare('SELECT role FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, userId) as any
+    return row?.role === 'owner' || row?.role === 'editor'
+  }
+
+  async getAutoAgent(roomId: string): Promise<Agent | null> {
+    const row = db.prepare(`
+      SELECT a.*, ra.room_role, ra.auto_enabled, ra.priority as room_priority, (
+        SELECT MAX(last_active_at)
+        FROM agent_sessions s
+        WHERE s.room_id = ra.room_id AND s.agent_id = a.id
+      ) as agent_last_active_at
+      FROM agents a
+      INNER JOIN room_agents ra ON a.id = ra.agent_id
+      WHERE ra.room_id = ? AND ra.auto_enabled = 1 AND a.status != 'inactive'
+      ORDER BY ra.priority ASC, ra.added_at ASC
+      LIMIT 1
+    `).get(roomId) as AgentRow | undefined
+    return row ? this.rowToAgent(row) : null
   }
 
   /**
@@ -210,7 +280,7 @@ export class AgentService {
    */
   async getRoomAgents(roomId: string): Promise<Agent[]> {
     const rows = db.prepare(`
-      SELECT a.*, (
+      SELECT a.*, ra.room_role, ra.auto_enabled, ra.priority as room_priority, (
         SELECT MAX(last_active_at)
         FROM agent_sessions s
         WHERE s.room_id = ra.room_id AND s.agent_id = a.id
@@ -218,9 +288,62 @@ export class AgentService {
       FROM agents a
       INNER JOIN room_agents ra ON a.id = ra.agent_id
       WHERE ra.room_id = ?
-      ORDER BY ra.added_at ASC
+      ORDER BY ra.auto_enabled DESC, ra.priority ASC, ra.added_at ASC
     `).all(roomId) as AgentRow[]
     return rows.map(r => this.rowToAgent(r))
+  }
+
+  assertToolAllowed(agent: Agent, action: string): void {
+    const tools: AgentToolPermissions = { ...DEFAULT_AGENT_TOOLS, ...(agent.config?.tools || {}) }
+    const first = action.split('.')[0]
+    const domain = first === 'tab-config' ? 'file' : first
+    const allowed = domain === 'chat' ? tools.chat
+      : domain === 'task' ? tools.task
+        : domain === 'file' ? tools.file
+          : domain === 'tab' ? tools.tab
+            : domain === 'interaction' ? tools.interaction
+              : domain === 'members' || domain === 'room' ? tools.members
+                : true
+    if (!allowed) {
+      throw { code: 'AGENT_TOOL_FORBIDDEN', message: `This agent is not allowed to use ${domain} tools` }
+    }
+  }
+
+  buildAgentSystemPrompt(agent: Agent): string {
+    const cfg = agent.config || {}
+    const tools = { ...DEFAULT_AGENT_TOOLS, ...(cfg.tools || {}) }
+    const behavior = {
+      replyMode: agent.roleType === 'assistant' ? 'auto_when_relevant' : 'mention_only',
+      silentAllowed: true,
+      ...(cfg.behavior || {})
+    }
+    return [
+      '你是 FreeChat 项目中的业务 Agent。',
+      '',
+      `【Agent 名称】${agent.name}`,
+      `【Agent 类型】${agent.roleType === 'assistant' ? '业务助理' : '业务专家'}`,
+      agent.description ? `【业务职责】${agent.description}` : '',
+      agent.specialties?.length ? `【专长】${agent.specialties.join('、')}` : '',
+      cfg.systemPrompt ? `【业务自定义提示词】\n${cfg.systemPrompt}` : '',
+      '',
+      `【响应模式】${behavior.replyMode}`,
+      behavior.silentAllowed ? '不需要回应时必须只输出 [SILENT]。' : '',
+      '',
+      '【工具权限】',
+      `- chat: ${tools.chat ? '允许' : '禁止'}`,
+      `- task: ${tools.task ? '允许' : '禁止'}`,
+      `- file: ${tools.file ? '允许' : '禁止'}`,
+      `- tab: ${tools.tab ? '允许' : '禁止'}`,
+      `- interaction: ${tools.interaction ? '允许' : '禁止'}`,
+      `- members: ${tools.members ? '允许' : '禁止'}`,
+      '',
+      '【系统规则】',
+      '1. 只能通过 ./freechat 操作项目，不要直接访问或修改项目共享目录。',
+      '2. 需要用户决策时使用 interaction。',
+      '3. 处理长期事项时使用 task/progress。',
+      '4. 不要通过普通聊天主动触发另一个 Agent；多 Agent 协作优先通过任务/子任务分派。',
+      '5. 回复要简洁、面向当前项目上下文。',
+    ].filter(Boolean).join('\n')
   }
 
   async prepareAgentWorkspace(roomId: string, agent: Agent): Promise<string> {
@@ -665,7 +788,7 @@ Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文
       const apiKey = aiConfigService.getApiKey(aiConfig.currentProvider)
 
       if (provider && provider.enabled && apiKey) {
-        const agentPrompt = agent.config?.systemPrompt || agent.description || 'You are a helpful AI assistant.'
+        const agentPrompt = this.buildAgentSystemPrompt(agent)
         
         // Build messages array with conversation history
         const messages: any[] = []
@@ -1008,6 +1131,9 @@ Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文
       onlineStatus,
       lastActiveAt: row.agent_last_active_at || undefined,
       sessionId: row.session_id || undefined,
+      roomRole: (row.room_role as RoomAgentRole) || undefined,
+      autoEnabled: row.auto_enabled !== undefined && row.auto_enabled !== null ? !!row.auto_enabled : undefined,
+      roomPriority: row.room_priority ?? undefined,
     }
   }
 

@@ -283,7 +283,7 @@ export class WebSocketGateway {
 
     const mentions = payload.mentions || []
     const agentMentions = mentions.filter((m: any) => m?.role === 'ai' && m?.id)
-    if (agentMentions.length > 0) {
+    if (client.role === 'human' && agentMentions.length > 0) {
       void this.invokeMentionedAgents(client.currentRoomId, payload.content, mentions)
     } else if (client.role === 'human') {
       void this.maybeAutoInvokeAssistant(client.currentRoomId, client.nickname, payload.content)
@@ -307,8 +307,7 @@ export class WebSocketGateway {
     const cooldownMs = 30_000
     if (now - last < cooldownMs) return
 
-    const roomAgents = await agentService.getRoomAgents(roomId)
-    const assistant = roomAgents.find((a: any) => a.roleType === 'assistant' && a.status !== 'inactive')
+    const assistant = await agentService.getAutoAgent(roomId)
     if (!assistant) return
 
     this.assistantAutoReplyCooldowns.set(roomId, now)
@@ -725,7 +724,7 @@ export class WebSocketGateway {
 
     const mentions = payload.mentions || []
     const agentMentions = mentions.filter((m: any) => m?.role === 'ai' && m?.id)
-    if (agentMentions.length > 0) {
+    if ((user.role === 'user' || user.role === 'admin') && agentMentions.length > 0) {
       void this.invokeMentionedAgents(roomId, payload.content, mentions)
     } else if ((user.role === 'user' || user.role === 'admin')) {
       void this.maybeAutoInvokeAssistant(roomId, user.nickname || user.username, payload.content)

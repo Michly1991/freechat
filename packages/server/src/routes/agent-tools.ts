@@ -80,6 +80,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
     const filesDir = join(config.workspace.root, roomId, 'files')
 
     try {
+      agentService.assertToolAllowed(agent, String(action || ''))
       switch (action) {
         case 'chat.send': {
           const content = String(args.content || '').trim()
@@ -334,7 +335,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           return reply.code(400).send({ success: false, error: { code: 'UNKNOWN_ACTION', message: `Unknown action: ${action}` } })
       }
     } catch (err: any) {
-      return reply.code(err.code === 'TAB_NOT_FOUND' ? 404 : (err.code === 'INVALID_PATH' || err.code === 'VALIDATION_ERROR' ? 400 : 500)).send({
+      return reply.code(err.code === 'TAB_NOT_FOUND' ? 404 : (err.code === 'INVALID_PATH' || err.code === 'VALIDATION_ERROR' ? 400 : (err.code === 'AGENT_TOOL_FORBIDDEN' ? 403 : 500))).send({
         success: false,
         error: { code: err.code || 'INTERNAL_ERROR', message: err.message || String(err) }
       })

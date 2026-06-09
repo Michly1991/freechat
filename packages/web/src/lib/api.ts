@@ -144,8 +144,8 @@ export const api = {
     request(`/agents/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteAgent: (id: string) => request(`/agents/${id}`, { method: 'DELETE' }),
   getRoomAgents: (roomId: string) => request<{ agents: any[] }>(`/rooms/${roomId}/agents`),
-  addRoomAgent: (roomId: string, agentId: string) =>
-    request(`/rooms/${roomId}/agents`, { method: 'POST', body: JSON.stringify({ agentId }) }),
+  addRoomAgent: (roomId: string, agentId: string, options?: { roomRole?: 'assistant' | 'specialist'; autoEnabled?: boolean; priority?: number }) =>
+    request(`/rooms/${roomId}/agents`, { method: 'POST', body: JSON.stringify({ agentId, ...(options || {}) }) }),
   removeRoomAgent: (roomId: string, agentId: string) =>
     request(`/rooms/${roomId}/agents/${agentId}`, { method: 'DELETE' }),
   invokeAgent: (roomId: string, agentId: string, message: string) =>

@@ -960,6 +960,82 @@ agent_runs (
 
 调用开始时写入 `running`，成功、静默成功、重试成功或失败时更新终态。这样后续可以在前端展示 Agent 执行历史，也能排查 CLI 超时、session 损坏、模型配置错误等问题。
 
+## 业务自定义 Agent 与多 Agent 规则
+
+业务用户可以创建自己的 Agent，并添加到有编辑权限的项目中。业务 Agent 复用默认助理 Agent 的底层机制：私有工作区、`./freechat` CLI、Agent Tool API、WebSocket 广播、`agent_runs` 记录完全一致；区别在于业务可配置名称、职责、专长、系统提示词、响应模式和工具权限。
+
+### Agent 配置
+
+`agents.config` 使用 JSON 存储运行配置：
+
+```ts
+type AgentRuntimeConfig = {
+  systemPrompt?: string
+  behavior?: {
+    replyMode?: 'mention_only' | 'auto_when_relevant'
+    silentAllowed?: boolean
+  }
+  tools?: {
+    chat?: boolean
+    task?: boolean
+    file?: boolean
+    tab?: boolean
+    interaction?: boolean
+    members?: boolean
+  }
+}
+```
+
+默认配置：
+
+- 业务助理：`auto_when_relevant`，默认允许 chat/task/file/tab/interaction/members。
+- 业务专家：`mention_only`，默认允许 chat/task/file/interaction/members，默认不允许 tab。
+
+Agent 运行时会把业务配置拼入 system prompt，同时保留系统边界：只能通过 `./freechat` 操作项目，不直接改共享目录；需要用户决策时使用 interaction；长期事项使用 task/progress。
+
+### 工具权限硬控
+
+工具权限不只写进 prompt，后端在 `POST /api/agent-tools/:roomId` 入口强制校验：
+
+- `chat.*` 需要 `tools.chat`
+- `task.*` 需要 `tools.task`
+- `file.*` / `tab-config.*` 需要 `tools.file`
+- `tab.*` 需要 `tools.tab`
+- `interaction.*` 需要 `tools.interaction`
+- `members.*` / `room.info` 需要 `tools.members`
+
+未授权时返回 `AGENT_TOOL_FORBIDDEN`。
+
+### 房间内 Agent 角色
+
+`room_agents` 扩展房间内配置：
+
+```sql
+room_role TEXT DEFAULT 'specialist',  -- assistant / specialist
+auto_enabled INTEGER DEFAULT 0,
+priority INTEGER DEFAULT 0
+```
+
+规则：
+
+1. 一个房间可以有多个 Agent。
+2. 一个房间最多一个 `auto_enabled = 1` 的自动 Agent；设置新自动 Agent 时自动关闭同房间其他 Agent 的自动响应。
+3. `auto_enabled` Agent 负责自动响应人类消息。
+4. 专家 Agent 默认只在被人类 @ 或任务分派时响应。
+5. AI 普通消息不触发其他 Agent，防止 Agent 互相刷屏。
+6. Agent 不允许通过普通 @ 自动调度另一个 Agent；多 Agent 协作优先通过任务/子任务和交互卡完成。
+
+### 项目设置入口
+
+项目设置页支持：
+
+- 新建业务 Agent 并立即添加到当前项目。
+- 从“我的 Agent”中添加到项目。
+- 添加为“专家”或“自动助理”。
+- 当前房间 Agent 列表展示“自动助理/助理/专家”标识。
+
+第一版中，自定义 Agent 仅 owner 本人可见/可添加；官方推荐模板暂展示，不直接添加。
+
 ## Agent 任务创建策略与上下文文件大小
 
 Agent 不应把所有用户请求都转成任务。简单、单 Agent 可以直接完成的事项应直接处理并简短汇报；只有复杂需求、跨 Agent 协作、需要长期跟踪、或需要助理讨论分发时，才创建父任务。
