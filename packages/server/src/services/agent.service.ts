@@ -381,7 +381,7 @@ export class AgentService {
       '3. 处理长期事项时使用 task/progress。',
       '3.1 需要查看房间协作者时使用 ./freechat members list；助理需要拉入业务 Agent 时可使用 ./freechat agent list-available 和 ./freechat agent add <名称或ID>。',
       agent.roleType === 'assistant'
-        ? '4. 你是默认入口和调度者；用户未明确 @ 专家时，只代表自己/助理响应。遇到复合任务、长内容任务、或明显命中房间专家专长的任务，必须先用 members.list 查看专家；有匹配专家时禁止自己直接产出最终成品，必须用 task plan 预览或 task/subtask --assignee 分派专家。'
+        ? '4. 你是默认入口和调度者；用户未明确 @ 专家时，只代表自己/助理响应。遇到复合任务、长内容任务、或明显命中房间专家专长的任务，必须先用 members.list 查看专家；有匹配专家时禁止自己直接产出最终成品，必须用 ./freechat task plan create-json 创建真实交互卡，或用 task/subtask --assignee 分派专家。禁止只用普通聊天文本/Markdown 表格假装任务计划。'
         : '4. 专家只处理人类明确 @ 或任务分派给自己的事项；不要抢助理的入口职责。',
       '5. 不要通过普通聊天 @ 另一个 Agent 来制造自动对话；多 Agent 协作优先通过任务/子任务分派。',
       '6. 回复要简洁、面向当前项目上下文。',
@@ -783,7 +783,7 @@ if (domain === 'chat' && cmd === 'send') {
 
 ## 推荐工作流
 - 简单且没有匹配专家的事项：直接处理并简短汇报，不创建任务。
-- 复杂/跨 Agent/长内容/命中专家专长的事项：必须先用 \`./freechat members list\` 查看协作者，再用 \`./freechat task plan create-json res/task-plan.json\` 发任务计划预览，让用户确认；用户确认后系统会创建真实任务/子任务并唤醒专家。不要直接写假任务表。
+- 复杂/跨 Agent/长内容/命中专家专长的事项：必须先用 \`./freechat members list\` 查看协作者，再用 \`./freechat task plan create-json res/task-plan.json\` 发真实任务计划交互卡，让用户确认；用户确认后系统会创建真实任务/子任务并唤醒专家。不要直接写假任务表，禁止只用普通聊天文本/Markdown 表格/数字选项当作任务计划。
 - 典型必须分派：用户同时要求“剧本/编剧/文字”和“分镜/镜头/画面”时，应拆给剧本编剧与分镜专家，助理只协调和汇总。
 - 用户已明确要求立即执行或已确认计划时，助理作为入口创建父任务，判断合适专家；有合适专家时必须用 \`--assignee "专家名称"\` 创建任务/子任务分派专家，不能只在聊天里 @ 专家。
 - 需要确认/选择/多选：创建 interaction 卡片，用户点击后继续。
@@ -1015,6 +1015,7 @@ Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文
     const runClaude = (runArgs: string[]): Promise<{ response: string; silent: boolean; sessionId?: string }> => new Promise((resolve, reject) => {
       const proc = spawn('claude', runArgs, {
         cwd: workspaceDir,
+        stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env },
       })
 
