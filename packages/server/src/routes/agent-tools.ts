@@ -1,14 +1,17 @@
 import { FastifyInstance } from 'fastify'
 import { mkdir, readdir, readFile, writeFile, stat } from 'fs/promises'
-import { existsSync } from 'fs'
 import { join, dirname, normalize } from 'path'
+import { v4 as uuidv4 } from 'uuid'
+import db from '../storage/db.js'
 import { config } from '../config.js'
 import { verifyAgentToolToken } from '../agent-tool-token.js'
 import { messageService } from '../services/message.service.js'
 import { taskService } from '../services/task.service.js'
+import { taskItemService } from '../services/task-item.service.js'
 import { roomService } from '../services/room.service.js'
 import { agentService } from '../services/agent.service.js'
 import { tabConfigService } from '../services/tab-config.service.js'
+import { interactionService } from '../services/interaction.service.js'
 import { getGateway } from '../ws/gateway.js'
 
 function safeRelativePath(input = ''): string {
@@ -104,9 +107,95 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           return { success: true, data: { task } }
         }
         case 'task.update': {
-          const task = await taskService.updateTask(args.taskId, args.updates || {})
+          const taskId = args.taskId || args.id || args.task_id
+          await taskService.assertTaskInRoom(taskId, roomId)
+          const task = await taskService.updateTask(taskId, args.updates || {})
           broadcast(roomId, 'task.changed', { action: 'update', task })
           return { success: true, data: { task } }
+        }
+        case 'task.progress': {
+          const taskId = args.taskId || args.id || args.task_id
+          const note = String(args.note || args.progressNote || '').trim()
+          if (!taskId) throw { code: 'VALIDATION_ERROR', message: 'taskId is required' }
+          if (!note) throw { code: 'VALIDATION_ERROR', message: 'note is required' }
+          await taskService.assertTaskInRoom(taskId, roomId)
+          const task = await taskService.updateTask(taskId, { progressNote: note } as any)
+          broadcast(roomId, 'task.changed', { action: 'update', task })
+          return { success: true, data: { task } }
+        }
+        case 'task.subtask_list':
+        case 'task.subtask.list': {
+          const taskId = args.taskId || args.task_id || args.id
+          if (!taskId) throw { code: 'VALIDATION_ERROR', message: 'taskId is required' }
+          await taskService.assertTaskInRoom(taskId, roomId)
+          const subtasks = taskItemService.list(taskId)
+          return { success: true, data: { subtasks, summary: taskItemService.summary(subtasks) } }
+        }
+        case 'task.subtask_add':
+        case 'task.subtask.add': {
+          const taskId = args.taskId || args.task_id || args.id
+          if (!taskId) throw { code: 'VALIDATION_ERROR', message: 'taskId is required' }
+          await taskService.assertTaskInRoom(taskId, roomId)
+          const subtask = await taskItemService.create(taskId, {
+            title: args.title,
+            description: args.description,
+            status: args.status,
+            assigneeId: args.assigneeId || agent.id,
+            assigneeName: args.assigneeName || agent.name,
+            assigneeType: args.assigneeType || 'agent',
+            createdBy: agent.id,
+          })
+          const task = await taskService.getTask(taskId)
+          broadcast(roomId, 'task.changed', { action: 'update', task })
+          return { success: true, data: { subtask, task } }
+        }
+        case 'task.subtask_update':
+        case 'task.subtask.update': {
+          const itemId = args.itemId || args.subtaskId || args.id || args.item_id
+          if (!itemId) throw { code: 'VALIDATION_ERROR', message: 'itemId is required' }
+          const before = taskItemService.get(itemId)
+          await taskService.assertTaskInRoom(before.taskId, roomId)
+          const subtask = await taskItemService.update(itemId, args.updates || {})
+          const task = await taskService.getTask(subtask.taskId)
+          broadcast(roomId, 'task.changed', { action: 'update', task })
+          return { success: true, data: { subtask, task } }
+        }
+        case 'task.subtask_delete':
+        case 'task.subtask.delete': {
+          const itemId = args.itemId || args.subtaskId || args.id || args.item_id
+          if (!itemId) throw { code: 'VALIDATION_ERROR', message: 'itemId is required' }
+          const subtask = taskItemService.get(itemId)
+          await taskService.assertTaskInRoom(subtask.taskId, roomId)
+          await taskItemService.delete(itemId)
+          const task = await taskService.getTask(subtask.taskId)
+          broadcast(roomId, 'task.changed', { action: 'update', task })
+          return { success: true, data: { task } }
+        }
+        case 'interaction.create': {
+          const result = await interactionService.create(roomId, { id: agent.id, name: agent.name, role: 'ai' }, {
+            type: args.type || 'confirm',
+            title: args.title,
+            description: args.description,
+            options: args.options,
+            targetUserId: args.targetUserId,
+            expiresAt: args.expiresAt,
+          })
+          broadcast(roomId, 'chat.message', result.message)
+          broadcast(roomId, 'interaction.created', { interaction: result.interaction })
+          return { success: true, data: result }
+        }
+        case 'interaction.list': {
+          const interactions = interactionService.list(roomId, { status: args.status, targetUserId: args.targetUserId })
+          return { success: true, data: { interactions } }
+        }
+        case 'interaction.get': {
+          const interaction = interactionService.get(roomId, args.id || args.interactionId)
+          return { success: true, data: { interaction } }
+        }
+        case 'interaction.consume': {
+          const interaction = interactionService.consume(roomId, args.id || args.interactionId, agent.id)
+          broadcast(roomId, 'interaction.updated', { interaction })
+          return { success: true, data: { interaction } }
         }
         case 'file.list': {
           await mkdir(filesDir, { recursive: true })

@@ -938,3 +938,44 @@ AGENT_SESSION_RETENTION_DAYS=30
 - 超过 `AGENT_SESSION_RETENTION_DAYS` 未活跃的 `agent_sessions` 和对应 `agent_messages` 会被清理。
 
 这保证 Agent 多轮调用不会无限增长数据库历史，也避免卡死的 Claude Code 子进程长期占用内存。
+
+### Agent Run 可观测性
+
+服务端为每次 Agent 调用记录 `agent_runs`：
+
+```sql
+agent_runs (
+  id TEXT PRIMARY KEY,
+  room_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  status TEXT NOT NULL,       -- running / succeeded / failed / cancelled
+  input TEXT NOT NULL,
+  output TEXT,
+  error TEXT,
+  session_id TEXT,
+  started_at INTEGER NOT NULL,
+  finished_at INTEGER
+)
+```
+
+调用开始时写入 `running`，成功、静默成功、重试成功或失败时更新终态。这样后续可以在前端展示 Agent 执行历史，也能排查 CLI 超时、session 损坏、模型配置错误等问题。
+
+## Agent 任务创建策略与上下文文件大小
+
+Agent 不应把所有用户请求都转成任务。简单、单 Agent 可以直接完成的事项应直接处理并简短汇报；只有复杂需求、跨 Agent 协作、需要长期跟踪、或需要助理讨论分发时，才创建父任务。
+
+已创建的父任务默认由房间助理 Agent 接管。助理负责判断：自己完成，或拆成子任务分派给专家 Agent。专家 Agent 不应绕过助理随意创建父任务；必要时可向助理汇报建议，由助理统一建父任务/子任务。
+
+Agent 工作区 Markdown 文件必须控制大小：`AGENT.md`、`CLAUDE.md`、`.freechat/API.md` 等单文件不超过 500 行。超过时应拆分到 `res/` 下的专题文件，主 Markdown 只保留索引、摘要和按需读取路径，避免每次启动加载过多上下文。
+
+### 新父任务自动唤醒助理
+
+当人类创建父任务且未指定负责人时，服务端会将任务分配给房间助理 Agent，并立即唤醒助理。助理收到任务上下文后必须判断：简单任务直接完成并汇报；复杂或跨 Agent 任务则拆分子任务并分派专家。Agent 自己通过工具创建任务时不触发此自动唤醒，避免递归触发。
+
+### 任务进展可见性
+
+助理接管父任务后必须主动汇报：先在聊天中说明已接管和处理计划，再用 `./freechat task progress <taskId> "进展说明"` 写入结构化最近进展。任务卡片显示 `progressNote`，用户无需展开任务即可看到最新处理状态。
+
+### 任务房间隔离
+
+Agent 工具只能操作当前房间的任务。服务端在 `task.update`、`task.progress`、`task.subtask_*` 等操作中校验父任务 `room_id`，传入其他房间的任务或子任务 ID 会被拒绝，避免跨项目串任务。

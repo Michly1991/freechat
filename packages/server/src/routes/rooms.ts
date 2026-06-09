@@ -22,10 +22,7 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     const user = (request as any).user
     const { name, description, memberIds } = request.body as any
 
-    console.log('[CreateRoom] Request:', { name, description, userId: user.id })
-
     if (!name) {
-      console.log('[CreateRoom] Validation failed: name is required')
       return reply.code(400).send({
         success: false,
         error: { code: 'VALIDATION_ERROR', message: 'Room name is required' }
@@ -37,10 +34,8 @@ export async function registerRoomRoutes(app: FastifyInstance) {
         ? memberIds.filter((id: string) => id && id !== user.id && areFriends(user.id, id))
         : []
       const room = await roomService.createRoom(name, description || null, user.id, initialMemberIds)
-      console.log('[CreateRoom] Success:', room.id)
       return reply.send({ success: true, data: { room } })
     } catch (err: any) {
-      console.error('[CreateRoom] Error:', err.message, err.stack)
       throw err
     }
   })

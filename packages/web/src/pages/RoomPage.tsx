@@ -12,6 +12,8 @@ interface Message {
   actorName: string
   actorRole: 'human' | 'ai'
   content: string
+  kind?: 'text' | 'interaction_request' | 'system'
+  payload?: any
   createdAt: number
 }
 
@@ -89,6 +91,10 @@ export default function RoomPage() {
   const [mentionFilter, setMentionFilter] = useState('')
   const [selectedMentions, setSelectedMentions] = useState<Array<{ id: string; name: string; role: 'human' | 'ai' }>>([])
   const [newTaskTitle, setNewTaskTitle] = useState('')
+  const [creatingTask, setCreatingTask] = useState(false)
+  const [expandedTaskIds, setExpandedTaskIds] = useState<string[]>([])
+  const [newSubtaskTitles, setNewSubtaskTitles] = useState<Record<string, string>>({})
+  const [showArchivedTasks, setShowArchivedTasks] = useState(false)
   const [newTabName, setNewTabName] = useState('')
   const [newTabContent, setNewTabContent] = useState('')
   const [showCreateTab, setShowCreateTab] = useState(false)
@@ -104,12 +110,22 @@ export default function RoomPage() {
   const [wsNoticeDismissed, setWsNoticeDismissed] = useState(false)
   const [showDiagnostics, setShowDiagnostics] = useState(false)
   const [clientLogs, setClientLogs] = useState<ClientLogEntry[]>(getClientLogs())
+  const [lastReadAt, setLastReadAt] = useState<number>(() => {
+    try { return Number(sessionStorage.getItem(`freechat:room:${roomId}:lastReadAt`) || 0) } catch { return 0 }
+  })
+  const [unreadMarkerAt, setUnreadMarkerAt] = useState<number | null>(null)
+  const [roomNewMessageCount, setRoomNewMessageCount] = useState(0)
+  const [interactionSelections, setInteractionSelections] = useState<Record<string, string[]>>({})
+  const [interactionInputs, setInteractionInputs] = useState<Record<string, Record<string, string>>>({})
+  const [submittingInteractions, setSubmittingInteractions] = useState<Record<string, boolean>>({})
+  const [pendingInteractions, setPendingInteractions] = useState<any[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<number | null>(null)
   const reconnectAttemptsRef = useRef(0)
   const manuallyClosedRef = useRef(false)
   const wsConnectIdRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesScrollRef = useRef<HTMLDivElement>(null)
   const initialScrollDoneRef = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -145,7 +161,17 @@ export default function RoomPage() {
   useEffect(() => {
     if (!roomId) return
     initialScrollDoneRef.current = false
-    api.markConversationRead('project', roomId).catch(() => {})
+    const storedLastReadAt = Number(sessionStorage.getItem(`freechat:room:${roomId}:lastReadAt`) || 0)
+    setLastReadAt(storedLastReadAt)
+    setUnreadMarkerAt(storedLastReadAt || null)
+    setRoomNewMessageCount(0)
+    window.setTimeout(() => {
+      api.markConversationRead('project', roomId).then(() => {
+        const now = Date.now()
+        setLastReadAt(now)
+        sessionStorage.setItem(`freechat:room:${roomId}:lastReadAt`, String(now))
+      }).catch(() => {})
+    }, 1800)
     const cachedMessages = readCachedMessages(roomId)
     if (cachedMessages.length > 0) setMessages(cachedMessages)
     manuallyClosedRef.current = false
@@ -168,6 +194,12 @@ export default function RoomPage() {
     }
   }, [roomId])
 
+  const isChatNearBottom = () => {
+    const el = messagesScrollRef.current
+    if (!el) return true
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 120
+  }
+
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     requestAnimationFrame(() => {
       messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' })
@@ -175,11 +207,37 @@ export default function RoomPage() {
     })
   }, [])
 
+  const scrollToBottomAndRead = () => {
+    scrollToBottom('smooth')
+    setRoomNewMessageCount(0)
+    if (roomId) {
+      api.markConversationRead('project', roomId).then(() => {
+        const now = Date.now()
+        setLastReadAt(now)
+        setUnreadMarkerAt(null)
+        sessionStorage.setItem(`freechat:room:${roomId}:lastReadAt`, String(now))
+      }).catch(() => {})
+    }
+  }
+
   useEffect(() => {
     if (messages.length === 0) return
-    scrollToBottom(initialScrollDoneRef.current ? 'smooth' : 'auto')
-    initialScrollDoneRef.current = true
-  }, [messages.length, scrollToBottom])
+    if (!initialScrollDoneRef.current) {
+      if (unreadMarkerAt) {
+        const firstUnread = messages.find((m) => m.actorId !== user?.id && (m.createdAt || 0) > unreadMarkerAt)
+        if (firstUnread) {
+          requestAnimationFrame(() => document.getElementById(`msg-${firstUnread.id}`)?.scrollIntoView({ behavior: 'auto', block: 'center' }))
+        } else {
+          scrollToBottom('auto')
+        }
+      } else {
+        scrollToBottom('auto')
+      }
+      initialScrollDoneRef.current = true
+      return
+    }
+    if (isChatNearBottom()) scrollToBottom('smooth')
+  }, [messages.length, scrollToBottom, unreadMarkerAt, user?.id])
 
   const loadRoom = async () => {
     try {
@@ -252,11 +310,29 @@ export default function RoomPage() {
       const msg = JSON.parse(event.data)
       addClientLog('info', 'ws', 'message received', { action: msg.action, type: msg.type })
       if (msg.action === 'chat.message') {
+        const isIncoming = msg.payload?.actorId !== user?.id
+        const nearBottom = isChatNearBottom()
+        if (isIncoming && activePanel === 'chat') {
+          if (nearBottom) {
+            api.markConversationRead('project', roomId!).then(() => {
+              const now = Date.now()
+              setLastReadAt(now)
+              sessionStorage.setItem(`freechat:room:${roomId}:lastReadAt`, String(now))
+            }).catch(() => {})
+          } else {
+            setRoomNewMessageCount((count) => count + 1)
+          }
+        }
         setMessages((prev) => {
           const next = mergeMessages(prev, [msg.payload])
           if (roomId) writeCachedMessages(roomId, next)
           return next
         })
+      } else if (msg.action === 'interaction.created') {
+        if (msg.payload?.interaction?.status === 'pending') setPendingInteractions((prev) => [msg.payload.interaction, ...prev.filter((item) => item.id !== msg.payload.interaction.id)])
+      } else if (msg.action === 'interaction.updated') {
+        setMessages((prev) => prev.map((m) => (m.payload?.interactionId === msg.payload.interaction.id ? { ...m, payload: { ...(m.payload || {}), interaction: msg.payload.interaction } } : m)))
+        setPendingInteractions((prev) => msg.payload.interaction.status === 'pending' ? [msg.payload.interaction, ...prev.filter((item) => item.id !== msg.payload.interaction.id)] : prev.filter((item) => item.id !== msg.payload.interaction.id))
       } else if (msg.action === 'chat.history_result') {
         setMessages((prev) => {
           const next = mergeMessages(prev, msg.payload.messages || [])
@@ -616,14 +692,71 @@ export default function RoomPage() {
   }
 
   // Task operations
-  const createTask = () => {
-    if (!newTaskTitle.trim()) return
-    if (!sendWs('task.create', { title: newTaskTitle.trim(), status: 'todo' })) return
-    setNewTaskTitle('')
+  const createTask = async () => {
+    const title = newTaskTitle.trim()
+    if (!title) {
+      feedback.warning('请输入任务标题')
+      return
+    }
+    setCreatingTask(true)
+    try {
+      if (!sendWs('task.create', { title, status: 'todo' })) {
+        feedback.error('实时连接不可用，任务创建失败')
+        return
+      }
+      setNewTaskTitle('')
+      feedback.success('任务已创建')
+    } finally {
+      setCreatingTask(false)
+    }
   }
 
   const updateTaskStatus = (task: any, status: string) => {
-    sendWs('task.update', { id: task.id, status })
+    if (!sendWs('task.update', { id: task.id, status })) {
+      feedback.error('实时连接不可用，任务更新失败')
+    }
+  }
+
+  const deleteTask = async (task: any) => {
+    const ok = await feedback.confirm({ title: '删除任务？', message: `确定删除「${task.title}」吗？`, confirmText: '删除', danger: true })
+    if (!ok) return
+    if (!sendWs('task.delete', { id: task.id })) {
+      feedback.error('实时连接不可用，删除任务失败')
+      return
+    }
+    feedback.success('任务已删除')
+  }
+
+  const toggleTaskExpanded = (taskId: string) => {
+    setExpandedTaskIds((prev) => prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId])
+  }
+
+  const createSubtask = (task: any) => {
+    const title = (newSubtaskTitles[task.id] || '').trim()
+    if (!title) {
+      feedback.warning('请输入子任务标题')
+      return
+    }
+    if (!sendWs('task.subtask.add', { taskId: task.id, title })) {
+      feedback.error('实时连接不可用，子任务创建失败')
+      return
+    }
+    setNewSubtaskTitles((prev) => ({ ...prev, [task.id]: '' }))
+    feedback.success('子任务已创建')
+  }
+
+  const updateSubtaskStatus = (subtask: any, status: string) => {
+    if (!sendWs('task.subtask.update', { id: subtask.id, status })) {
+      feedback.error('实时连接不可用，子任务更新失败')
+    }
+  }
+
+  const deleteSubtask = async (subtask: any) => {
+    const ok = await feedback.confirm({ title: '删除子任务？', message: `确定删除「${subtask.title}」吗？`, confirmText: '删除', danger: true })
+    if (!ok) return
+    if (!sendWs('task.subtask.delete', { id: subtask.id })) {
+      feedback.error('实时连接不可用，子任务删除失败')
+    }
   }
 
   const statusColors: Record<string, string> = {
@@ -641,8 +774,230 @@ export default function RoomPage() {
     { key: 'todo', label: '待办', statuses: ['todo', 'assigned'] },
     { key: 'doing', label: '进行中', statuses: ['doing', 'blocked'] },
     { key: 'review', label: '待审核', statuses: ['review'] },
-    { key: 'done', label: '已完成', statuses: ['done', 'failed', 'cancelled'] },
   ]
+  const archivedTaskStatuses = ['done', 'failed', 'cancelled']
+
+  const getNextTaskStatus = (task: any, colKey?: string) => {
+    const status = task.status
+    if (status === 'todo' || status === 'assigned') return 'doing'
+    if (status === 'doing' || status === 'blocked') return 'review'
+    if (status === 'review') return 'done'
+    if (colKey === 'todo') return 'doing'
+    if (colKey === 'doing') return 'review'
+    if (colKey === 'review') return 'done'
+    return null
+  }
+
+  const getTaskAdvanceLabel = (task: any) => {
+    const status = task.status
+    if (status === 'todo' || status === 'assigned') return '开始处理'
+    if (status === 'doing' || status === 'blocked') return '提交审核'
+    if (status === 'review') return '标记完成'
+    return ''
+  }
+
+  const renderTaskCard = (task: any, colKey?: string) => {
+    const nextStatus = getNextTaskStatus(task, colKey)
+    const label = getTaskAdvanceLabel(task)
+    const subtasks = task.subtasks || []
+    const summary = task.subtaskSummary || { total: 0, done: 0, doing: 0, review: 0, blocked: 0, progress: 0 }
+    const expanded = expandedTaskIds.includes(task.id)
+    const summaryParts = [
+      summary.todo ? `待办${summary.todo}` : '',
+      summary.assigned ? `已分配${summary.assigned}` : '',
+      summary.doing ? `进行中${summary.doing}` : '',
+      summary.review ? `待审${summary.review}` : '',
+      summary.blocked ? `阻塞${summary.blocked}` : '',
+      summary.failed ? `失败${summary.failed}` : '',
+    ].filter(Boolean)
+    return (
+      <div key={task.id} className="bg-white rounded-xl p-3 sm:p-3 shadow-sm border border-gray-100">
+        <p className="text-sm font-medium text-gray-800 leading-5 break-words">{task.title}</p>
+        {task.description && <p className="text-xs text-gray-400 mt-1 line-clamp-2">{task.description}</p>}
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          <span className={`text-xs px-2 py-0.5 rounded-full ${statusColors[task.status] || 'bg-gray-100'}`}>{task.status}</span>
+          {task.assigneeName && <span className="text-xs text-gray-400">{task.assigneeType === 'agent' ? '🤖' : '👤'} {task.assigneeName}</span>}
+        </div>
+        <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${task.progressNote ? 'bg-blue-50 text-blue-700' : 'bg-gray-50 text-gray-400'}`}>
+          <span className="font-medium">最近进展：</span>{task.progressNote || '暂无进展'}
+        </div>
+        {summary.total > 0 && (
+          <button type="button" onClick={() => toggleTaskExpanded(task.id)} className="mt-3 w-full text-left">
+            <div className="flex items-center justify-between text-xs text-gray-500">
+              <span>子任务 {summary.done}/{summary.total}</span>
+              <span>{summary.progress}%</span>
+            </div>
+            <div className="mt-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+              <div className={`h-full rounded-full ${summary.blocked ? 'bg-red-400' : 'bg-blue-500'}`} style={{ width: `${summary.progress}%` }} />
+            </div>
+            {summaryParts.length > 0 && <p className="mt-1 text-[11px] text-gray-400 truncate">{summaryParts.join(' · ')}</p>}
+          </button>
+        )}
+        <div className="mt-3 flex gap-2">
+          {nextStatus && label && (
+            <button onClick={() => updateTaskStatus(task, nextStatus)} className="flex-1 sm:flex-none rounded-lg bg-blue-50 px-3 py-2 text-sm sm:text-xs font-medium text-blue-600 hover:bg-blue-100 active:bg-blue-200">{label}</button>
+          )}
+          <button onClick={() => toggleTaskExpanded(task.id)} className="rounded-lg bg-gray-50 px-3 py-2 text-sm sm:text-xs font-medium text-gray-500 hover:bg-gray-100">{expanded ? '收起' : '子任务'}</button>
+          <button onClick={() => deleteTask(task)} className="rounded-lg bg-red-50 px-3 py-2 text-sm sm:text-xs font-medium text-red-500 hover:bg-red-100 active:bg-red-200">删除</button>
+        </div>
+        {expanded && (
+          <div className="mt-3 border-t border-gray-100 pt-3 space-y-2">
+            {subtasks.length === 0 ? <p className="text-xs text-gray-400">暂无子任务</p> : subtasks.map((subtask: any) => (
+              <div key={subtask.id} className="rounded-lg bg-gray-50 p-2">
+                <div className="flex items-start gap-2">
+                  <button onClick={() => updateSubtaskStatus(subtask, subtask.status === 'done' ? 'todo' : 'done')} className={`mt-0.5 w-5 h-5 rounded border text-xs flex items-center justify-center ${subtask.status === 'done' ? 'bg-green-500 border-green-500 text-white' : 'bg-white border-gray-300 text-transparent'}`}>✓</button>
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-xs font-medium break-words ${subtask.status === 'done' ? 'line-through text-gray-400' : 'text-gray-700'}`}>{subtask.title}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${statusColors[subtask.status] || 'bg-gray-100'}`}>{subtask.status}</span>
+                      {subtask.assigneeName && <span className="text-[10px] text-gray-400">{subtask.assigneeType === 'agent' ? '🤖' : '👤'} {subtask.assigneeName}</span>}
+                    </div>
+                  </div>
+                  <button onClick={() => deleteSubtask(subtask)} className="text-xs text-red-400 px-1">×</button>
+                </div>
+              </div>
+            ))}
+            <div className="flex gap-2 pt-1">
+              <input value={newSubtaskTitles[task.id] || ''} onChange={(e) => setNewSubtaskTitles((prev) => ({ ...prev, [task.id]: e.target.value }))} onKeyDown={(e) => e.key === 'Enter' && createSubtask(task)} placeholder="新增子任务..." className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <button onClick={() => createSubtask(task)} className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-medium text-blue-600">添加</button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const renderInteractionCard = (msg: Message) => {
+    const interaction = msg.payload?.interaction
+    if (!interaction) return null
+    const selected = interactionSelections[interaction.id] || []
+    const inputValues = interactionInputs[interaction.id] || {}
+    const isPending = interaction.status === 'pending'
+    const isMulti = interaction.type === 'multi_choice'
+    const isSubmitting = !!submittingInteractions[interaction.id]
+    const canChange = interaction.status === 'resolved' && interaction.responsePolicy?.allowChange && !interaction.consumedAt
+    const tone = interaction.priority === 'danger' ? 'red' : interaction.priority === 'important' ? 'amber' : interaction.type === 'multi_choice' ? 'purple' : 'blue'
+    const setInputValue = (optionValue: string, text: string) => {
+      setInteractionInputs((prev) => ({
+        ...prev,
+        [interaction.id]: { ...(prev[interaction.id] || {}), [optionValue]: text },
+      }))
+    }
+    const validateInputs = (values: string[]) => {
+      for (const value of values) {
+        const opt = interaction.options?.find((item: any) => item.value === value)
+        if (!opt?.input?.enabled) continue
+        const text = String(inputValues[value] || '').trim()
+        if (opt.input.required && !text) {
+          feedback.warning(`请补充：${opt.label}`)
+          return false
+        }
+        if (opt.input.maxLength && text.length > opt.input.maxLength) {
+          feedback.warning(`${opt.label} 的补充内容过长`)
+          return false
+        }
+      }
+      return true
+    }
+    const respond = async (value: string | string[]) => {
+      if (!roomId || (!isPending && !canChange) || isSubmitting) return
+      const values = Array.isArray(value) ? value : [value]
+      if (values.length === 0) return
+      if (!validateInputs(values)) return
+      const inputs = Object.fromEntries(values.filter((v) => String(inputValues[v] || '').trim()).map((v) => [v, String(inputValues[v]).trim()]))
+      try {
+        setSubmittingInteractions((prev) => ({ ...prev, [interaction.id]: true }))
+        const res = await api.respondInteraction(roomId, interaction.id, value, inputs)
+        setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, payload: { ...(m.payload || {}), interaction: res.interaction } } : m)))
+        feedback.success('已提交选择')
+      } catch (err: any) {
+        feedback.error(err?.message || '提交失败')
+      } finally {
+        setSubmittingInteractions((prev) => ({ ...prev, [interaction.id]: false }))
+      }
+    }
+    const toggle = (value: string) => {
+      setInteractionSelections((prev) => {
+        const cur = prev[interaction.id] || []
+        return { ...prev, [interaction.id]: cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value] }
+      })
+    }
+    const selectSingle = (value: string) => {
+      setInteractionSelections((prev) => ({ ...prev, [interaction.id]: [value] }))
+    }
+    const renderOptionInput = (opt: any) => {
+      if (!opt.input?.enabled) return null
+      const commonProps = {
+        value: inputValues[opt.value] || '',
+        onChange: (e: any) => setInputValue(opt.value, e.target.value),
+        placeholder: opt.input.placeholder || '请补充说明',
+        maxLength: opt.input.maxLength,
+        className: 'mt-2 w-full rounded-lg border border-blue-100 bg-white px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500',
+      }
+      return opt.input.multiline ? <textarea {...commonProps} rows={3} /> : <input {...commonProps} />
+    }
+    return (
+      <div id={`interaction-${interaction.id}`} className={`max-w-[92%] sm:max-w-[520px] rounded-2xl border p-4 shadow-sm ${isPending || canChange ? (tone === 'red' ? 'border-red-200 bg-red-50' : tone === 'amber' ? 'border-amber-200 bg-amber-50' : tone === 'purple' ? 'border-purple-200 bg-purple-50' : 'border-blue-200 bg-blue-50') : 'border-gray-200 bg-gray-50'}`}>
+        <div className="flex items-start gap-3">
+          <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold ${(isPending || canChange) ? (tone === 'red' ? 'bg-red-600 text-white' : tone === 'amber' ? 'bg-amber-500 text-white' : tone === 'purple' ? 'bg-purple-600 text-white' : 'bg-blue-600 text-white') : 'bg-green-500 text-white'}`}>{interaction.status === 'resolved' && !canChange ? '✓' : interaction.priority === 'danger' ? '!' : interaction.type === 'multi_choice' ? '☑' : '?'}</div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h4 className="font-semibold text-gray-800">{interaction.title}</h4>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full ${isPending ? 'bg-white/70 text-gray-700' : canChange ? 'bg-amber-100 text-amber-700' : 'bg-gray-200 text-gray-500'}`}>{isSubmitting ? '提交中' : isPending ? '待处理' : canChange ? '可修改' : '已处理'}</span>
+            </div>
+            {interaction.description && <p className="mt-1 text-sm text-gray-600 whitespace-pre-wrap">{interaction.description}</p>}
+            {(isPending || canChange) ? (
+              isMulti ? (
+                <div className="mt-3 space-y-2">
+                  {interaction.options?.map((opt: any) => (
+                    <div key={opt.value} className="rounded-xl bg-white px-3 py-2 text-sm text-gray-700 border border-blue-100">
+                      <label className="flex items-center gap-2">
+                        <input type="checkbox" checked={selected.includes(opt.value)} onChange={() => toggle(opt.value)} />
+                        <span>{opt.label}</span>
+                        {opt.input?.required && <span className="text-red-400">*</span>}
+                      </label>
+                      {selected.includes(opt.value) && renderOptionInput(opt)}
+                    </div>
+                  ))}
+                  <button onClick={() => respond(selected)} disabled={selected.length === 0 || isSubmitting} className="w-full rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">{isSubmitting ? '提交中...' : canChange ? '修改选择' : '提交选择'}</button>
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {interaction.options?.map((opt: any) => {
+                    const active = selected[0] === opt.value
+                    return (
+                      <div key={opt.value} className={`rounded-xl border px-3 py-2 ${active ? 'border-blue-300 bg-white' : 'border-blue-100 bg-white/80'}`}>
+                        <button disabled={isSubmitting} onClick={() => opt.input?.enabled ? selectSingle(opt.value) : respond(opt.value)} className="flex w-full items-center justify-between text-left text-sm font-medium text-gray-700 disabled:opacity-60">
+                          <span>{opt.label} {opt.input?.required && <span className="text-red-400">*</span>}</span>
+                          <span className={`h-4 w-4 rounded-full border ${active ? 'border-blue-600 bg-blue-600' : 'border-gray-300'}`}></span>
+                        </button>
+                        {active && renderOptionInput(opt)}
+                      </div>
+                    )
+                  })}
+                  {selected[0] && interaction.options?.find((opt: any) => opt.value === selected[0])?.input?.enabled && (
+                    <button disabled={isSubmitting} onClick={() => respond(selected[0])} className="w-full rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">{isSubmitting ? '提交中...' : canChange ? '修改选择' : '提交选择'}</button>
+                  )}
+                </div>
+              )
+            ) : (
+              <div className="mt-3 rounded-xl bg-white px-3 py-2 text-sm text-gray-600 space-y-1">
+                <div>结果：{Array.isArray(interaction.result?.labels) ? interaction.result.labels.join('、') : interaction.result?.value || interaction.status}</div>
+                {interaction.result?.inputs && Object.keys(interaction.result.inputs).length > 0 && (
+                  <div className="text-xs text-gray-500">
+                    {Object.entries(interaction.result.inputs).map(([key, text]: any) => {
+                      const label = interaction.options?.find((opt: any) => opt.value === key)?.label || key
+                      return <div key={key}>{label}：{text}</div>
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // Render content with @mentions highlighted
   const renderMessageContent = (content: string, isOwn = false) => {
@@ -755,6 +1110,13 @@ export default function RoomPage() {
         ))}
       </div>
 
+      {activePanel === 'chat' && pendingInteractions.length > 0 && (
+        <div className="mx-3 mb-2 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <span>？有 {pendingInteractions.length} 个待你处理的请求</span>
+          <button onClick={() => document.getElementById(`interaction-${pendingInteractions[pendingInteractions.length - 1]?.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })} className="rounded-lg bg-white px-2 py-1 text-xs font-medium text-amber-700">查看</button>
+        </div>
+      )}
+
       {/* Main content area */}
       <div className="flex-1 flex overflow-hidden">
         {!showMembers && (
@@ -770,15 +1132,24 @@ export default function RoomPage() {
         <div className="flex-1 flex flex-col overflow-hidden">
         {activePanel === 'chat' && (
           <div className="h-full flex flex-col">
-            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+            <div ref={messagesScrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 relative">
               {messages.map((msg) => {
                 const isOwn = msg.actorId === user?.id
                 const displayName = isOwn ? '我' : msg.actorName
                 const avatar = isOwn ? user?.avatar : getActorAvatar(msg)
                 const actorMember = isOwn ? user : getActorMember(msg)
                 const actorAgent = msg.actorRole === 'ai' ? (getActorAgent(msg) || { name: displayName, roleType: 'assistant', status: 'active' }) : null
+                const showUnreadMarker = unreadMarkerAt && !isOwn && (msg.createdAt || 0) > unreadMarkerAt && !messages.slice(0, messages.findIndex((m) => m.id === msg.id)).some((m) => m.actorId !== user?.id && (m.createdAt || 0) > unreadMarkerAt)
                 return (
-                  <div key={msg.id} className={`flex items-end gap-2 ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                    <div key={msg.id} id={`msg-${msg.id}`}>
+                      {showUnreadMarker && (
+                        <div className="my-3 flex items-center gap-3 text-xs text-blue-500">
+                          <span className="h-px flex-1 bg-blue-100"></span>
+                          <span>以下是未读消息</span>
+                          <span className="h-px flex-1 bg-blue-100"></span>
+                        </div>
+                      )}
+                  <div className={`flex items-end gap-2 ${isOwn ? 'justify-end' : 'justify-start'}`}>
                     {!isOwn && (msg.actorRole === 'ai' ? (
                       <button type="button" onClick={() => openMemberProfile(actorAgent, 'agent')} className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-green-400 to-blue-500 flex items-center justify-center text-white shrink-0 hover:ring-2 hover:ring-blue-200"><Bot className="w-5 h-5 sm:w-6 sm:h-6" /></button>
                     ) : (
@@ -794,7 +1165,7 @@ export default function RoomPage() {
                       >
                         {msg.actorRole === 'ai' ? 'AI · ' : ''}{displayName}
                       </button>
-                      <p className="text-sm whitespace-pre-wrap">{renderMessageContent(msg.content, isOwn)}</p>
+                      {msg.kind === 'interaction_request' ? renderInteractionCard(msg) : <p className="text-sm whitespace-pre-wrap">{renderMessageContent(msg.content, isOwn)}</p>}
                     </div>
                     {isOwn && (
                       <button type="button" onClick={() => actorMember && openMemberProfile(actorMember, 'member')} className="shrink-0 hover:ring-2 hover:ring-blue-200 rounded-full">
@@ -802,9 +1173,15 @@ export default function RoomPage() {
                       </button>
                     )}
                   </div>
+                    </div>
                 )
               })}
               <div ref={messagesEndRef} />
+              {roomNewMessageCount > 0 && (
+                <button onClick={scrollToBottomAndRead} className="sticky bottom-2 mx-auto block rounded-full bg-blue-600 px-4 py-2 text-xs font-medium text-white shadow-lg">
+                  有 {roomNewMessageCount} 条新消息
+                </button>
+              )}
             </div>
             <form onSubmit={sendMessage} className="p-4 bg-white border-t border-gray-200 shrink-0 relative">
               {showMentionPopup && (filteredMembers.length > 0 || filteredAgents.length > 0) && (
@@ -972,49 +1349,88 @@ export default function RoomPage() {
         )}
 
         {activePanel === 'tasks' && (
-          <div className="h-full flex flex-col">
-            <div className="p-4 bg-white border-b border-gray-200 shrink-0">
+          <div className="h-full flex flex-col bg-gray-50">
+            <div className="p-3 sm:p-4 bg-white border-b border-gray-200 shrink-0">
               {sendError && !wsNoticeDismissed && (
                 <div className="mb-2 flex items-center justify-between gap-2 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700">
                   <span>{sendError.replace('正在重连...', '实时同步暂不可用，但消息可正常发送')}</span>
                   <button type="button" onClick={() => setWsNoticeDismissed(true)} className="text-amber-500 hover:text-amber-700">×</button>
                 </div>
               )}
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   value={newTaskTitle}
                   onChange={(e) => setNewTaskTitle(e.target.value)}
-                  placeholder="新任务标题..."
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                  placeholder="输入新任务标题..."
+                  className="flex-1 px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   onKeyDown={(e) => e.key === 'Enter' && createTask()}
+                  disabled={creatingTask}
                 />
-                <button onClick={createTask} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">创建</button>
+                <button
+                  onClick={createTask}
+                  disabled={creatingTask}
+                  className="bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 active:bg-blue-800 disabled:opacity-60"
+                >
+                  {creatingTask ? '创建中...' : '创建任务'}
+                </button>
               </div>
             </div>
-            <div className="flex-1 overflow-x-auto overflow-y-auto p-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 min-w-[800px] md:min-w-0">
-                {kanbanCols.map((col) => (
-                  <div key={col.key} className="bg-gray-100 rounded-lg p-3">
-                    <h3 className="text-sm font-semibold text-gray-600 mb-3">{col.label}</h3>
-                    <div className="space-y-2">
-                      {tasks.filter((t) => col.statuses.includes(t.status)).map((task) => (
-                        <div key={task.id} className="bg-white rounded-lg p-3 shadow-sm">
-                          <p className="text-sm font-medium text-gray-800">{task.title}</p>
-                          {task.assigneeName && <p className="text-xs text-gray-400 mt-1">👤 {task.assigneeName}</p>}
-                          <div className="flex items-center gap-1 mt-2">
-                            <span className={`text-xs px-2 py-0.5 rounded ${statusColors[task.status] || 'bg-gray-100'}`}>{task.status}</span>
-                          </div>
-                          <div className="flex gap-1 mt-2">
-                            {col.key !== 'done' && (
-                              <button onClick={() => updateTaskStatus(task, col.key === 'todo' ? 'doing' : col.key === 'doing' ? 'review' : 'done')} className="text-xs text-blue-500 hover:text-blue-700">→ 推进</button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+            <div className="flex-1 overflow-y-auto p-3 sm:p-4">
+              {(() => {
+                const activeTasks = tasks.filter((t) => !archivedTaskStatuses.includes(t.status))
+                const archivedTasks = tasks.filter((t) => archivedTaskStatuses.includes(t.status))
+                if (tasks.length === 0) {
+                  return (
+                    <div className="h-full flex items-center justify-center text-center text-gray-400">
+                      <div>
+                        <CheckSquare className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+                        <p className="text-sm">暂无任务，先创建一个吧</p>
+                      </div>
                     </div>
+                  )
+                }
+                return (
+                  <div className="space-y-4">
+                    {activeTasks.length === 0 ? (
+                      <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm text-gray-400">暂无进行中的任务</div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
+                        {kanbanCols.map((col) => {
+                          const colTasks = activeTasks.filter((t) => col.statuses.includes(t.status))
+                          return (
+                            <section key={col.key} className="bg-white md:bg-gray-100 rounded-2xl md:rounded-lg border md:border-0 border-gray-100 p-3 shadow-sm md:shadow-none">
+                              <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center justify-between">
+                                <span>{col.label}</span>
+                                <span className="text-xs font-normal text-gray-400 bg-gray-100 md:bg-white px-2 py-0.5 rounded-full">{colTasks.length}</span>
+                              </h3>
+                              <div className="space-y-2">
+                                {colTasks.length === 0 ? (
+                                  <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/80 py-6 text-center text-xs text-gray-400">暂无任务</div>
+                                ) : (
+                                  colTasks.map((task) => renderTaskCard(task, col.key))
+                                )}
+                              </div>
+                            </section>
+                          )
+                        })}
+                      </div>
+                    )}
+                    {archivedTasks.length > 0 && (
+                      <section className="rounded-2xl border border-gray-100 bg-white p-3 shadow-sm">
+                        <button type="button" onClick={() => setShowArchivedTasks((value) => !value)} className="w-full flex items-center justify-between text-left text-sm font-semibold text-gray-600">
+                          <span>已归档</span>
+                          <span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{archivedTasks.length} · {showArchivedTasks ? '收起' : '展开'}</span>
+                        </button>
+                        {showArchivedTasks && (
+                          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                            {archivedTasks.map((task) => renderTaskCard(task, 'done'))}
+                          </div>
+                        )}
+                      </section>
+                    )}
                   </div>
-                ))}
-              </div>
+                )
+              })()}
             </div>
           </div>
         )}
@@ -1212,7 +1628,10 @@ export default function RoomPage() {
             onClick={() => setActivePanel(p.key)}
           >
             <div className="flex justify-center mb-0.5">
-              {p.icon === 'message' && <MessageCircle className="w-5 h-5" />}
+              <span className="relative">
+                {p.icon === 'message' && <MessageCircle className="w-5 h-5" />}
+                {p.key === 'chat' && roomNewMessageCount > 0 && <span className="absolute -right-2 -top-2 min-w-[16px] rounded-full bg-red-500 px-1 text-[10px] leading-4 text-white">{roomNewMessageCount > 99 ? '99+' : roomNewMessageCount}</span>}
+              </span>
               {p.icon === 'folder' && <Folder className="w-5 h-5" />}
               {p.icon === 'panels' && <PanelsTopLeft className="w-5 h-5" />}
               {p.icon === 'check' && <CheckSquare className="w-5 h-5" />}

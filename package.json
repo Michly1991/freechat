@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "pnpm -r dev",
     "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "check": "pnpm typecheck && pnpm build",
     "clean": "pnpm -r clean"
   },
   "keywords": ["collaboration", "ai", "websocket"],

@@ -179,7 +179,7 @@ export const api = {
   getConversations: () => request<{ conversations: any[] }>('/conversations'),
   markConversationRead: (type: 'dm' | 'project', id: string) =>
     request('/conversations/read', { method: 'POST', body: JSON.stringify({ type, id }) }),
-  updateConversationPrefs: (type: 'dm' | 'project', id: string, body: { pinned?: boolean; muted?: boolean }) =>
+  updateConversationPrefs: (type: 'dm' | 'project', id: string, body: { pinned?: boolean; muted?: boolean; hidden?: boolean }) =>
     request(`/conversations/${type}/${id}/prefs`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   // DM
@@ -188,6 +188,16 @@ export const api = {
   getDmMessages: (id: string, limit = 100) => request<{ messages: any[] }>(`/dm/${id}/messages?limit=${limit}`),
   sendDmMessage: (id: string, content: string) =>
     request<{ message: any }>(`/dm/${id}/messages`, { method: 'POST', body: JSON.stringify({ content }) }),
+
+  // Interactions
+  listInteractions: (roomId: string, params = 'status=pending&target=me') =>
+    request<{ interactions: any[] }>(`/rooms/${roomId}/interactions?${params}`),
+  createInteraction: (roomId: string, body: any) =>
+    request<{ interaction: any; message: any }>(`/rooms/${roomId}/interactions`, { method: 'POST', body: JSON.stringify(body) }),
+  getInteraction: (roomId: string, id: string) =>
+    request<{ interaction: any }>(`/rooms/${roomId}/interactions/${id}`),
+  respondInteraction: (roomId: string, id: string, value: string | string[], inputs?: Record<string, string>) =>
+    request<{ interaction: any }>(`/rooms/${roomId}/interactions/${id}/respond`, { method: 'PATCH', body: JSON.stringify(Array.isArray(value) ? { values: value, inputs } : { value, inputs }) }),
 
   // Users
   getUser: (userId: string) => request<any>(`/users/${userId}`),

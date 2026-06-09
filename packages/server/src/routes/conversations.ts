@@ -3,8 +3,8 @@ import db from '../storage/db.js'
 
 function ensurePref(userId: string, type: string, id: string) {
   db.prepare(`
-    INSERT OR IGNORE INTO conversation_prefs (user_id, conversation_type, conversation_id, pinned, muted, last_read_at, updated_at)
-    VALUES (?, ?, ?, 0, 0, 0, ?)
+    INSERT OR IGNORE INTO conversation_prefs (user_id, conversation_type, conversation_id, pinned, muted, hidden, last_read_at, updated_at)
+    VALUES (?, ?, ?, 0, 0, 0, 0, ?)
   `).run(userId, type, id, Date.now())
   return db.prepare(`
     SELECT * FROM conversation_prefs
@@ -78,6 +78,8 @@ export async function registerConversationRoutes(app: FastifyInstance) {
         unreadCount: countProjectUnread(room.id, user.id, pref.last_read_at),
         pinned: !!pref.pinned,
         muted: !!pref.muted,
+        hidden: !!pref.hidden,
+        lastReadAt: pref.last_read_at || 0,
         targetPath: `/room/${room.id}`,
         memberRole: room.member_role,
         canDelete: room.member_role === 'owner',
@@ -100,11 +102,13 @@ export async function registerConversationRoutes(app: FastifyInstance) {
         unreadCount: countDmUnread(dm.id, user.id, pref.last_read_at),
         pinned: !!pref.pinned,
         muted: !!pref.muted,
+        hidden: !!pref.hidden,
+        lastReadAt: pref.last_read_at || 0,
         targetPath: `/dm/${dm.id}`,
       }
     })
 
-    const conversations = [...dmItems, ...projectItems].sort((a, b) => {
+    const conversations = [...dmItems, ...projectItems].filter((item: any) => !item.hidden).sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
       return (b.lastActiveAt || 0) - (a.lastActiveAt || 0)
     })
@@ -132,7 +136,7 @@ export async function registerConversationRoutes(app: FastifyInstance) {
   app.patch('/api/conversations/:type/:id/prefs', async (request, reply) => {
     const user = (request as any).user
     const { type, id } = request.params as any
-    const { pinned, muted } = request.body as any
+    const { pinned, muted, hidden } = request.body as any
     if (!['dm', 'project'].includes(type)) {
       return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'invalid conversation type' } })
     }
@@ -142,6 +146,7 @@ export async function registerConversationRoutes(app: FastifyInstance) {
     const values: any[] = []
     if (pinned !== undefined) { updates.push('pinned = ?'); values.push(pinned ? 1 : 0) }
     if (muted !== undefined) { updates.push('muted = ?'); values.push(muted ? 1 : 0) }
+    if (hidden !== undefined) { updates.push('hidden = ?'); values.push(hidden ? 1 : 0) }
     if (updates.length === 0) return reply.send({ success: true })
 
     updates.push('updated_at = ?')

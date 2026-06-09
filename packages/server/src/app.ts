@@ -15,6 +15,7 @@ import { registerFriendRoutes } from './routes/friends.js'
 import { registerDmRoutes } from './routes/dm.js'
 import { registerConversationRoutes } from './routes/conversations.js'
 import { registerMessageRoutes } from './routes/messages.js'
+import { registerInteractionRoutes } from './routes/interactions.js'
 import { registerAgentToolRoutes } from './routes/agent-tools.js'
 import { authenticate } from './auth/middleware.js'
 import { initDatabase } from './storage/db.js'
@@ -83,10 +84,11 @@ async function buildApp() {
   await registerDmRoutes(app)
   await registerConversationRoutes(app)
   await registerMessageRoutes(app)
+  await registerInteractionRoutes(app)
   await registerAgentToolRoutes(app)
 
   // Error handler
-  app.setErrorHandler((error, request, reply) => {
+  app.setErrorHandler((error: any, request, reply) => {
     app.log.error(error)
     reply.code(error.statusCode || 500).send({
       success: false,

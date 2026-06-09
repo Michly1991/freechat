@@ -277,6 +277,11 @@ function usage() {
     '  ./freechat task list [status]',
     '  ./freechat task create <title> [description]',
     '  ./freechat task update <taskId> <field> <value> [field value...]',
+    '  ./freechat task progress <taskId> <note>',
+    '  ./freechat task subtask list <taskId>',
+    '  ./freechat task subtask add <taskId> <title> [description]',
+    '  ./freechat task subtask update <subtaskId> <field> <value> [field value...]',
+    '  ./freechat task subtask delete <subtaskId>',
     '  ./freechat file list',
     '  ./freechat file read <path>',
     '  ./freechat file write <path> <content> [--show|--hide]',
@@ -297,6 +302,13 @@ function usage() {
     '  ./freechat tab reorder <tabId> [tabId...]',
     '  ./freechat members list',
     '  ./freechat room info',
+    '  ./freechat interaction confirm <title> [description]',
+    '  ./freechat interaction choice <title> <opt1|opt2|...> [description]',
+    '  ./freechat interaction multi_choice <title> <opt1|opt2|...> [description]',
+    '  ./freechat interaction create-json <localJsonPath>',
+    '  ./freechat interaction list [status]',
+    '  ./freechat interaction consume <interactionId>',
+    '  ./freechat interaction show <interactionId>',
     '  ./freechat raw <action> \'<jsonArgs>\'',
     '',
     'Compatibility aliases:',
@@ -375,6 +387,23 @@ if (domain === 'chat' && cmd === 'send') {
 } else if (domain === 'task' && cmd === 'update') {
   if (!rest[0]) die('taskId is required');
   call('task.update', { taskId: rest[0], updates: pairsToObject(rest.slice(1)) });
+} else if (domain === 'task' && cmd === 'progress') {
+  if (!rest[0]) die('taskId is required');
+  const note = rest.slice(1).join(' ').trim();
+  if (!note) die('note is required');
+  call('task.progress', { taskId: rest[0], note });
+} else if (domain === 'task' && cmd === 'subtask' && rest[0] === 'list') {
+  if (!rest[1]) die('taskId is required');
+  call('task.subtask_list', { taskId: rest[1] });
+} else if (domain === 'task' && cmd === 'subtask' && rest[0] === 'add') {
+  if (!rest[1] || !rest[2]) die('taskId and title are required');
+  call('task.subtask_add', { taskId: rest[1], title: rest[2], description: rest.slice(3).join(' ') || undefined });
+} else if (domain === 'task' && cmd === 'subtask' && rest[0] === 'update') {
+  if (!rest[1]) die('subtaskId is required');
+  call('task.subtask_update', { itemId: rest[1], updates: pairsToObject(rest.slice(2)) });
+} else if (domain === 'task' && cmd === 'subtask' && rest[0] === 'delete') {
+  if (!rest[1]) die('subtaskId is required');
+  call('task.subtask_delete', { itemId: rest[1] });
 } else if (domain === 'file' && cmd === 'list') {
   call('file.list');
 } else if (domain === 'file' && cmd === 'read') {
@@ -434,6 +463,22 @@ if (domain === 'chat' && cmd === 'send') {
   call('members.list');
 } else if (domain === 'room' && cmd === 'info') {
   call('room.info');
+} else if (domain === 'interaction' && ['confirm', 'choice', 'multi_choice'].includes(cmd)) {
+  if (!rest[0]) die('title is required');
+  const options = cmd === 'confirm' ? [{value:'confirm',label:'确认',style:'primary'},{value:'cancel',label:'取消',style:'secondary'}] : (rest[1]||'').split('|').filter(Boolean).map((v,i)=>({value:'opt'+(i+1),label:v}));
+  const desc = cmd === 'confirm' ? rest.slice(1).join(' ') : rest.slice(2).join(' ');
+  call('interaction.create', { type: cmd, title: rest[0], description: desc || undefined, options });
+} else if (domain === 'interaction' && cmd === 'list') {
+  call('interaction.list', { status: rest[0] || 'pending' });
+} else if (domain === 'interaction' && cmd === 'consume') {
+  if (!rest[0]) die('interactionId is required');
+  call('interaction.consume', { id: rest[0] });
+} else if (domain === 'interaction' && cmd === 'create-json') {
+  if (!rest[0]) die('localJsonPath is required');
+  call('interaction.create', JSON.parse(readLocalFile(rest[0])));
+} else if (domain === 'interaction' && cmd === 'show') {
+  if (!rest[0]) die('interactionId is required');
+  call('interaction.get', { id: rest[0] });
 } else if (domain === 'raw') {
   call(cmd, rest[0] ? JSON.parse(rest[0]) : {});
 } else {
@@ -471,12 +516,20 @@ if (domain === 'chat' && cmd === 'send') {
    - 推荐：\`./freechat tab create-local <title> res/page.html\`
    - 从项目文件：\`./freechat tab create-file <title> ui/page.html\`
 5. 你自己的草稿、脚本、技能、资源可以放在当前工作区的 \`res/\`、\`scripts/\`、\`skills/\`。
-6. 长任务开始时先用 \`./freechat chat send\` 汇报，必要时同步任务状态。
+6. 不要滥建任务：简单、单 Agent 可直接完成的请求直接处理；只有复杂需求、跨 Agent 协作、需要长期跟踪或需要讨论分发时才创建父任务。
+7. 需要用户确认/选择时，使用 \`./freechat interaction confirm/choice/multi_choice\` 创建交互卡片，不要只发普通文本等待。
+8. 助理 Agent 默认接管已创建的父任务：先判断自己做还是拆子任务派给专家；子任务状态要及时更新，父任务会汇总显示子任务状态。
+8. 长任务开始时先用 \`./freechat chat send\` 汇报，必要时同步任务状态。
+9. Markdown 文件保持精简：AGENT.md、CLAUDE.md、.freechat/API.md 等单文件不超过 500 行；内容超长时拆分到 \`res/\` 中，主文件只保留索引和按需读取说明。
 
 ## 推荐工作流
+- 简单事项：直接处理并简短汇报，不创建任务。
+- 复杂/跨 Agent 事项：助理创建父任务，拆子任务，自己做或分派专家。
+- 需要确认/选择/多选：创建 interaction 卡片，用户点击后继续。
 - 文档/交付物：先写到项目文件，必要时 \`--show\`。
 - 界面/看板：先在 \`res/\` 生成 HTML，再用 \`tab create-local/update-local\` 发布。
 - 大段内容不要塞进命令行参数，优先使用 \`write-local/create-local/update-local\`。
+- Markdown 超过 500 行时拆分到 \`res/\`，主文件保留目录/索引，按需读取。
 `
 
     await writeFile(join(workspaceDir, 'AGENT.md'), agentGuide, 'utf8')
@@ -533,6 +586,29 @@ Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文
 ./freechat task update <taskId> status doing
 ./freechat task update <taskId> status review reviewNote "已完成，等待确认"
 ./freechat task update <taskId> status done
+./freechat task progress <taskId> "最近进展说明，用户会在任务卡片看到"
+./freechat interaction confirm <title> [description]
+./freechat interaction choice <title> <opt1|opt2|opt3> [description]
+./freechat interaction multi_choice <title> <opt1|opt2|opt3> [description]
+./freechat interaction create-json res/interaction.json
+./freechat interaction list pending
+./freechat interaction consume <interactionId>
+./freechat task subtask list <taskId>
+./freechat task subtask add <taskId> "子任务标题" "说明"
+./freechat task subtask update <subtaskId> status doing
+./freechat task subtask update <subtaskId> status done
+./freechat task subtask delete <subtaskId>
+\`\`\`
+
+### 用户确认/选择
+
+\`\`\`bash
+./freechat interaction confirm "是否继续执行？" "这会修改项目文件"
+./freechat interaction choice "请选择方案" "简单实现|完整实现|暂停" "我会按你的选择继续"
+./freechat interaction multi_choice "选择要处理的模块" "前端|后端|测试|文档" "可多选"
+./freechat interaction create-json res/interaction.json
+./freechat interaction list pending
+./freechat interaction consume <interactionId>
 \`\`\`
 
 ### 房间上下文
@@ -544,6 +620,9 @@ Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文
 
 ## 规则
 
+- 不要滥建任务：简单、单 Agent 可完成的请求直接处理；复杂需求、跨 Agent 协作、长期跟踪、需要讨论分发时才创建父任务。
+- 助理接管父任务后，自己判断自己做还是拆子任务派给专家；先聊天汇报，再用 \`task progress\` 写入最近进展；子任务状态要及时维护。
+- Markdown 单文件不要超过 500 行；超长内容拆到 \`res/\`，主文件仅保留索引和按需加载说明。
 - 当前目录是 Agent 私有工作区，可以使用 \`skills/\`、\`res/\`、\`scripts/\` 保存自己的资料。
 - 用户可见的项目文件只能通过 \`./freechat file write/write-local\` 写入。
 - 文件是否出现在“文件”Tab 由 Tab 配置控制：\`./freechat file show/hide\` 或 \`./freechat tab-config add-file/remove-file\`。
@@ -569,6 +648,7 @@ Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文
   ): Promise<{ response: string; silent: boolean }> {
     const agent = await this.getAgent(agentId)
     const workspaceDir = await this.prepareAgentWorkspace(roomId, agent)
+    const runId = this.createAgentRun(roomId, agentId, message)
 
     // Check for existing session
     const existingSession = db.prepare(`
@@ -620,6 +700,7 @@ Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文
           
           // Check for [SILENT] marker
           if (responseText === '[SILENT]' || responseText.includes('[SILENT]')) {
+            this.finishAgentRun(runId, 'succeeded', '', undefined, existingSession?.session_id)
             return { response: '', silent: true }
           }
 
@@ -632,6 +713,7 @@ Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文
           await this.saveMessageToHistory(newSessionId, 'assistant', responseText)
           this.cleanupAgentHistory(newSessionId)
           this.cleanupOldAgentSessions(roomId, agentId)
+          this.finishAgentRun(runId, 'succeeded', responseText, undefined, newSessionId)
 
           return { response: responseText, silent: false }
         } else {
@@ -765,6 +847,7 @@ Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文
         this.cleanupAgentHistory(result.sessionId)
       }
       this.cleanupOldAgentSessions(roomId, agentId)
+      this.finishAgentRun(runId, 'succeeded', result.response, undefined, result.sessionId)
       return { response: result.response, silent: result.silent }
     } catch (err: any) {
       if (existingSession && String(err.message || '').includes('No conversation found')) {
@@ -775,10 +858,29 @@ Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文
           this.cleanupAgentHistory(result.sessionId)
         }
         this.cleanupOldAgentSessions(roomId, agentId)
+        this.finishAgentRun(runId, 'succeeded', result.response, undefined, result.sessionId)
         return { response: result.response, silent: result.silent }
       }
+      this.finishAgentRun(runId, 'failed', undefined, err?.message || String(err), existingSession?.session_id)
       throw err
     }
+  }
+
+  private createAgentRun(roomId: string, agentId: string, input: string): string {
+    const id = `arun_${uuidv4()}`
+    db.prepare(`
+      INSERT INTO agent_runs (id, room_id, agent_id, status, input, started_at)
+      VALUES (?, ?, ?, 'running', ?, ?)
+    `).run(id, roomId, agentId, input, Date.now())
+    return id
+  }
+
+  private finishAgentRun(runId: string, status: 'succeeded' | 'failed' | 'cancelled', output?: string, error?: string, sessionId?: string): void {
+    db.prepare(`
+      UPDATE agent_runs
+      SET status = ?, output = ?, error = ?, session_id = ?, finished_at = ?
+      WHERE id = ?
+    `).run(status, output || null, error || null, sessionId || null, Date.now(), runId)
   }
 
   /**

@@ -1,6 +1,19 @@
 import db from '../storage/db.js'
 import { v4 as uuidv4 } from 'uuid'
 import type { Task, TaskStatus, TaskPriority } from '@freechat/shared'
+import { taskItemService } from './task-item.service.js'
+
+const TASK_STATUSES = new Set<TaskStatus>(['todo', 'assigned', 'doing', 'review', 'blocked', 'done', 'failed', 'cancelled'])
+const TASK_PRIORITIES = new Set<TaskPriority>(['low', 'medium', 'high'])
+const DONE_STATUSES = new Set<TaskStatus>(['done', 'cancelled'])
+
+function assertTaskStatus(status: unknown): asserts status is TaskStatus {
+  if (!TASK_STATUSES.has(status as TaskStatus)) throw { code: 'VALIDATION_ERROR', message: `invalid task status: ${status}` }
+}
+
+function assertTaskPriority(priority: unknown): asserts priority is TaskPriority {
+  if (!TASK_PRIORITIES.has(priority as TaskPriority)) throw { code: 'VALIDATION_ERROR', message: `invalid task priority: ${priority}` }
+}
 
 export class TaskService {
   async createTask(
@@ -13,6 +26,10 @@ export class TaskService {
     assigneeType?: 'human' | 'agent',
     createdBy?: string
   ): Promise<Task> {
+    const cleanTitle = String(title || '').trim()
+    if (!cleanTitle) throw { code: 'VALIDATION_ERROR', message: 'title is required' }
+    assertTaskPriority(priority)
+
     const id = `task_${uuidv4()}`
     const now = Date.now()
     const status = assigneeId ? 'assigned' : 'todo'
@@ -20,7 +37,7 @@ export class TaskService {
     db.prepare(`
       INSERT INTO tasks (id, room_id, title, description, status, priority, assignee_id, assignee_name, assignee_type, created_by, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, roomId, title, description || null, status, priority, assigneeId || null, assigneeName || null, assigneeType || null, createdBy || 'system', now, now)
+    `).run(id, roomId, cleanTitle, description || null, status, priority, assigneeId || null, assigneeName || null, assigneeType || null, createdBy || 'system', now, now)
 
     return this.getTask(id)
   }
@@ -31,6 +48,7 @@ export class TaskService {
       throw { code: 'TASK_NOT_FOUND', message: 'Task not found' }
     }
 
+    const subtasks = taskItemService.list(row.id)
     return {
       id: row.id,
       roomId: row.room_id,
@@ -43,11 +61,14 @@ export class TaskService {
       assigneeType: row.assignee_type,
       blockedReason: row.blocked_reason,
       reviewNote: row.review_note,
+      progressNote: row.progress_note,
       createdBy: row.created_by,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      completedAt: row.completed_at
-    }
+      completedAt: row.completed_at,
+      subtasks,
+      subtaskSummary: taskItemService.summary(subtasks)
+    } as any
   }
 
   async getRoomTasks(roomId: string, status?: TaskStatus): Promise<Task[]> {
@@ -63,23 +84,42 @@ export class TaskService {
 
     const rows: any[] = db.prepare(query).all(...params)
 
-    return rows.map(row => ({
-      id: row.id,
-      roomId: row.room_id,
-      title: row.title,
-      description: row.description,
-      status: row.status,
-      priority: row.priority,
-      assigneeId: row.assignee_id,
-      assigneeName: row.assignee_name,
-      assigneeType: row.assignee_type,
-      blockedReason: row.blocked_reason,
-      reviewNote: row.review_note,
-      createdBy: row.created_by,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      completedAt: row.completed_at
-    }))
+    const groupedItems = taskItemService.listForTasks(rows.map((row) => row.id))
+    return rows.map(row => {
+      const subtasks = groupedItems[row.id] || []
+      return {
+        id: row.id,
+        roomId: row.room_id,
+        title: row.title,
+        description: row.description,
+        status: row.status,
+        priority: row.priority,
+        assigneeId: row.assignee_id,
+        assigneeName: row.assignee_name,
+        assigneeType: row.assignee_type,
+        blockedReason: row.blocked_reason,
+        reviewNote: row.review_note,
+        progressNote: row.progress_note,
+        createdBy: row.created_by,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        completedAt: row.completed_at,
+        subtasks,
+        subtaskSummary: taskItemService.summary(subtasks)
+      } as any
+    })
+  }
+
+  async assertTaskInRoom(taskId: string, roomId: string): Promise<void> {
+    const row = db.prepare('SELECT room_id FROM tasks WHERE id = ?').get(taskId) as any
+    if (!row) throw { code: 'TASK_NOT_FOUND', message: 'Task not found' }
+    if (row.room_id !== roomId) throw { code: 'TASK_ROOM_MISMATCH', message: 'Task does not belong to current room' }
+  }
+
+  async getTaskRoomId(taskId: string): Promise<string> {
+    const row = db.prepare('SELECT room_id FROM tasks WHERE id = ?').get(taskId) as any
+    if (!row) throw { code: 'TASK_NOT_FOUND', message: 'Task not found' }
+    return row.room_id
   }
 
   async updateTask(taskId: string, updates: Partial<Task>): Promise<Task> {
@@ -95,14 +135,14 @@ export class TaskService {
       values.push(updates.description)
     }
     if (updates.status !== undefined) {
+      assertTaskStatus(updates.status)
       fields.push('status = ?')
       values.push(updates.status)
-      if (updates.status === 'done' || updates.status === 'cancelled') {
-        fields.push('completed_at = ?')
-        values.push(Date.now())
-      }
+      fields.push('completed_at = ?')
+      values.push(DONE_STATUSES.has(updates.status) ? Date.now() : null)
     }
     if (updates.priority !== undefined) {
+      assertTaskPriority(updates.priority)
       fields.push('priority = ?')
       values.push(updates.priority)
     }
@@ -114,6 +154,10 @@ export class TaskService {
       fields.push('assignee_name = ?')
       values.push(updates.assigneeName)
     }
+    if (updates.assigneeType !== undefined) {
+      fields.push('assignee_type = ?')
+      values.push(updates.assigneeType)
+    }
     if (updates.blockedReason !== undefined) {
       fields.push('blocked_reason = ?')
       values.push(updates.blockedReason)
@@ -121,6 +165,10 @@ export class TaskService {
     if (updates.reviewNote !== undefined) {
       fields.push('review_note = ?')
       values.push(updates.reviewNote)
+    }
+    if ((updates as any).progressNote !== undefined) {
+      fields.push('progress_note = ?')
+      values.push((updates as any).progressNote)
     }
 
     if (fields.length === 0) {

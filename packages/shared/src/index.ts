@@ -54,6 +54,8 @@ export interface Message {
   actorName: string
   actorRole: 'human' | 'ai'
   content: string
+  kind?: 'text' | 'interaction_request' | 'system'
+  payload?: Record<string, any>
   mentions?: Mention[]
   replyTo?: string
   editedAt?: number
@@ -80,6 +82,35 @@ export type TaskStatus =
 
 export type TaskPriority = 'low' | 'medium' | 'high'
 
+export interface TaskItem {
+  id: string
+  taskId: string
+  title: string
+  description?: string
+  status: TaskStatus
+  assigneeId?: string
+  assigneeName?: string
+  assigneeType?: 'human' | 'agent'
+  sortOrder: number
+  createdBy: string
+  createdAt: number
+  updatedAt: number
+  completedAt?: number
+}
+
+export interface TaskSubtaskSummary {
+  total: number
+  done: number
+  todo: number
+  assigned: number
+  doing: number
+  review: number
+  blocked: number
+  failed: number
+  cancelled: number
+  progress: number
+}
+
 export interface Task {
   id: string
   roomId: string
@@ -92,10 +123,13 @@ export interface Task {
   assigneeType?: 'human' | 'agent'
   blockedReason?: string
   reviewNote?: string
+  progressNote?: string
   createdBy: string
   createdAt: number
   updatedAt: number
   completedAt?: number
+  subtasks?: TaskItem[]
+  subtaskSummary?: TaskSubtaskSummary
 }
 
 // === Tab Types ===
@@ -110,15 +144,116 @@ export interface Tab {
   updatedAt: number
 }
 
+// === Interaction Types ===
+export type InteractionType = 'confirm' | 'choice' | 'multi_choice'
+export type InteractionStatus = 'pending' | 'resolved' | 'cancelled' | 'expired'
+export type InteractionPriority = 'normal' | 'important' | 'danger'
+
+export interface InteractionOption {
+  value: string
+  label: string
+  style?: 'primary' | 'secondary' | 'danger'
+  input?: {
+    enabled: boolean
+    required?: boolean
+    placeholder?: string
+    multiline?: boolean
+    maxLength?: number
+  }
+}
+
+export interface InteractionRequest {
+  id: string
+  roomId: string
+  messageId?: string
+  createdBy: string
+  targetUserId?: string
+  type: InteractionType
+  title: string
+  description?: string
+  options: InteractionOption[]
+  status: InteractionStatus
+  result?: {
+    value: string | string[]
+    labels: string[]
+    inputs?: Record<string, string>
+  }
+  priority?: InteractionPriority
+  responsePolicy?: { allowChange?: boolean; allowCancel?: boolean }
+  consumedBy?: string
+  consumedAt?: number
+  expiresAt?: number
+  createdAt: number
+  updatedAt: number
+  resolvedBy?: string
+  resolvedAt?: number
+}
+
+// === Conversation Types ===
+export type ConversationType = 'dm' | 'project'
+
+export interface ConversationSummary {
+  type: ConversationType
+  id: string
+  title: string
+  subtitle?: string
+  avatar?: string
+  targetPath: string
+  lastMessage?: Pick<Message, 'id' | 'actorName' | 'content' | 'createdAt'>
+  unreadCount: number
+  pinned: boolean
+  muted: boolean
+  hidden: boolean
+  updatedAt: number
+  memberRole?: RoomMember['role']
+  canDelete?: boolean
+}
+
+// === Agent Run Types ===
+export type AgentRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+export interface AgentRun {
+  id: string
+  roomId: string
+  agentId: string
+  status: AgentRunStatus
+  input: string
+  output?: string
+  error?: string
+  sessionId?: string
+  startedAt: number
+  finishedAt?: number
+}
+
 // === WebSocket Message Types ===
 export type WSMessageType = 'api_request' | 'api_response' | 'broadcast' | 'system'
 
-export interface WSMessage {
+export type WSEventAction =
+  | 'connected'
+  | 'error'
+  | 'room.joined'
+  | 'room.member_join'
+  | 'room.member_leave'
+  | 'room.online_update'
+  | 'chat.message'
+  | 'chat.history_result'
+  | 'chat.edited'
+  | 'chat.deleted'
+  | 'chat.typing_update'
+  | 'interaction.created'
+  | 'interaction.updated'
+  | 'task.list_result'
+  | 'task.changed'
+  | 'agent.status_update'
+  | 'files.updated'
+  | 'tabs.updated'
+
+export interface WSMessage<TPayload extends Record<string, any> = Record<string, any>> {
   msgId: string
   roomId: string
   type: WSMessageType
-  action: string
-  payload: Record<string, any>
+  action: WSEventAction | string
+  payload: TPayload
   actor?: {
     id: string
     name: string

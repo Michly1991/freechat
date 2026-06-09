@@ -12,14 +12,16 @@ export class MessageService {
     actorRole: 'human' | 'ai',
     content: string,
     mentions?: Mention[],
-    replyTo?: string
+    replyTo?: string,
+    kind: string = 'text',
+    payload?: any
   ): Promise<Message> {
     const id = `msg_${uuidv4()}`
     const now = Date.now()
 
     db.prepare(`
-      INSERT INTO messages (id, room_id, actor_id, actor_name, actor_role, content, mentions, reply_to, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO messages (id, room_id, actor_id, actor_name, actor_role, content, kind, payload, mentions, reply_to, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       roomId,
@@ -27,6 +29,8 @@ export class MessageService {
       actorName,
       actorRole,
       content,
+      kind,
+      payload ? JSON.stringify(payload) : null,
       mentions ? JSON.stringify(mentions) : null,
       replyTo || null,
       now
@@ -45,6 +49,8 @@ export class MessageService {
       actorName,
       actorRole,
       content,
+      kind: kind as any,
+      payload,
       mentions,
       replyTo,
       deleted: false,
@@ -76,6 +82,8 @@ export class MessageService {
       actorName: row.actor_name,
       actorRole: row.actor_role,
       content: row.content,
+      kind: row.kind || 'text',
+      payload: row.payload ? JSON.parse(row.payload) : undefined,
       mentions: row.mentions ? JSON.parse(row.mentions) : undefined,
       replyTo: row.reply_to,
       editedAt: row.edited_at,
@@ -96,6 +104,8 @@ export class MessageService {
       actorName: row.actor_name,
       actorRole: row.actor_role,
       content: row.content,
+      kind: row.kind || 'text',
+      payload: row.payload ? JSON.parse(row.payload) : undefined,
       mentions: row.mentions ? JSON.parse(row.mentions) : undefined,
       replyTo: row.reply_to,
       editedAt: row.edited_at,

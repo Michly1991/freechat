@@ -22,7 +22,7 @@ export function generateToken(user: Omit<User, 'avatar'>): string {
       role: user.role
     },
     config.jwtSecret,
-    { expiresIn: config.jwtExpiresIn }
+    { expiresIn: config.jwtExpiresIn as string & jwt.SignOptions['expiresIn'] }
   )
 }
 

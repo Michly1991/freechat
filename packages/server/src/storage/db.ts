@@ -12,7 +12,45 @@ const db = new Database(config.database.path)
 db.pragma('journal_mode = WAL')
 db.pragma('foreign_keys = ON')
 
+type Migration = {
+  version: string
+  description: string
+  up: () => void
+}
+
+const migrations: Migration[] = [
+  {
+    version: '001_schema_baseline',
+    description: 'Mark current idempotent schema initializer as baseline',
+    up: () => {}
+  }
+]
+
+function runMigrations() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version TEXT PRIMARY KEY,
+      description TEXT,
+      applied_at INTEGER NOT NULL
+    )
+  `)
+
+  const appliedRows = db.prepare('SELECT version FROM schema_migrations').all() as { version: string }[]
+  const applied = new Set(appliedRows.map((row) => row.version))
+  const insertMigration = db.prepare('INSERT INTO schema_migrations (version, description, applied_at) VALUES (?, ?, ?)')
+
+  for (const migration of migrations) {
+    if (applied.has(migration.version)) continue
+    const tx = db.transaction(() => {
+      migration.up()
+      insertMigration.run(migration.version, migration.description, Date.now())
+    })
+    tx()
+  }
+}
+
 export function initDatabase() {
+  runMigrations()
   // Users table
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -63,6 +101,8 @@ export function initDatabase() {
       actor_name TEXT NOT NULL,
       actor_role TEXT NOT NULL,
       content TEXT NOT NULL,
+      kind TEXT DEFAULT 'text',
+      payload TEXT,
       mentions TEXT,
       reply_to TEXT,
       edited_at INTEGER,
@@ -75,6 +115,48 @@ export function initDatabase() {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_messages_room_created 
     ON messages(room_id, created_at)
+  `)
+
+  const messageCols = db.prepare('PRAGMA table_info(messages)').all() as any[]
+  if (!messageCols.some((col) => col.name === 'kind')) db.exec("ALTER TABLE messages ADD COLUMN kind TEXT DEFAULT 'text'")
+  if (!messageCols.some((col) => col.name === 'payload')) db.exec('ALTER TABLE messages ADD COLUMN payload TEXT')
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS interaction_requests (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL,
+      message_id TEXT,
+      created_by TEXT NOT NULL,
+      target_user_id TEXT,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      options_json TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      result_json TEXT,
+      priority TEXT DEFAULT 'normal',
+      response_policy TEXT,
+      consumed_by TEXT,
+      consumed_at INTEGER,
+      expires_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      resolved_by TEXT,
+      resolved_at INTEGER,
+      FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL
+    )
+  `)
+
+  const interactionCols = db.prepare('PRAGMA table_info(interaction_requests)').all() as any[]
+  if (!interactionCols.some((col) => col.name === 'priority')) db.exec("ALTER TABLE interaction_requests ADD COLUMN priority TEXT DEFAULT 'normal'")
+  if (!interactionCols.some((col) => col.name === 'response_policy')) db.exec('ALTER TABLE interaction_requests ADD COLUMN response_policy TEXT')
+  if (!interactionCols.some((col) => col.name === 'consumed_by')) db.exec('ALTER TABLE interaction_requests ADD COLUMN consumed_by TEXT')
+  if (!interactionCols.some((col) => col.name === 'consumed_at')) db.exec('ALTER TABLE interaction_requests ADD COLUMN consumed_at INTEGER')
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_interaction_requests_room_status
+    ON interaction_requests(room_id, status, created_at)
   `)
 
   // Tasks table
@@ -91,6 +173,7 @@ export function initDatabase() {
       assignee_type TEXT,
       blocked_reason TEXT,
       review_note TEXT,
+      progress_note TEXT,
       created_by TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
@@ -103,6 +186,36 @@ export function initDatabase() {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_tasks_room_status 
     ON tasks(room_id, status)
+  `)
+
+  const taskCols = db.prepare('PRAGMA table_info(tasks)').all() as any[]
+  if (!taskCols.some((col) => col.name === 'progress_note')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN progress_note TEXT')
+  }
+
+  // Task subtasks/checklist table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_items (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'todo',
+      assignee_id TEXT,
+      assignee_name TEXT,
+      assignee_type TEXT,
+      sort_order INTEGER DEFAULT 0,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      completed_at INTEGER,
+      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+    )
+  `)
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_task_items_task_status
+    ON task_items(task_id, status, sort_order)
   `)
 
   // Tabs table
@@ -192,6 +305,45 @@ export function initDatabase() {
     ON agent_sessions(room_id, agent_id)
   `)
 
+  // Agent conversation history used by provider-api runtime
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_messages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `)
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_session_created
+    ON agent_messages(session_id, created_at)
+  `)
+
+  // Agent run records for observability and failure diagnosis
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_runs (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      input TEXT NOT NULL,
+      output TEXT,
+      error TEXT,
+      session_id TEXT,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+      FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+    )
+  `)
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_room_agent_started
+    ON agent_runs(room_id, agent_id, started_at)
+  `)
+
   // Friend requests table
   db.exec(`
     CREATE TABLE IF NOT EXISTS friend_requests (
@@ -268,12 +420,18 @@ export function initDatabase() {
       conversation_id TEXT NOT NULL,
       pinned INTEGER DEFAULT 0,
       muted INTEGER DEFAULT 0,
+      hidden INTEGER DEFAULT 0,
       last_read_at INTEGER DEFAULT 0,
       updated_at INTEGER NOT NULL,
       PRIMARY KEY (user_id, conversation_type, conversation_id),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )
   `)
+
+  const prefCols = db.prepare('PRAGMA table_info(conversation_prefs)').all() as any[]
+  if (!prefCols.some((col) => col.name === 'hidden')) {
+    db.exec('ALTER TABLE conversation_prefs ADD COLUMN hidden INTEGER DEFAULT 0')
+  }
 
   // Room invites table
   db.exec(`

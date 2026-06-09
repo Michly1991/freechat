@@ -66,27 +66,46 @@ FreeChat 是一个 AI 协同办公云系统，设计分为两大部分：
 ### 数据库设计
 
 ```sql
-users              -- 用户表
-rooms              -- 房间表
-messages           -- 消息表（最多 50 条/房间）
-tasks              -- 任务表（8 种状态）
-tabs               -- Tab 元数据
-room_members       -- 房间成员关联
+users                  -- 用户表
+rooms                  -- 房间表
+messages               -- 消息表（最多 50 条/房间）
+tasks                  -- 父任务表（8 种状态）
+task_items             -- 子任务/检查项
+interaction_requests   -- 用户确认/选择/多选交互卡
+agent_sessions         -- Agent CLI session 续接记录
+agent_messages         -- provider-api 模式下的 Agent 历史
+agent_runs             -- Agent 每次执行的运行记录/错误追踪
+tabs                   -- Tab 元数据
+room_members           -- 房间成员关联
+schema_migrations      -- 数据库迁移记录
 ```
+
+数据库启动流程采用“幂等 schema 初始化 + `schema_migrations` 迁移记录”。当前版本以 `001_schema_baseline` 标记现有 schema 基线；后续破坏性或复杂结构变更必须新增迁移版本，不再依赖删库重建。
 
 ### WebSocket 协议
 
 ```typescript
 {
-  msg_id: string,
-  room_id: string,
+  msgId: string,
+  roomId: string,
   type: 'api_request' | 'api_response' | 'broadcast' | 'system',
-  action: string,  // chat.send | file.write | task.update ...
+  action: string,
   payload: Record<string, unknown>,
-  actor: { id, name, role, avatar? },
+  actor?: { id: string, name: string, role: 'human' | 'ai', avatar?: string },
   timestamp: number
 }
 ```
+
+当前已显式约定的事件包括：
+
+- `chat.message` / `chat.history_result` / `chat.edited` / `chat.deleted` / `chat.typing_update`
+- `interaction.created` / `interaction.updated`
+- `task.list_result` / `task.changed`
+- `agent.status_update`
+- `files.updated` / `tabs.updated`
+- `room.joined` / `room.member_join` / `room.member_leave` / `room.online_update`
+
+前后端共享包维护 `WSMessage` 和 `WSEventAction` 类型，新增事件必须先更新共享类型和设计文档。
 
 ### REST API
 
@@ -786,3 +805,163 @@ FreeChat 第一版新增好友与单聊能力，详细设计见：
 - 弹窗明确展示项目名和不可恢复说明。
 - 确认按钮显示“删除中...”状态，避免重复提交。
 - 取消或点击遮罩可关闭（删除中不可关闭）。
+
+### 会话列表左滑操作
+
+首页消息列表支持移动端左滑操作，类似微信会话列表：
+
+- 左滑会话项露出操作按钮。
+- 操作包括：置顶/取消置顶、不显示、删除/隐藏。
+- 同时只展开一个会话项。
+- 桌面端保留文字操作入口。
+
+会话偏好 `conversation_prefs` 增加 `hidden` 字段。默认消息列表过滤 hidden 会话；隐藏私聊后可通过通讯录重新打开，项目隐藏后可通过项目入口/重新加入等后续入口恢复。
+
+### 任务 Tab 移动端与协议兼容
+
+任务 Tab 在移动端使用单列纵向看板，避免横向滚动：每个状态区块独立显示任务数量，任务卡片提供大尺寸推进按钮；桌面端仍保持四列 Kanban。创建任务时需要明确反馈：空标题 Toast、创建中按钮状态、连接不可用时提示失败。
+
+WebSocket 任务协议兼容两套命名，避免前后端或 Agent 调用不一致导致“点击无效”：
+
+- 创建任务：`task.add` 与 `task.create` 都可用。
+- 更新任务：同时支持 `{ task_id, updates }` 和 `{ id, status/title/... }`。
+- 删除任务：同时支持 `task_id`、`taskId`、`id`。
+
+### 任务删除与 Agent 自动接单
+
+任务卡片支持删除操作，删除前必须二次确认，成功/失败通过 Toast 提示。删除通过 `task.delete` WebSocket action 完成，并兼容 `id`、`taskId`、`task_id` 三种任务 ID 字段。
+
+创建任务时，如果没有指定负责人，服务端会自动选择房间内可用 Agent 接单：优先默认助理 Agent，其次第一个非 inactive Agent。自动接单只设置负责人和任务状态（`assigned`），不会立即启动 Claude Code 执行；实际执行仍由用户 @Agent 或后续专门的“交给 Agent 执行”动作触发，避免误执行和资源浪费。
+
+### 父任务/子任务协作模型
+
+FreeChat 的任务模型以助理 Agent 为任务中枢：未指定负责人时，新建父任务只会默认分配给房间助理 Agent，不再随机分配给专家。助理负责判断：自己处理，或拆分子任务分派给专家 Agent。
+
+父任务支持子任务清单。子任务复用主任务状态：`todo / assigned / doing / review / blocked / done / failed / cancelled`，并支持负责人字段。后端任务列表返回：
+
+- `subtasks`：该父任务下的子任务列表。
+- `subtaskSummary`：子任务总数、完成数、各状态数量、完成百分比。
+
+父任务卡片必须在收起状态下显示子任务整体状态：完成进度、状态分布、阻塞提示。展开后显示子任务列表，可新增、勾选完成、删除子任务。父任务状态不因子任务自动完成而强制变更，避免误完成；助理或用户可根据子任务汇总决定何时将父任务推进到 review/done。
+
+Agent CLI 支持：
+
+```bash
+./freechat task subtask list <taskId>
+./freechat task subtask add <taskId> "子任务标题" "说明"
+./freechat task subtask update <subtaskId> status doing
+./freechat task subtask update <subtaskId> status done
+./freechat task subtask delete <subtaskId>
+```
+
+### Agent 建任务边界与上下文大小
+
+任务不是所有请求的流水记录，而是复杂协作事项。简单、单 Agent 可完成的请求应直接处理，不创建任务；只有复杂需求、跨 Agent 协作、长期跟踪、需要讨论分发时，才由助理创建父任务并拆分子任务。
+
+Agent 工作区 Markdown 文件需要保持轻量：`AGENT.md`、`CLAUDE.md`、`.freechat/API.md` 等单文件不超过 500 行；超过时拆分到 `res/`，主文件保留索引和按需读取说明。
+
+### 新父任务自动唤醒助理
+
+人类创建未指定负责人的父任务后，系统会分配给房间助理 Agent 并自动唤醒助理。助理根据任务复杂度决定直接做、拆分子任务或分派专家。Agent 自己创建任务不触发自动唤醒，以避免递归和误执行。
+
+### 任务进展摘要
+
+`tasks` 表包含 `progress_note` 字段，用于展示父任务最近进展。助理 Agent 接管任务后应主动聊天汇报，并通过 `task.progress` / `./freechat task progress` 更新任务进展摘要；前端任务卡片直接显示“最近进展”。
+
+### 任务归档展示
+
+任务 Tab 默认只突出活跃任务：`todo / assigned / doing / blocked / review`。`done / failed / cancelled` 进入“已归档”折叠区，用户按需展开查看，避免完成任务堆在主看板中造成“好多任务”的错觉。任务卡片始终显示“最近进展”，没有进展时显示“暂无进展”。
+
+### 任务项目隔离强校验
+
+任务属于项目/房间维度。除创建和列表天然使用当前 `roomId` 外，后端对任务更新、删除、进展更新、子任务增删改查均强制校验目标任务所属 `tasks.room_id` 必须等于当前房间。Agent Tool token 虽绑定房间，但仍执行同样校验，防止误传或恶意传入其他项目的 `taskId/subtaskId` 导致串项目操作。
+
+### 未读消息交互
+
+会话列表显示未读数，超过 99 显示 `99+`，免打扰会话使用灰色弱提示。进入房间后保留短暂未读定位：聊天区会在第一条未读消息前显示“以下是未读消息”分隔线，并滚动到未读附近；随后延迟标记已读。
+
+房间内如果用户不在底部且收到新消息，不强制滚动到底，而是显示“有 N 条新消息”按钮。点击按钮后滚到底并标记已读。移动端底部“聊天”Tab 显示当前房间内新消息红点数字。
+
+### 交互请求消息
+
+FreeChat 支持特殊聊天消息 `interaction_request`，用于需要用户确认、单选或多选的场景。交互请求使用独立表 `interaction_requests` 存储，普通消息表通过 `kind='interaction_request'` 和 `payload.interactionId` 关联。
+
+第一版支持三种类型：
+
+- `confirm`：确认/取消。
+- `choice`：单选。
+- `multi_choice`：多选。
+
+前端将其渲染为带 `?` 图标的特殊卡片，而不是普通聊天气泡。用户点击按钮或勾选多选后通过 `/api/rooms/:roomId/interactions/:id/respond` 提交，后端广播 `interaction.updated` 更新卡片状态。Agent 可通过 `./freechat interaction confirm/choice/multi_choice` 发起确认或选择请求。
+
+#### 交互请求选项补充输入
+
+`interaction_request` 的选项支持附带文本输入配置：
+
+```json
+{
+  "value": "other",
+  "label": "其他",
+  "input": {
+    "enabled": true,
+    "required": true,
+    "placeholder": "请输入其他内容",
+    "multiline": true,
+    "maxLength": 500
+  }
+}
+```
+
+单选与多选都支持该能力。用户选中带 `input.enabled` 的选项后，卡片内展开输入框；`required` 为真时必须填写才能提交。响应结果保存为：
+
+```json
+{
+  "value": ["frontend", "other"],
+  "labels": ["前端", "其他"],
+  "inputs": {
+    "frontend": "移动端优先",
+    "other": "增加导出功能"
+  }
+}
+```
+
+Agent 简单场景可继续使用 `interaction confirm/choice/multi_choice`，复杂选项配置使用：
+
+```bash
+./freechat interaction create-json res/interaction.json
+```
+
+#### 交互模式体验优化
+
+交互请求卡片支持更明确的优先级和响应策略：
+
+- `priority`: `normal` / `important` / `danger`，前端分别用蓝色、黄色、红色强调。
+- `responsePolicy.allowChange`: 允许用户在未被消费前修改选择。
+- `responsePolicy.allowCancel`: 预留取消策略。
+- `consumed_by` / `consumed_at`: 标记交互结果已被 Agent 或处理方消费，消费后不再允许修改。
+
+房间聊天区顶部会展示待处理提示条：
+
+```txt
+？有 N 个待你处理的请求  [查看]
+```
+
+点击后滚动到最近一个待处理交互卡片。交互卡片提交时进入“提交中”状态，防止重复点击；已处理卡片显示结果与补充输入。Agent 工具增加：
+
+```bash
+./freechat interaction list pending
+./freechat interaction consume <interactionId>
+```
+
+用于查询待处理交互并在处理结果后标记已消费。
+
+### 交互卡状态约束
+
+交互请求服务端强制校验：
+
+- `confirm` 没传 options 时自动生成“确认/取消”。
+- `choice` / `multi_choice` 必须传 options。
+- option 的 `value` 和 `label` 不能为空，`value` 不允许重复。
+- `expiresAt` 必须晚于当前时间；已过期的 pending 请求响应时会转为 `expired`。
+- 只有 `resolved` 的交互能被 `consume`；消费后不允许修改选择。
+- `responsePolicy.allowCancel === false` 时创建者也不能取消。

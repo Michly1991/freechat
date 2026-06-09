@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../lib/api'
 import { useFeedback } from '../components/FeedbackProvider'
-import { BellOff, MessageCircle, MoreHorizontal, Pin, Plus, Settings, Users, FolderKanban } from 'lucide-react'
+import { BellOff, MessageCircle, Pin, Plus, Settings, Users, FolderKanban } from 'lucide-react'
+import { SwipeActionItem, type SwipeAction } from '../components/SwipeActionItem'
 
 export default function HomePage() {
   const [rooms, setRooms] = useState<any[]>([])
@@ -23,6 +24,7 @@ export default function HomePage() {
   const [inviteCode, setInviteCode] = useState('')
   const [joining, setJoining] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [openSwipeId, setOpenSwipeId] = useState<string | null>(null)
   const navigate = useNavigate()
   const feedback = useFeedback()
   const { user, logout } = useAuthStore()
@@ -79,13 +81,39 @@ export default function HomePage() {
     try { const data = await api.openDm(friendId); navigate(`/dm/${data.conversation.id}`) } catch (err: any) { feedback.error(err.message || '操作失败') }
   }
 
-  const toggleConversationPref = async (conv: any, key: 'pinned' | 'muted', e: React.MouseEvent) => {
-    e.stopPropagation()
+  const toggleConversationPref = async (conv: any, key: 'pinned' | 'muted' | 'hidden', e?: React.MouseEvent) => {
+    e?.stopPropagation()
     try {
       await api.updateConversationPrefs(conv.type, conv.id, { [key]: !conv[key] })
+      if (key === 'pinned') feedback.success(conv.pinned ? '已取消置顶' : '已置顶')
+      if (key === 'muted') feedback.success(conv.muted ? '已取消免打扰' : '已设为免打扰')
+      if (key === 'hidden') feedback.success('会话已隐藏')
       loadConversations()
     } catch (err: any) { feedback.error(err.message || '操作失败') }
   }
+
+  const hideConversation = async (conv: any) => {
+    await toggleConversationPref(conv, 'hidden')
+  }
+
+  const deleteConversation = async (conv: any, e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    if (conv.type === 'project') {
+      await handleDeleteRoom(conv, e as any)
+      return
+    }
+    const ok = await feedback.confirm({ title: '不显示这个私聊？', message: '当前会话会从消息列表隐藏，之后可从通讯录重新打开。', confirmText: '不显示', danger: true })
+    if (!ok) return
+    await api.updateConversationPrefs(conv.type, conv.id, { hidden: true })
+    feedback.success('私聊已隐藏')
+    loadConversations()
+  }
+
+  const getConversationActions = (conv: any): SwipeAction[] => [
+    { label: conv.pinned ? '取消置顶' : '置顶', color: 'blue', onClick: () => toggleConversationPref(conv, 'pinned') },
+    { label: '不显示', color: 'gray', onClick: () => hideConversation(conv) },
+    { label: conv.type === 'project' ? '删除' : '隐藏', color: 'red', onClick: () => deleteConversation(conv) },
+  ]
 
   const toggleSelectedFriend = (friendId: string) => {
     setSelectedFriendIds((prev) => prev.includes(friendId) ? prev.filter((id) => id !== friendId) : [...prev, friendId])
@@ -95,7 +123,6 @@ export default function HomePage() {
     e.preventDefault()
     try {
       const result = await api.createRoom({ name: newName, description: newDesc, memberIds: selectedFriendIds })
-      console.log('创建成功:', result)
       setShowCreate(false)
       setNewName('')
       setNewDesc('')
@@ -139,7 +166,7 @@ export default function HomePage() {
   }
 
   const handleDeleteRoom = async (room: any, e: React.MouseEvent) => {
-    e.stopPropagation()
+    e?.stopPropagation()
     if (!room.canDelete && room.memberRole !== 'owner') {
       feedback.warning('你没有权限永久删除该项目')
       return
@@ -245,44 +272,42 @@ export default function HomePage() {
               <div className="p-8 text-center text-gray-400">暂无会话，去通讯录找好友聊天，或创建一个项目</div>
             ) : (
               <div className="divide-y divide-gray-100">
-                {conversations.map((conv) => (
-                  <div key={`${conv.type}-${conv.id}`} onClick={() => navigate(conv.targetPath)} className={`px-3 sm:px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 active:bg-gray-100 ${conv.pinned ? 'bg-yellow-50/60' : 'bg-white'}`}>
-                    {conv.type === 'dm' ? (
-                      conv.avatar ? <img src={conv.avatar} className="w-12 h-12 rounded-full object-cover" /> : <span className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 text-white flex items-center justify-center font-semibold">{(conv.title || '?')[0].toUpperCase()}</span>
-                    ) : (
-                      <span className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-400 to-blue-500 text-white flex items-center justify-center"><FolderKanban className="w-6 h-6" /></span>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-gray-800 truncate">{conv.title}</span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${conv.type === 'dm' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'}`}>{conv.type === 'dm' ? '私聊' : '项目'}</span>
-                        {conv.pinned && <span className="text-[10px] text-yellow-600 inline-flex items-center gap-0.5"><Pin className="w-3 h-3" />置顶</span>}
-                        {conv.muted && <span className="text-[10px] text-gray-400 inline-flex items-center gap-0.5"><BellOff className="w-3 h-3" />免打扰</span>}
+                {conversations.map((conv) => {
+                  const item = (
+                    <div onClick={() => openSwipeId === `${conv.type}-${conv.id}` ? setOpenSwipeId(null) : navigate(conv.targetPath)} className={`px-3 sm:px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 active:bg-gray-100 ${conv.pinned ? 'bg-yellow-50/60' : 'bg-white'}`}>
+                      {conv.type === 'dm' ? (
+                        conv.avatar ? <img src={conv.avatar} className="w-12 h-12 rounded-full object-cover" /> : <span className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 text-white flex items-center justify-center font-semibold">{(conv.title || '?')[0].toUpperCase()}</span>
+                      ) : (
+                        <span className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-400 to-blue-500 text-white flex items-center justify-center"><FolderKanban className="w-6 h-6" /></span>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-800 truncate">{conv.title}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${conv.type === 'dm' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'}`}>{conv.type === 'dm' ? '私聊' : '项目'}</span>
+                          {conv.pinned && <span className="text-[10px] text-yellow-600 inline-flex items-center gap-0.5"><Pin className="w-3 h-3" />置顶</span>}
+                          {conv.muted && <span className="text-[10px] text-gray-400 inline-flex items-center gap-0.5"><BellOff className="w-3 h-3" />免打扰</span>}
+                        </div>
+                        <p className="text-sm text-gray-400 truncate mt-1">
+                          {conv.lastMessage ? `${conv.lastMessage.actorName}: ${conv.lastMessage.content}` : conv.subtitle}
+                        </p>
                       </div>
-                      <p className="text-sm text-gray-400 truncate mt-1">
-                        {conv.lastMessage ? `${conv.lastMessage.actorName}: ${conv.lastMessage.content}` : conv.subtitle}
-                      </p>
-                    </div>
-                    <div className="flex flex-col items-end gap-2 shrink-0">
-                      {conv.unreadCount > 0 && <span className={`text-xs rounded-full px-2 py-0.5 ${conv.muted ? 'bg-gray-200 text-gray-500' : 'bg-red-500 text-white'}`}>{conv.unreadCount}</span>}
-                      <div className="hidden sm:flex gap-2 text-xs text-gray-400">
-                        <button onClick={(e) => toggleConversationPref(conv, 'pinned', e)}>{conv.pinned ? '取消置顶' : '置顶'}</button>
-                        <button onClick={(e) => toggleConversationPref(conv, 'muted', e)}>{conv.muted ? '取消免打扰' : '免打扰'}</button>
-                        {conv.type === 'project' && (
-                          <button
-                            disabled={deletingId === conv.id}
-                            onClick={(e) => handleDeleteRoom(conv, e)}
-                            className={conv.canDelete || conv.memberRole === 'owner' ? 'text-red-400 hover:text-red-600 disabled:opacity-60' : 'text-gray-300 hover:text-red-500'}
-                            title={conv.canDelete || conv.memberRole === 'owner' ? '永久删除项目' : '你没有权限永久删除该项目'}
-                          >
-                            {deletingId === conv.id ? '删除中...' : '删除'}
-                          </button>
-                        )}
+                      <div className="flex flex-col items-end gap-2 shrink-0">
+                        {conv.unreadCount > 0 && <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${conv.muted ? 'bg-gray-200 text-gray-500' : 'bg-red-500 text-white'}`}>{conv.unreadCount > 99 ? '99+' : conv.unreadCount}</span>}
+                        <div className="hidden sm:flex gap-2 text-xs text-gray-400">
+                          <button onClick={(e) => toggleConversationPref(conv, 'pinned', e)}>{conv.pinned ? '取消置顶' : '置顶'}</button>
+                          <button onClick={(e) => toggleConversationPref(conv, 'hidden', e)}>不显示</button>
+                          <button disabled={deletingId === conv.id} onClick={(e) => deleteConversation(conv, e)} className="text-red-400 hover:text-red-600 disabled:opacity-60">{deletingId === conv.id ? '删除中...' : (conv.type === 'project' ? '删除' : '隐藏')}</button>
+                        </div>
+                        <span className="sm:hidden text-xs text-gray-300">左滑</span>
                       </div>
-                      <button onClick={(e) => toggleConversationPref(conv, 'pinned', e)} className="sm:hidden text-gray-300 leading-none"><MoreHorizontal className="w-5 h-5" /></button>
                     </div>
-                  </div>
-                ))}
+                  )
+                  return (
+                    <SwipeActionItem key={`${conv.type}-${conv.id}`} id={`${conv.type}-${conv.id}`} openId={openSwipeId} setOpenId={setOpenSwipeId} actions={getConversationActions(conv)}>
+                      {item}
+                    </SwipeActionItem>
+                  )
+                })}
               </div>
             )}
           </section>
