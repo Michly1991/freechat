@@ -4,6 +4,37 @@ import type { Message, Mention } from '@freechat/shared'
 import { MAX_MESSAGES_PER_ROOM } from '@freechat/shared'
 import { roomService } from './room.service.js'
 
+function parseJson<T>(value: string | null | undefined, fallback: T): T {
+  if (!value) return fallback
+  try { return JSON.parse(value) } catch { return fallback }
+}
+
+function interactionRowToPayload(row: any) {
+  return {
+    id: row.id,
+    roomId: row.room_id,
+    messageId: row.message_id || undefined,
+    createdBy: row.created_by,
+    targetUserId: row.target_user_id || undefined,
+    type: row.type,
+    title: row.title,
+    description: row.description || undefined,
+    options: parseJson(row.options_json, []),
+    status: row.status,
+    result: parseJson(row.result_json, undefined),
+    payload: parseJson(row.payload_json, undefined),
+    priority: row.priority || 'normal',
+    responsePolicy: parseJson(row.response_policy, { allowChange: false, allowCancel: true }),
+    consumedBy: row.consumed_by || undefined,
+    consumedAt: row.consumed_at || undefined,
+    expiresAt: row.expires_at || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    resolvedBy: row.resolved_by || undefined,
+    resolvedAt: row.resolved_at || undefined,
+  }
+}
+
 export class MessageService {
   async createMessage(
     roomId: string,
@@ -75,21 +106,29 @@ export class MessageService {
 
     const rows: any[] = db.prepare(query).all(...params)
 
-    return rows.reverse().map(row => ({
-      id: row.id,
-      roomId: row.room_id,
-      actorId: row.actor_id,
-      actorName: row.actor_name,
-      actorRole: row.actor_role,
-      content: row.content,
-      kind: row.kind || 'text',
-      payload: row.payload ? JSON.parse(row.payload) : undefined,
-      mentions: row.mentions ? JSON.parse(row.mentions) : undefined,
-      replyTo: row.reply_to,
-      editedAt: row.edited_at,
-      deleted: !!row.deleted,
-      createdAt: row.created_at
-    }))
+    return rows.reverse().map(row => {
+      let payload = row.payload ? JSON.parse(row.payload) : undefined
+      if ((row.kind || 'text') === 'interaction_request') {
+        const interactionId = payload?.interactionId || payload?.interaction?.id
+        const interaction = db.prepare('SELECT * FROM interaction_requests WHERE message_id = ? OR id = ?').get(row.id, interactionId || '') as any
+        if (interaction) payload = { ...(payload || {}), interactionId: interaction.id, interaction: interactionRowToPayload(interaction) }
+      }
+      return {
+        id: row.id,
+        roomId: row.room_id,
+        actorId: row.actor_id,
+        actorName: row.actor_name,
+        actorRole: row.actor_role,
+        content: row.content,
+        kind: row.kind || 'text',
+        payload,
+        mentions: row.mentions ? JSON.parse(row.mentions) : undefined,
+        replyTo: row.reply_to,
+        editedAt: row.edited_at,
+        deleted: !!row.deleted,
+        createdAt: row.created_at
+      }
+    })
   }
 
   async updateMessage(messageId: string, content: string): Promise<Message> {
