@@ -33,11 +33,16 @@ export class TaskService {
     const id = `task_${uuidv4()}`
     const now = Date.now()
     const status = assigneeId ? 'assigned' : 'todo'
+    let creator = createdBy
+    if (!creator || !db.prepare('SELECT id FROM users WHERE id = ?').get(creator)) {
+      const room = db.prepare('SELECT created_by FROM rooms WHERE id = ?').get(roomId) as any
+      creator = room?.created_by || creator || 'system'
+    }
 
     db.prepare(`
       INSERT INTO tasks (id, room_id, title, description, status, priority, assignee_id, assignee_name, assignee_type, created_by, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, roomId, cleanTitle, description || null, status, priority, assigneeId || null, assigneeName || null, assigneeType || null, createdBy || 'system', now, now)
+    `).run(id, roomId, cleanTitle, description || null, status, priority, assigneeId || null, assigneeName || null, assigneeType || null, creator, now, now)
 
     return this.getTask(id)
   }
