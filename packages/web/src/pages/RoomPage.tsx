@@ -1125,7 +1125,7 @@ export default function RoomPage() {
   return (
     <div className="h-screen flex flex-col bg-gray-50 relative">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-3 sm:px-4 py-3 flex items-center justify-between shrink-0">
+      <header className="fc-mobile-glass bg-white border-b border-gray-200 px-3 sm:px-4 py-3 flex items-center justify-between shrink-0 sticky top-0 z-30">
         <div className="flex items-center gap-3 min-w-0">
           <button onClick={() => navigate('/')} className="text-gray-500 hover:text-gray-700 shrink-0">← 返回</button>
           <h1 className="font-semibold text-gray-800 truncate">{room?.name || '加载中...'}</h1>
@@ -1145,7 +1145,7 @@ export default function RoomPage() {
         </div>
         <button
           onClick={() => setShowMobileMembers(true)}
-          className="md:hidden relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-blue-50 text-blue-600 text-xs font-medium shrink-0"
+          className="fc-pressable md:hidden relative flex items-center gap-1.5 px-3 py-2 rounded-full bg-blue-50 text-blue-600 text-xs font-medium shrink-0 shadow-sm active:bg-blue-100"
         >
           <Users className="w-4 h-4" />
           {members.length + roomAgents.length}
@@ -1193,7 +1193,7 @@ export default function RoomPage() {
         <div className="flex-1 flex flex-col overflow-hidden">
         {activePanel === 'chat' && (
           <div className="h-full flex flex-col">
-            <div ref={messagesScrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 relative">
+            <div ref={messagesScrollRef} className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 sm:py-4 space-y-3 relative bg-gradient-to-b from-gray-50/70 to-white sm:bg-none">
               {messages.map((msg) => {
                 const isOwn = msg.actorId === user?.id
                 const displayName = isOwn ? '我' : msg.actorName
@@ -1221,7 +1221,7 @@ export default function RoomPage() {
                         {renderAvatar(displayName, avatar, 'w-10 h-10 sm:w-12 sm:h-12')}
                       </button>
                     ))}
-                    <div className={`max-w-[78%] sm:max-w-[80%] rounded-xl px-3 sm:px-4 py-2 ${isAgentReceipt ? 'bg-gray-50 border border-dashed border-gray-200 text-gray-500' : (isOwn ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-800')}`}>
+                    <div className={`max-w-[84%] sm:max-w-[80%] rounded-2xl sm:rounded-xl px-3 sm:px-4 py-2 shadow-sm ${isAgentReceipt ? 'bg-gray-50 border border-dashed border-gray-200 text-gray-500' : (isOwn ? 'bg-blue-600 text-white shadow-blue-500/10' : 'bg-white border border-gray-200 text-gray-800')}`}>
                       <button
                         type="button"
                         onClick={() => msg.actorRole === 'ai' ? openMemberProfile(actorAgent, 'agent') : actorMember && openMemberProfile(actorMember, 'member')}
@@ -1242,14 +1242,14 @@ export default function RoomPage() {
               })}
               <div ref={messagesEndRef} />
               {roomNewMessageCount > 0 && (
-                <button onClick={scrollToBottomAndRead} className="sticky bottom-2 mx-auto block rounded-full bg-blue-600 px-4 py-2 text-xs font-medium text-white shadow-lg">
+                <button onClick={scrollToBottomAndRead} className="fc-pressable sticky bottom-2 mx-auto block rounded-full bg-blue-600 px-4 py-2 text-xs font-medium text-white shadow-lg shadow-blue-500/20">
                   有 {roomNewMessageCount} 条新消息
                 </button>
               )}
             </div>
-            <form onSubmit={sendMessage} className="p-4 bg-white border-t border-gray-200 shrink-0 relative">
+            <form onSubmit={sendMessage} className="fc-mobile-glass p-3 sm:p-4 bg-white border-t border-gray-200 shrink-0 relative safe-area-inset-bottom">
               {showMentionPopup && (filteredMembers.length > 0 || filteredAgents.length > 0) && (
-                <div className="absolute bottom-full left-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto z-10">
+                <div className="fc-sheet-pop absolute bottom-full left-3 right-3 sm:left-4 sm:right-4 bg-white border border-gray-200 rounded-2xl shadow-xl max-h-72 overflow-y-auto z-10 mb-2">
                   {filteredMembers.length > 0 && (
                     <>
                       <div className="px-3 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">成员</div>
@@ -1283,19 +1283,19 @@ export default function RoomPage() {
                   <button type="button" onClick={() => setWsNoticeDismissed(true)} className="text-amber-500 hover:text-amber-700">×</button>
                 </div>
               )}
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center rounded-2xl bg-gray-50 border border-gray-200 p-1.5 shadow-inner focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-300 transition-all">
                 <input
                   ref={inputRef}
                   type="text"
                   value={input}
                   onChange={handleInputChange}
                   placeholder="输入消息，@提及成员..."
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-base sm:text-sm border-0 rounded-xl focus:ring-0 focus:outline-none"
                 />
                 <button
                   type="submit"
                   disabled={!input.trim()}
-                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  className="fc-pressable fc-mobile-touch bg-blue-600 text-white px-4 sm:px-6 py-2 rounded-xl hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed shadow-sm shadow-blue-500/20"
                 >
                   发送
                 </button>
@@ -1432,7 +1432,7 @@ export default function RoomPage() {
                 </button>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-3 sm:p-4">
+            <div className="flex-1 overflow-y-auto p-3 sm:p-4 bg-gradient-to-b from-gray-50/80 to-white md:bg-none">
               {(() => {
                 const activeTasks = tasks.filter((t) => !archivedTaskStatuses.includes(t.status))
                 const archivedTasks = tasks.filter((t) => archivedTaskStatuses.includes(t.status))
@@ -1455,7 +1455,7 @@ export default function RoomPage() {
                         {kanbanCols.map((col) => {
                           const colTasks = activeTasks.filter((t) => col.statuses.includes(getEffectiveTaskStatus(t)))
                           return (
-                            <section key={col.key} className="bg-white md:bg-gray-100 rounded-2xl md:rounded-lg border md:border-0 border-gray-100 p-3 shadow-sm md:shadow-none">
+                            <section key={col.key} className="fc-mobile-card bg-white md:bg-gray-100 rounded-2xl md:rounded-lg border md:border-0 border-gray-100 p-3 shadow-sm md:shadow-none">
                               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center justify-between">
                                 <span>{col.label}</span>
                                 <span className="text-xs font-normal text-gray-400 bg-gray-100 md:bg-white px-2 py-0.5 rounded-full">{colTasks.length}</span>
@@ -1560,8 +1560,8 @@ export default function RoomPage() {
       {/* Mobile members drawer */}
       {showMobileMembers && (
         <div className="md:hidden fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={() => setShowMobileMembers(false)}>
-          <div className="w-full max-w-md bg-white rounded-t-2xl max-h-[75vh] overflow-y-auto animate-slideUp" onClick={(e) => e.stopPropagation()}>
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between rounded-t-2xl">
+          <div className="w-full max-w-md bg-white rounded-t-3xl max-h-[82vh] overflow-y-auto animate-slideUp shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 fc-mobile-glass bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between rounded-t-3xl z-10">
               <div>
                 <h3 className="font-semibold text-gray-800">成员与 AI</h3>
                 <p className="text-xs text-gray-400">成员 {members.length} · Agent {roomAgents.length}</p>
@@ -1573,7 +1573,7 @@ export default function RoomPage() {
             <div className="p-4 space-y-2">
               <h4 className="px-1 text-xs font-semibold text-gray-500 uppercase tracking-wide">在线成员</h4>
               {members.map((member) => (
-                <button key={member.id || member.userId} type="button" onClick={() => openMemberProfile(member, 'member')} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-blue-50 transition-colors text-left">
+                <button key={member.id || member.userId} type="button" onClick={() => openMemberProfile(member, 'member')} className="fc-pressable w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-blue-50 transition-colors text-left active:bg-blue-100/70">
                   <div className="relative">
                     {renderAvatar(getMemberDisplayName(member), getMemberAvatar(member), 'w-11 h-11')}
                     <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-400 border-2 border-white rounded-full"></div>
@@ -1590,7 +1590,7 @@ export default function RoomPage() {
                 <>
                   <h4 className="px-1 pt-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">AI Agents</h4>
                   {roomAgents.map((agent) => (
-                    <button key={agent.id} type="button" onClick={() => openMemberProfile(agent, 'agent')} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-blue-50 transition-colors text-left">
+                    <button key={agent.id} type="button" onClick={() => openMemberProfile(agent, 'agent')} className="fc-pressable w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-blue-50 transition-colors text-left active:bg-blue-100/70">
                       {renderAgentAvatar(agent, 'w-11 h-11', 'w-5 h-5')}
                       <div className="flex-1">
                         <p className="font-medium text-gray-800">{agent.name}</p>
@@ -1618,7 +1618,7 @@ export default function RoomPage() {
 
       {selectedProfile && (
         <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={() => setSelectedProfile(null)}>
-          <div className="w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-xl p-5" onClick={(e) => e.stopPropagation()}>
+          <div className="fc-sheet-pop w-full sm:max-w-sm bg-white rounded-t-3xl sm:rounded-2xl shadow-xl p-5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3 min-w-0">
                 {selectedProfile.kind === 'agent' ? renderAgentAvatar(selectedProfile, 'w-14 h-14', 'w-7 h-7') : renderAvatar(selectedProfile.name, selectedProfile.avatar, 'w-14 h-14')}
@@ -1664,7 +1664,7 @@ export default function RoomPage() {
       )}
 
       {/* Mobile bottom tab nav */}
-      <nav className="md:hidden flex border-t border-gray-200 bg-white shrink-0">
+      <nav className="fc-mobile-glass md:hidden flex border-t border-gray-200 bg-white shrink-0 safe-area-inset-bottom shadow-[0_-8px_24px_rgba(15,23,42,0.06)]">
         {panels.map((p) => (
           <button
             key={p.key}

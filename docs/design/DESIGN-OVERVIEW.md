@@ -49,7 +49,7 @@ FreeChat 是一个 AI 协同办公云系统，设计分为两大部分：
 - 任务分配（人/Agent）
 - 状态流转 + 自动通知
 - 看板视图（桌面多列/移动 Tab 切换）
-- 交互动效采用轻量高级感：任务/交互卡淡入、卡片 hover 上浮、按钮按压、进度条平滑过渡、待审核柔光、Agent 头像 hover/working 呼吸；需支持 `prefers-reduced-motion` 降级，保证移动端性能。
+- 交互动效采用轻量高级感：任务/交互卡淡入、卡片 hover 上浮、按钮按压、进度条平滑过渡、待审核柔光、Agent 头像 hover/working 呼吸；移动端使用玻璃感 sticky 顶栏/输入栏、圆角 bottom sheet、44px 触控目标和安全区适配；需支持 `prefers-reduced-motion` 降级，保证移动端性能。
 
 #### 5. 房间管理
 - 创建/删除房间
