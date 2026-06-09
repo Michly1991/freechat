@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../lib/api'
 import { useFeedback } from '../components/FeedbackProvider'
-import { BellOff, MessageCircle, Pin, Plus, Settings, Users, FolderKanban, Bot, Trash2 } from 'lucide-react'
+import { BellOff, MessageCircle, Pin, Plus, Settings, Users, FolderKanban, Bot, Pencil, Trash2 } from 'lucide-react'
 import { SwipeActionItem, type SwipeAction } from '../components/SwipeActionItem'
 
 export default function HomePage() {
@@ -13,6 +13,7 @@ export default function HomePage() {
   const [agents, setAgents] = useState<any[]>([])
   const [contactKind, setContactKind] = useState<'people' | 'agents'>('people')
   const [showCreateAgent, setShowCreateAgent] = useState(false)
+  const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
   const [agentForm, setAgentForm] = useState({
     name: '',
     roleType: 'assistant' as 'assistant' | 'specialist',
@@ -97,6 +98,33 @@ export default function HomePage() {
     try { const data = await api.openDm(friendId); navigate(`/dm/${data.conversation.id}`) } catch (err: any) { feedback.error(err.message || '操作失败') }
   }
 
+  const emptyAgentForm = () => ({ name: '', roleType: 'assistant' as 'assistant' | 'specialist', description: '', specialties: '', systemPrompt: '', tools: { chat: true, task: true, file: true, tab: true, interaction: true, members: true } })
+
+  const resetAgentEditor = () => {
+    setEditingAgentId(null)
+    setShowCreateAgent(false)
+    setAgentForm(emptyAgentForm())
+  }
+
+  const openCreateAgent = () => {
+    setEditingAgentId(null)
+    setAgentForm(emptyAgentForm())
+    setShowCreateAgent(true)
+  }
+
+  const openEditAgent = (agent: any) => {
+    setEditingAgentId(agent.id)
+    setAgentForm({
+      name: agent.name || '',
+      roleType: agent.roleType || 'specialist',
+      description: agent.description || '',
+      specialties: (agent.specialties || []).join(', '),
+      systemPrompt: agent.config?.systemPrompt || '',
+      tools: { chat: true, task: true, file: true, tab: true, interaction: true, members: true, ...(agent.config?.tools || {}) },
+    })
+    setShowCreateAgent(true)
+  }
+
   const toggleAgentTool = (key: keyof typeof agentForm.tools) => {
     setAgentForm((prev) => ({ ...prev, tools: { ...prev.tools, [key]: !prev.tools[key] } }))
   }
@@ -105,10 +133,10 @@ export default function HomePage() {
     const name = agentForm.name.trim()
     if (!name) { feedback.warning('请输入 Agent 名称'); return }
     try {
-      await api.createAgent({
+      const body = {
         name,
         roleType: agentForm.roleType,
-        deployment: 'server',
+        deployment: 'server' as const,
         description: agentForm.description,
         specialties: agentForm.specialties.split(',').map((s) => s.trim()).filter(Boolean),
         config: {
@@ -116,12 +144,17 @@ export default function HomePage() {
           behavior: { replyMode: agentForm.roleType === 'assistant' ? 'auto_when_relevant' : 'mention_only', silentAllowed: true },
           tools: agentForm.tools,
         },
-      })
-      feedback.success('Agent 已创建')
-      setShowCreateAgent(false)
-      setAgentForm({ name: '', roleType: 'assistant', description: '', specialties: '', systemPrompt: '', tools: { chat: true, task: true, file: true, tab: true, interaction: true, members: true } })
+      }
+      if (editingAgentId) {
+        await api.updateAgent(editingAgentId, body)
+        feedback.success('Agent 已更新')
+      } else {
+        await api.createAgent(body)
+        feedback.success('Agent 已创建')
+      }
+      resetAgentEditor()
       loadAgents()
-    } catch (err: any) { feedback.error(err.message || '创建失败') }
+    } catch (err: any) { feedback.error(err.message || (editingAgentId ? '更新失败' : '创建失败')) }
   }
 
   const deleteAgentFromContacts = async (agent: any) => {
@@ -381,7 +414,7 @@ export default function HomePage() {
           <div className="flex items-center justify-between gap-3 mb-3">
             <h2 className="text-lg font-semibold text-gray-800">通讯录</h2>
             {contactKind === 'agents' && (
-              <button onClick={() => setShowCreateAgent((v) => !v)} className="inline-flex items-center gap-1 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700">
+              <button onClick={() => showCreateAgent && !editingAgentId ? resetAgentEditor() : openCreateAgent()} className="inline-flex items-center gap-1 bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700">
                 <Plus className="w-4 h-4" /> 新建 Agent
               </button>
             )}
@@ -452,6 +485,7 @@ export default function HomePage() {
             <div className="space-y-4">
               {showCreateAgent && (
                 <div className="p-4 border border-blue-100 bg-blue-50/50 rounded-xl space-y-3">
+                  <div className="text-sm font-semibold text-gray-700">{editingAgentId ? '编辑 Agent' : '新建 Agent'}</div>
                   <div className="grid sm:grid-cols-2 gap-3">
                     <input value={agentForm.name} onChange={(e) => setAgentForm({ ...agentForm, name: e.target.value })} className="px-3 py-2 border border-gray-300 rounded text-sm" placeholder="Agent 名称，例如：需求分析师" />
                     <select value={agentForm.roleType} onChange={(e) => setAgentForm({ ...agentForm, roleType: e.target.value as any })} className="px-3 py-2 border border-gray-300 rounded text-sm">
@@ -470,8 +504,8 @@ export default function HomePage() {
                     ))}
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={createAgentFromContacts} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">保存 Agent</button>
-                    <button onClick={() => setShowCreateAgent(false)} className="bg-gray-100 text-gray-600 px-4 py-2 rounded-lg text-sm hover:bg-gray-200">取消</button>
+                    <button onClick={createAgentFromContacts} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">{editingAgentId ? '保存修改' : '保存 Agent'}</button>
+                    <button onClick={resetAgentEditor} className="bg-gray-100 text-gray-600 px-4 py-2 rounded-lg text-sm hover:bg-gray-200">取消</button>
                   </div>
                 </div>
               )}
@@ -489,7 +523,10 @@ export default function HomePage() {
                         {a.specialties?.length > 0 && <p className="text-xs text-gray-400 mt-1 truncate">{a.specialties.join('、')}</p>}
                       </div>
                     </div>
-                    <button onClick={() => deleteAgentFromContacts(a)} className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-4 h-4" /></button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button onClick={() => openEditAgent(a)} className="text-blue-500 hover:text-blue-700 p-1" title="编辑 Agent"><Pencil className="w-4 h-4" /></button>
+                      <button onClick={() => deleteAgentFromContacts(a)} className="text-red-400 hover:text-red-600 p-1" title="删除 Agent"><Trash2 className="w-4 h-4" /></button>
+                    </div>
                   </div>
                 ))}
               </div>
