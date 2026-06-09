@@ -2,6 +2,10 @@ import { FastifyInstance } from 'fastify'
 import { interactionService } from '../services/interaction.service.js'
 import { roomService } from '../services/room.service.js'
 import { getGateway } from '../ws/gateway.js'
+import { taskService } from '../services/task.service.js'
+import { taskItemService } from '../services/task-item.service.js'
+import { agentService } from '../services/agent.service.js'
+import { messageService } from '../services/message.service.js'
 
 function broadcast(roomId: string, action: string, payload: any) {
   getGateway()?.broadcast(roomId, {
@@ -12,6 +16,81 @@ function broadcast(roomId: string, action: string, payload: any) {
     payload,
     timestamp: Date.now(),
   })
+}
+
+async function resolveAgentAssignee(roomId: string, raw: any): Promise<{ assigneeId?: string; assigneeName?: string; assigneeType?: 'agent' }> {
+  const text = String(raw || '').trim().replace(/^@/, '')
+  if (!text) return {}
+  const agents = await agentService.getRoomAgents(roomId)
+  const agent = agents.find((a) => a.id === text || a.name === text || a.name.includes(text) || text.includes(a.name))
+  if (!agent) throw { code: 'AGENT_ASSIGNEE_NOT_FOUND', message: `Agent assignee not found in room: ${text}` }
+  return { assigneeId: agent.id, assigneeName: agent.name, assigneeType: 'agent' }
+}
+
+async function invokeAssignedAgent(roomId: string, assigneeId: string | undefined, prompt: string) {
+  if (!assigneeId) return
+  const agents = await agentService.getRoomAgents(roomId)
+  const assigned = agents.find((a) => a.id === assigneeId)
+  if (!assigned) return
+  void (async () => {
+    try {
+      await agentService.updateAgent(assigned.id, { status: 'working' } as any)
+      broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'working', onlineStatus: 'working', lastActiveAt: Date.now() })
+      const receipt = await messageService.createMessage(roomId, assigned.id, assigned.name, 'ai', '收到，处理中…', undefined, undefined, 'agent_receipt', { status: 'accepted', reason: 'task' })
+      broadcast(roomId, 'chat.message', receipt)
+      const result = await agentService.spawnClaudeCode(roomId, assigned.id, prompt)
+      await agentService.updateAgent(assigned.id, { status: 'active' } as any)
+      broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'active', onlineStatus: 'online', lastActiveAt: Date.now() })
+      if (result.silent || !result.response) return
+      const msg = await messageService.createMessage(roomId, assigned.id, assigned.name, 'ai', result.response)
+      broadcast(roomId, 'chat.message', msg)
+    } catch (err: any) {
+      await agentService.updateAgent(assigneeId, { status: 'error' } as any).catch(() => {})
+      broadcast(roomId, 'agent.status_update', { agentId: assigneeId, status: 'error', onlineStatus: 'error', lastActiveAt: Date.now(), lastError: err?.message || String(err) })
+      console.error(`Task-plan assigned agent ${assigneeId} invocation failed:`, err)
+    }
+  })()
+}
+
+async function materializeTaskPlan(roomId: string, interaction: any) {
+  if (interaction.type !== 'task_plan') return
+  if (interaction.result?.value !== 'confirm') return
+  if (interaction.consumedAt) return
+  const plan = interaction.payload?.taskPlan
+  if (!plan?.title) throw { code: 'VALIDATION_ERROR', message: 'invalid task plan payload' }
+  const task = await taskService.createTask(roomId, plan.title, plan.description, plan.priority || 'medium', undefined, undefined, undefined, interaction.createdBy)
+  broadcast(roomId, 'task.changed', { action: 'add', task })
+  const createdItems: any[] = []
+  for (const item of (plan.items || [])) {
+    const resolved = await resolveAgentAssignee(roomId, item.assignee)
+    const subtask = await taskItemService.create(task.id, {
+      title: item.title,
+      description: [item.description, item.dependsOn !== undefined ? `依赖步骤: ${Number(item.dependsOn) + 1}` : ''].filter(Boolean).join('\n') || undefined,
+      assigneeId: resolved.assigneeId,
+      assigneeName: resolved.assigneeName,
+      assigneeType: resolved.assigneeType,
+      createdBy: interaction.createdBy,
+    })
+    createdItems.push(subtask)
+    if (resolved.assigneeId) {
+      await invokeAssignedAgent(roomId, resolved.assigneeId, [
+        '用户已确认任务计划，你被分派了其中一个子任务，请立即处理。',
+        `父任务ID: ${task.id}`,
+        `父任务标题: ${task.title}`,
+        `子任务ID: ${subtask.id}`,
+        `子任务标题: ${subtask.title}`,
+        subtask.description ? `子任务说明: ${subtask.description}` : '',
+        '',
+        '请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。',
+      ].filter(Boolean).join('\n'))
+    }
+  }
+  const updatedTask = await taskService.getTask(task.id)
+  broadcast(roomId, 'task.changed', { action: 'update', task: updatedTask })
+  const consumed = interactionService.consume(roomId, interaction.id, interaction.resolvedBy || interaction.createdBy)
+  broadcast(roomId, 'interaction.updated', { interaction: consumed })
+  const msg = await messageService.createMessage(roomId, interaction.createdBy, '任务计划', 'ai', `✅ 已根据确认创建任务：${task.title}\n子任务：${createdItems.length} 个`)
+  broadcast(roomId, 'chat.message', msg)
 }
 
 export async function registerInteractionRoutes(app: FastifyInstance) {
@@ -66,6 +145,7 @@ export async function registerInteractionRoutes(app: FastifyInstance) {
     try {
       const interaction = interactionService.respond(roomId, id, user.id, body.value ?? body.values, body.inputs || {})
       broadcast(roomId, 'interaction.updated', { interaction })
+      await materializeTaskPlan(roomId, interaction)
       return reply.send({ success: true, data: { interaction } })
     } catch (err: any) {
       const status = err.code === 'INTERACTION_NOT_FOUND' ? 404 : (err.code === 'FORBIDDEN' ? 403 : 400)
@@ -83,6 +163,7 @@ export async function registerInteractionRoutes(app: FastifyInstance) {
     try {
       const interaction = interactionService.respond(roomId, id, user.id, body.value ?? body.values, body.inputs || {})
       broadcast(roomId, 'interaction.updated', { interaction })
+      await materializeTaskPlan(roomId, interaction)
       return reply.send({ success: true, data: { interaction } })
     } catch (err: any) {
       const status = err.code === 'INTERACTION_NOT_FOUND' ? 404 : (err.code === 'FORBIDDEN' ? 403 : 400)

@@ -465,6 +465,7 @@ function usage() {
     '  ./freechat task subtask add <taskId> <title> [description] [--assignee <agentNameOrId>]'
     '  ./freechat task subtask update <subtaskId> <field> <value> [field value...]',
     '  ./freechat task subtask delete <subtaskId>',
+    '  ./freechat task plan create-json <localJsonPath>',
     '  ./freechat file list',
     '  ./freechat file read <path>',
     '  ./freechat file write <path> <content> [--show|--hide]',
@@ -610,6 +611,9 @@ if (domain === 'chat' && cmd === 'send') {
 } else if (domain === 'task' && cmd === 'subtask' && rest[0] === 'delete') {
   if (!rest[1]) die('subtaskId is required');
   call('task.subtask_delete', { itemId: rest[1] });
+} else if (domain === 'task' && cmd === 'plan' && rest[0] === 'create-json') {
+  if (!rest[1]) die('localJsonPath is required');
+  call('task.plan.create', JSON.parse(readLocalFile(rest[1])));
 } else if (domain === 'file' && cmd === 'list') {
   call('file.list');
 } else if (domain === 'file' && cmd === 'read') {
@@ -732,7 +736,8 @@ if (domain === 'chat' && cmd === 'send') {
 
 ## 推荐工作流
 - 简单事项：直接处理并简短汇报，不创建任务。
-- 复杂/跨 Agent 事项：助理作为入口创建父任务，判断合适专家；有合适专家时必须用 \`--assignee "专家名称"\` 创建任务/子任务分派专家，不能只在聊天里 @ 专家或写假任务表。
+- 复杂/跨 Agent 事项：先用 \`./freechat task plan create-json res/task-plan.json\` 发任务计划预览，让用户确认；用户确认后系统会创建真实任务/子任务并唤醒专家。不要直接写假任务表。
+- 用户已明确要求立即执行或已确认计划时，助理作为入口创建父任务，判断合适专家；有合适专家时必须用 \`--assignee "专家名称"\` 创建任务/子任务分派专家，不能只在聊天里 @ 专家。
 - 需要确认/选择/多选：创建 interaction 卡片，用户点击后继续。
 - 文档/交付物：先写到项目文件，必要时 \`--show\`。
 - 界面/看板：先在 \`res/\` 生成 HTML，再用 \`tab create-local/update-local\` 发布。
@@ -808,6 +813,7 @@ Agent 必须通过根目录的 \`./freechat\` CLI 同步工作进度、项目文
 ./freechat task subtask update <subtaskId> status doing
 ./freechat task subtask update <subtaskId> status done
 ./freechat task subtask delete <subtaskId>
+./freechat task plan create-json res/task-plan.json
 \`\`\`
 
 ### 用户确认/选择

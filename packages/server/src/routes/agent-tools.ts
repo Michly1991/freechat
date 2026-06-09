@@ -230,6 +230,38 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           broadcast(roomId, 'task.changed', { action: 'update', task })
           return { success: true, data: { subtask, task } }
         }
+        case 'task.plan.create':
+        case 'task.plan_create': {
+          const title = String(args.title || '').trim()
+          if (!title) throw { code: 'VALIDATION_ERROR', message: 'title is required' }
+          const items = Array.isArray(args.items) ? args.items : []
+          if (items.length === 0) throw { code: 'VALIDATION_ERROR', message: 'items are required' }
+          for (const [index, item] of items.entries()) {
+            if (!String(item?.title || '').trim()) throw { code: 'VALIDATION_ERROR', message: `item[${index}].title is required` }
+          }
+          const result = await interactionService.create(roomId, { id: agent.id, name: agent.name, role: 'ai' }, {
+            type: 'task_plan',
+            title: `任务计划预览：${title}`,
+            description: args.description,
+            priority: args.priority === 'danger' ? 'danger' : 'important',
+            payload: {
+              taskPlan: {
+                title,
+                description: args.description,
+                priority: args.priority || 'medium',
+                items: items.map((item: any) => ({
+                  title: String(item.title || '').trim(),
+                  description: item.description,
+                  assignee: item.assignee || item.assigneeName || item.assigneeId,
+                  dependsOn: item.dependsOn,
+                })),
+              }
+            }
+          })
+          broadcast(roomId, 'chat.message', result.message)
+          broadcast(roomId, 'interaction.created', { interaction: result.interaction })
+          return { success: true, data: result }
+        }
         case 'task.subtask_delete':
         case 'task.subtask.delete': {
           const itemId = args.itemId || args.subtaskId || args.id || args.item_id

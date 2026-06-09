@@ -106,7 +106,7 @@ schema_migrations      -- 数据库迁移记录
 - `files.updated` / `tabs.updated`
 - `room.joined` / `room.member_join` / `room.member_leave` / `room.online_update`
 
-前后端共享包维护 `WSMessage` 和 `WSEventAction` 类型，新增事件必须先更新共享类型和设计文档。消息 `kind` 目前包含普通文本、交互卡、系统消息和 `agent_receipt`（Agent 受理回执）。
+前后端共享包维护 `WSMessage` 和 `WSEventAction` 类型，新增事件必须先更新共享类型和设计文档。消息 `kind` 目前包含普通文本、交互卡、系统消息和 `agent_receipt`（Agent 受理回执）。交互卡类型包含 `task_plan`，用于让用户确认任务计划后再创建真实任务/子任务。
 
 多 Agent 触发规则：人类消息可以 @ 一个或多个 Agent；无人 @ 时只触发当前房间唯一 `auto_enabled` 助理，后端不会自动把未 @ 消息路由给专家；AI 普通消息不再触发其他 Agent，避免 Agent 互相对话造成循环。专家优先处理由助理内部调度实现：助理判断有合适专家时通过任务/子任务分派，而不是系统让专家突然插话。Agent CLI 的 `task create` / `task subtask add` 支持 `--assignee <agentNameOrId>`，服务端会解析房间内专家并在真实任务分派后唤醒被分派 Agent；聊天文本中的 `@专家` 不触发。
 

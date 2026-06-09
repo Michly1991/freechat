@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { messageService } from './message.service.js'
 import { roomService } from './room.service.js'
 
-export type InteractionType = 'confirm' | 'choice' | 'multi_choice'
+export type InteractionType = 'confirm' | 'choice' | 'multi_choice' | 'task_plan'
 export type InteractionStatus = 'pending' | 'resolved' | 'cancelled' | 'expired'
 
 export interface InteractionOption {
@@ -33,6 +33,7 @@ export interface InteractionRequest {
   options: InteractionOption[]
   status: InteractionStatus
   result?: any
+  payload?: any
   priority?: InteractionPriority
   responsePolicy?: { allowChange?: boolean; allowCancel?: boolean }
   consumedBy?: string
@@ -62,6 +63,7 @@ function rowToInteraction(row: any): InteractionRequest {
     options: parseJson(row.options_json, []),
     status: row.status,
     result: parseJson(row.result_json, undefined),
+    payload: parseJson(row.payload_json, undefined),
     priority: row.priority || 'normal',
     responsePolicy: parseJson(row.response_policy, { allowChange: false, allowCancel: true }),
     consumedBy: row.consumed_by || undefined,
@@ -84,19 +86,25 @@ export class InteractionService {
     priority?: InteractionPriority
     responsePolicy?: { allowChange?: boolean; allowCancel?: boolean }
     expiresAt?: number
+    payload?: any
   }): Promise<{ interaction: InteractionRequest; message: any }> {
     const title = String(args.title || '').trim()
     if (!title) throw { code: 'VALIDATION_ERROR', message: 'title is required' }
     const now = Date.now()
     const type = args.type || 'confirm'
-    if (!['confirm', 'choice', 'multi_choice'].includes(type)) throw { code: 'VALIDATION_ERROR', message: 'invalid interaction type' }
+    if (!['confirm', 'choice', 'multi_choice', 'task_plan'].includes(type)) throw { code: 'VALIDATION_ERROR', message: 'invalid interaction type' }
 
     let options = args.options || []
-    if (type === 'confirm' && options.length === 0) {
-      options = [
-        { value: 'confirm', label: '确认', style: 'primary' },
-        { value: 'cancel', label: '取消', style: 'secondary' },
-      ]
+    if ((type === 'confirm' || type === 'task_plan') && options.length === 0) {
+      options = type === 'task_plan'
+        ? [
+          { value: 'confirm', label: '确认创建', style: 'primary' },
+          { value: 'cancel', label: '取消', style: 'secondary' },
+        ]
+        : [
+          { value: 'confirm', label: '确认', style: 'primary' },
+          { value: 'cancel', label: '取消', style: 'secondary' },
+        ]
     }
     if ((type === 'choice' || type === 'multi_choice') && options.length === 0) {
       throw { code: 'VALIDATION_ERROR', message: 'options are required' }
@@ -112,9 +120,9 @@ export class InteractionService {
 
     const id = `ir_${uuidv4()}`
     db.prepare(`
-      INSERT INTO interaction_requests (id, room_id, created_by, target_user_id, type, title, description, options_json, status, priority, response_policy, expires_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
-    `).run(id, roomId, actor.id, args.targetUserId || null, type, title, args.description || null, JSON.stringify(options), args.priority || 'normal', JSON.stringify(args.responsePolicy || { allowChange: false, allowCancel: true }), args.expiresAt || null, now, now)
+      INSERT INTO interaction_requests (id, room_id, created_by, target_user_id, type, title, description, options_json, payload_json, status, priority, response_policy, expires_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
+    `).run(id, roomId, actor.id, args.targetUserId || null, type, title, args.description || null, JSON.stringify(options), args.payload ? JSON.stringify(args.payload) : null, args.priority || 'normal', JSON.stringify(args.responsePolicy || { allowChange: false, allowCancel: true }), args.expiresAt || null, now, now)
 
     let interaction = this.get(roomId, id)
     const message = await messageService.createMessage(

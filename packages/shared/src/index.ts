@@ -198,7 +198,7 @@ export interface Tab {
 }
 
 // === Interaction Types ===
-export type InteractionType = 'confirm' | 'choice' | 'multi_choice'
+export type InteractionType = 'confirm' | 'choice' | 'multi_choice' | 'task_plan'
 export type InteractionStatus = 'pending' | 'resolved' | 'cancelled' | 'expired'
 export type InteractionPriority = 'normal' | 'important' | 'danger'
 
@@ -231,6 +231,7 @@ export interface InteractionRequest {
     labels: string[]
     inputs?: Record<string, string>
   }
+  payload?: any
   priority?: InteractionPriority
   responsePolicy?: { allowChange?: boolean; allowCancel?: boolean }
   consumedBy?: string

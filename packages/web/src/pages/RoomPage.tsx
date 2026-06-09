@@ -874,6 +874,7 @@ export default function RoomPage() {
     const inputValues = interactionInputs[interaction.id] || {}
     const isPending = interaction.status === 'pending'
     const isMulti = interaction.type === 'multi_choice'
+    const taskPlan = interaction.type === 'task_plan' ? interaction.payload?.taskPlan : null
     const isSubmitting = !!submittingInteractions[interaction.id]
     const canChange = interaction.status === 'resolved' && interaction.responsePolicy?.allowChange && !interaction.consumedAt
     const tone = interaction.priority === 'danger' ? 'red' : interaction.priority === 'important' ? 'amber' : interaction.type === 'multi_choice' ? 'purple' : 'blue'
@@ -939,13 +940,34 @@ export default function RoomPage() {
     return (
       <div id={`interaction-${interaction.id}`} className={`max-w-[92%] sm:max-w-[520px] rounded-2xl border p-4 shadow-sm ${isPending || canChange ? (tone === 'red' ? 'border-red-200 bg-red-50' : tone === 'amber' ? 'border-amber-200 bg-amber-50' : tone === 'purple' ? 'border-purple-200 bg-purple-50' : 'border-blue-200 bg-blue-50') : 'border-gray-200 bg-gray-50'}`}>
         <div className="flex items-start gap-3">
-          <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold ${(isPending || canChange) ? (tone === 'red' ? 'bg-red-600 text-white' : tone === 'amber' ? 'bg-amber-500 text-white' : tone === 'purple' ? 'bg-purple-600 text-white' : 'bg-blue-600 text-white') : 'bg-green-500 text-white'}`}>{interaction.status === 'resolved' && !canChange ? '✓' : interaction.priority === 'danger' ? '!' : interaction.type === 'multi_choice' ? '☑' : '?'}</div>
+          <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold ${(isPending || canChange) ? (tone === 'red' ? 'bg-red-600 text-white' : tone === 'amber' ? 'bg-amber-500 text-white' : tone === 'purple' ? 'bg-purple-600 text-white' : 'bg-blue-600 text-white') : 'bg-green-500 text-white'}`}>{interaction.status === 'resolved' && !canChange ? '✓' : interaction.priority === 'danger' ? '!' : interaction.type === 'task_plan' ? '计' : interaction.type === 'multi_choice' ? '☑' : '?'}</div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h4 className="font-semibold text-gray-800">{interaction.title}</h4>
               <span className={`text-[10px] px-2 py-0.5 rounded-full ${isPending ? 'bg-white/70 text-gray-700' : canChange ? 'bg-amber-100 text-amber-700' : 'bg-gray-200 text-gray-500'}`}>{isSubmitting ? '提交中' : isPending ? '待处理' : canChange ? '可修改' : '已处理'}</span>
             </div>
             {interaction.description && <p className="mt-1 text-sm text-gray-600 whitespace-pre-wrap">{interaction.description}</p>}
+            {taskPlan && (
+              <div className="mt-3 rounded-xl bg-white/80 border border-amber-100 p-3 text-sm text-gray-700 space-y-3">
+                <div>
+                  <div className="font-medium text-gray-800">父任务：{taskPlan.title}</div>
+                  {taskPlan.description && <div className="text-xs text-gray-500 mt-1 whitespace-pre-wrap">{taskPlan.description}</div>}
+                  <div className="text-xs text-gray-400 mt-1">优先级：{taskPlan.priority || 'medium'}</div>
+                </div>
+                <div className="space-y-2">
+                  {(taskPlan.items || []).map((item: any, index: number) => (
+                    <div key={index} className="rounded-lg border border-gray-100 bg-white px-3 py-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="font-medium text-gray-800">{index + 1}. {item.title}</div>
+                        {item.assignee && <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] text-blue-600">{item.assignee}</span>}
+                      </div>
+                      {item.description && <div className="text-xs text-gray-500 mt-1 whitespace-pre-wrap">{item.description}</div>}
+                      {item.dependsOn !== undefined && <div className="text-[11px] text-amber-600 mt-1">依赖步骤 {Number(item.dependsOn) + 1}</div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {(isPending || canChange) ? (
               isMulti ? (
                 <div className="mt-3 space-y-2">

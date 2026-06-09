@@ -132,6 +132,7 @@ export function initDatabase() {
       title TEXT NOT NULL,
       description TEXT,
       options_json TEXT,
+      payload_json TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
       result_json TEXT,
       priority TEXT DEFAULT 'normal',
@@ -153,6 +154,7 @@ export function initDatabase() {
   if (!interactionCols.some((col) => col.name === 'response_policy')) db.exec('ALTER TABLE interaction_requests ADD COLUMN response_policy TEXT')
   if (!interactionCols.some((col) => col.name === 'consumed_by')) db.exec('ALTER TABLE interaction_requests ADD COLUMN consumed_by TEXT')
   if (!interactionCols.some((col) => col.name === 'consumed_at')) db.exec('ALTER TABLE interaction_requests ADD COLUMN consumed_at INTEGER')
+  if (!interactionCols.some((col) => col.name === 'payload_json')) db.exec('ALTER TABLE interaction_requests ADD COLUMN payload_json TEXT')
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_interaction_requests_room_status
