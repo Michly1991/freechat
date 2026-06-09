@@ -790,8 +790,15 @@ export default function RoomPage() {
   ]
   const archivedTaskStatuses = ['done', 'failed', 'cancelled']
 
+  const getEffectiveTaskStatus = (task: any) => {
+    const summary = task.subtaskSummary || {}
+    const hasChildProgress = (summary.doing || 0) > 0 || (summary.review || 0) > 0 || (summary.blocked || 0) > 0 || (summary.done || 0) > 0
+    if ((task.status === 'todo' || task.status === 'assigned') && hasChildProgress) return 'doing'
+    return task.status
+  }
+
   const getNextTaskStatus = (task: any, colKey?: string) => {
-    const status = task.status
+    const status = getEffectiveTaskStatus(task)
     if (status === 'todo' || status === 'assigned') return 'doing'
     if (status === 'doing' || status === 'blocked') return 'review'
     if (status === 'review') return 'done'
@@ -802,7 +809,7 @@ export default function RoomPage() {
   }
 
   const getTaskAdvanceLabel = (task: any) => {
-    const status = task.status
+    const status = getEffectiveTaskStatus(task)
     if (status === 'todo' || status === 'assigned') return '开始处理'
     if (status === 'doing' || status === 'blocked') return '提交审核'
     if (status === 'review') return '标记完成'
@@ -828,7 +835,7 @@ export default function RoomPage() {
         <p className="text-sm font-medium text-gray-800 leading-5 break-words">{task.title}</p>
         {task.description && <p className="text-xs text-gray-400 mt-1 line-clamp-2">{task.description}</p>}
         <div className="flex flex-wrap items-center gap-2 mt-3">
-          <span className={`text-xs px-2 py-0.5 rounded-full ${statusColors[task.status] || 'bg-gray-100'}`}>{task.status}</span>
+          <span className={`text-xs px-2 py-0.5 rounded-full ${statusColors[getEffectiveTaskStatus(task)] || 'bg-gray-100'}`}>{getEffectiveTaskStatus(task)}</span>
           {task.assigneeName && <span className="text-xs text-gray-400">{task.assigneeType === 'agent' ? '🤖' : '👤'} {task.assigneeName}</span>}
         </div>
         <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${task.progressNote ? 'bg-blue-50 text-blue-700' : 'bg-gray-50 text-gray-400'}`}>
@@ -1429,7 +1436,7 @@ export default function RoomPage() {
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
                         {kanbanCols.map((col) => {
-                          const colTasks = activeTasks.filter((t) => col.statuses.includes(t.status))
+                          const colTasks = activeTasks.filter((t) => col.statuses.includes(getEffectiveTaskStatus(t)))
                           return (
                             <section key={col.key} className="bg-white md:bg-gray-100 rounded-2xl md:rounded-lg border md:border-0 border-gray-100 p-3 shadow-sm md:shadow-none">
                               <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center justify-between">

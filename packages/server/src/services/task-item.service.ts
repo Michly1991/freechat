@@ -20,6 +20,7 @@ export interface TaskItem {
 
 const TASK_STATUSES = new Set<TaskStatus>(['todo', 'assigned', 'doing', 'review', 'blocked', 'done', 'failed', 'cancelled'])
 const DONE_STATUSES = new Set<TaskStatus>(['done', 'cancelled'])
+const ACTIVE_CHILD_STATUSES = new Set<TaskStatus>(['doing', 'review', 'blocked', 'done'])
 
 function assertTaskItemStatus(status: unknown): asserts status is TaskStatus {
   if (!TASK_STATUSES.has(status as TaskStatus)) throw { code: 'VALIDATION_ERROR', message: `invalid subtask status: ${status}` }
@@ -86,6 +87,7 @@ export class TaskItemService {
       INSERT INTO task_items (id, task_id, title, description, status, assignee_id, assignee_name, assignee_type, sort_order, created_by, created_at, updated_at, completed_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, taskId, title, args.description || null, status, args.assigneeId || null, args.assigneeName || null, args.assigneeType || null, (maxOrder?.max_order ?? -1) + 1, args.createdBy, now, now, completedAt)
+    this.promoteParentWhenChildActive(taskId, status)
     return this.get(id)
   }
 
@@ -114,9 +116,20 @@ export class TaskItemService {
     if (fields.length === 0) return this.get(itemId)
     fields.push('updated_at = ?')
     values.push(Date.now(), itemId)
+    const before = this.get(itemId)
     const result = db.prepare(`UPDATE task_items SET ${fields.join(', ')} WHERE id = ?`).run(...values)
     if (result.changes === 0) throw { code: 'TASK_ITEM_NOT_FOUND', message: 'Subtask not found' }
+    if (updates.status !== undefined) this.promoteParentWhenChildActive(before.taskId, updates.status)
     return this.get(itemId)
+  }
+
+  private promoteParentWhenChildActive(taskId: string, status: TaskStatus) {
+    if (!ACTIVE_CHILD_STATUSES.has(status)) return
+    db.prepare(`
+      UPDATE tasks
+      SET status = 'doing', updated_at = ?
+      WHERE id = ? AND status IN ('todo', 'assigned')
+    `).run(Date.now(), taskId)
   }
 
   async delete(itemId: string): Promise<void> {
