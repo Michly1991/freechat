@@ -80,6 +80,8 @@ export const api = {
     request(`/rooms/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteRoom: (id: string) => request(`/rooms/${id}`, { method: 'DELETE' }),
   getMembers: (id: string) => request<{ members: any[] }>(`/rooms/${id}/members`),
+  addRoomMember: (id: string, userId: string, role: 'owner' | 'editor' | 'viewer' = 'editor') =>
+    request<{ members: any[] }>(`/rooms/${id}/members`, { method: 'POST', body: JSON.stringify({ userId, role }) }),
   createInvite: (id: string, body?: { max_uses?: number; expires_in_days?: number }) =>
     request<{ code: string; url: string }>(`/rooms/${id}/invite-link`, {
       method: 'POST',

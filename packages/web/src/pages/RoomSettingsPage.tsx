@@ -17,18 +17,10 @@ export default function RoomSettingsPage() {
   const [editDesc, setEditDesc] = useState('')
   const [inviteUrl, setInviteUrl] = useState('')
   const [inviteCode, setInviteCode] = useState('')
-  const [searchQ, setSearchQ] = useState('')
-  const [searchResults, setSearchResults] = useState<any[]>([])
-  const [showCreateAgent, setShowCreateAgent] = useState(false)
-  const [newAgent, setNewAgent] = useState({
-    name: '',
-    roleType: 'assistant' as 'assistant' | 'specialist',
-    description: '',
-    specialties: '',
-    systemPrompt: '',
-    autoEnabled: true,
-    tools: { chat: true, task: true, file: true, tab: true, interaction: true, members: true },
-  })
+  const [showAddCollaborator, setShowAddCollaborator] = useState(false)
+  const [addKind, setAddKind] = useState<'people' | 'agents'>('people')
+  const [collaboratorQuery, setCollaboratorQuery] = useState('')
+  const [userSearchResults, setUserSearchResults] = useState<any[]>([])
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
   const [profileForm, setProfileForm] = useState({ role_title: '', persona: '', specialties: '' })
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -90,39 +82,13 @@ export default function RoomSettingsPage() {
     try { await api.addRoomAgent(roomId!, agentId, options); feedback.success('Agent 已添加'); loadAll() } catch (e: any) { feedback.error(e.message || '添加失败') }
   }
 
-  const createBusinessAgent = async () => {
-    const name = newAgent.name.trim()
-    if (!name) { feedback.warning('请输入 Agent 名称'); return }
-    try {
-      const specialties = newAgent.specialties.split(',').map((s) => s.trim()).filter(Boolean)
-      const config = {
-        systemPrompt: newAgent.systemPrompt,
-        behavior: { replyMode: newAgent.autoEnabled || newAgent.roleType === 'assistant' ? 'auto_when_relevant' : 'mention_only', silentAllowed: true },
-        tools: newAgent.tools,
-      }
-      const created = await api.createAgent({
-        name,
-        roleType: newAgent.roleType,
-        deployment: 'server',
-        description: newAgent.description,
-        specialties,
-        config,
-      })
-      await api.addRoomAgent(roomId!, created.agent.id, { roomRole: newAgent.roleType, autoEnabled: newAgent.autoEnabled })
-      feedback.success('业务 Agent 已创建并添加')
-      setShowCreateAgent(false)
-      setNewAgent({ name: '', roleType: 'assistant', description: '', specialties: '', systemPrompt: '', autoEnabled: true, tools: { chat: true, task: true, file: true, tab: true, interaction: true, members: true } })
-      loadAll()
-    } catch (e: any) { feedback.error(e.message || '创建失败') }
+  const searchUsersForRoom = async () => {
+    if (!collaboratorQuery.trim()) return
+    try { const data = await api.searchUsers(collaboratorQuery.trim()); setUserSearchResults(data.users || []) } catch (e: any) { feedback.error(e.message || '搜索失败') }
   }
 
-  const toggleTool = (key: keyof typeof newAgent.tools) => {
-    setNewAgent((prev) => ({ ...prev, tools: { ...prev.tools, [key]: !prev.tools[key] } }))
-  }
-
-  const searchAgents = async () => {
-    if (!searchQ.trim()) return
-    try { const data = await api.searchMarket(searchQ); setSearchResults(data.agents || []) } catch (e: any) { feedback.error(e.message || '搜索失败') }
+  const addUserCollaborator = async (targetUserId: string, role: 'owner' | 'editor' | 'viewer' = 'editor') => {
+    try { await api.addRoomMember(roomId!, targetUserId, role); feedback.success('人员已添加'); setUserSearchResults([]); setCollaboratorQuery(''); loadAll() } catch (e: any) { feedback.error(e.message || '添加失败') }
   }
 
   const startEditProfile = (member: any) => {
@@ -195,28 +161,48 @@ export default function RoomSettingsPage() {
           )}
         </section>
 
-        {/* Members */}
+        {/* Collaborators */}
         <section className="bg-white rounded-lg border border-gray-200 p-5">
-          <h2 className="text-lg font-semibold text-gray-800 mb-4">成员列表</h2>
-          <div className="space-y-2">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800">协作者</h2>
+              <p className="text-xs text-gray-400 mt-1">人员和 Agent 统一在这里加入项目；Agent 的创建在通讯录里完成。</p>
+            </div>
+            <button onClick={() => setShowAddCollaborator(true)} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-700">添加协作者</button>
+          </div>
+
+          <h3 className="text-sm font-medium text-gray-600 mb-2">人员</h3>
+          <div className="space-y-2 mb-5">
             {members.map((m) => (
               <div key={m.id || m.userId} className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50">
-                <div className="flex items-center gap-3">
-                  {m.avatar ? (
-                    <img src={m.avatar} alt="头像" className="w-8 h-8 rounded-full object-cover border border-gray-200" />
-                  ) : (
-                    <span className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xs font-semibold">
-                      {(m.nickname || m.username || '?')[0].toUpperCase()}
-                    </span>
-                  )}
-                  <span className="font-medium text-sm text-gray-800">{m.nickname || m.username || '未命名用户'}</span>
-                  {m.username && m.username !== m.nickname && <span className="ml-2 text-xs text-gray-400">@{m.username}</span>}
-                  {m.role_title && <span className="ml-1 text-xs text-blue-500">{m.role_title}</span>}
+                <div className="flex items-center gap-3 min-w-0">
+                  {m.avatar ? <img src={m.avatar} alt="头像" className="w-8 h-8 rounded-full object-cover border border-gray-200" /> : <span className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xs font-semibold">{(m.nickname || m.username || '?')[0].toUpperCase()}</span>}
+                  <div className="min-w-0">
+                    <span className="font-medium text-sm text-gray-800">{m.nickname || m.username || '未命名用户'}</span>
+                    {m.username && m.username !== m.nickname && <span className="ml-2 text-xs text-gray-400">@{m.username}</span>}
+                    {m.role_title && <span className="ml-1 text-xs text-blue-500">{m.role_title}</span>}
+                  </div>
                 </div>
                 <button onClick={() => startEditProfile(m)} className="text-xs text-blue-500 hover:text-blue-700">编辑资料</button>
               </div>
             ))}
           </div>
+
+          <h3 className="text-sm font-medium text-gray-600 mb-2">Agent</h3>
+          <div className="space-y-2">
+            {roomAgents.length === 0 && <p className="text-sm text-gray-400">暂无 Agent</p>}
+            {roomAgents.map((a) => (
+              <div key={a.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100">
+                <div className="min-w-0">
+                  <span className="text-sm font-medium">{a.name}</span>
+                  <span className={`ml-2 text-[11px] px-2 py-0.5 rounded-full ${a.autoEnabled ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>{a.autoEnabled ? '自动助理' : (a.roomRole === 'assistant' ? '助理' : '专家')}</span>
+                  {a.description && <span className="text-xs text-gray-400 ml-2">{a.description}</span>}
+                </div>
+                <button onClick={() => removeAgent(a.id)} className="text-xs text-red-500 hover:text-red-700">移除</button>
+              </div>
+            ))}
+          </div>
+
           {editingMemberId && (
             <div className="mt-4 p-4 border border-gray-200 rounded-lg space-y-3">
               <h3 className="text-sm font-semibold">编辑成员资料</h3>
@@ -238,109 +224,6 @@ export default function RoomSettingsPage() {
               </div>
             </div>
           )}
-        </section>
-
-        {/* Agents */}
-        <section className="bg-white rounded-lg border border-gray-200 p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-800">Agent 管理</h2>
-            <button onClick={() => setShowCreateAgent((v) => !v)} className="text-sm bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700">
-              {showCreateAgent ? '收起' : '新建业务 Agent'}
-            </button>
-          </div>
-
-          {showCreateAgent && (
-            <div className="mb-5 p-4 border border-blue-100 bg-blue-50/50 rounded-xl space-y-3">
-              <div className="grid sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-600 block mb-1">Agent 名称</label>
-                  <input value={newAgent.name} onChange={(e) => setNewAgent({ ...newAgent, name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm" placeholder="例如：需求分析师" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-600 block mb-1">类型</label>
-                  <select value={newAgent.roleType} onChange={(e) => setNewAgent({ ...newAgent, roleType: e.target.value as any, autoEnabled: e.target.value === 'assistant' })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm">
-                    <option value="assistant">业务助理（参考助理 Agent）</option>
-                    <option value="specialist">业务专家（默认仅 @ 响应）</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-gray-600 block mb-1">职责描述</label>
-                <input value={newAgent.description} onChange={(e) => setNewAgent({ ...newAgent, description: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm" placeholder="这个 Agent 负责什么" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-600 block mb-1">专长（逗号分隔）</label>
-                <input value={newAgent.specialties} onChange={(e) => setNewAgent({ ...newAgent, specialties: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm" placeholder="需求分析, PRD, 验收标准" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-600 block mb-1">系统提示词</label>
-                <textarea value={newAgent.systemPrompt} onChange={(e) => setNewAgent({ ...newAgent, systemPrompt: e.target.value })} rows={4} className="w-full px-3 py-2 border border-gray-300 rounded text-sm" placeholder="你是资深... 请按照... 输出..." />
-              </div>
-              <label className="flex items-center gap-2 text-sm text-gray-700">
-                <input type="checkbox" checked={newAgent.autoEnabled} onChange={(e) => setNewAgent({ ...newAgent, autoEnabled: e.target.checked })} />
-                作为本项目自动助理（开启后会关闭其他自动 Agent）
-              </label>
-              <div>
-                <div className="text-xs text-gray-600 mb-2">工具权限（后端会强制校验）</div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
-                  {(['chat', 'task', 'file', 'tab', 'interaction', 'members'] as const).map((key) => (
-                    <label key={key} className="flex items-center gap-2 bg-white border border-gray-200 rounded px-3 py-2">
-                      <input type="checkbox" checked={newAgent.tools[key]} onChange={() => toggleTool(key)} />
-                      {key}
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <button onClick={createBusinessAgent} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">创建并添加到项目</button>
-            </div>
-          )}
-
-          <h3 className="text-sm font-medium text-gray-600 mb-2">当前房间 Agent</h3>
-          <div className="space-y-2 mb-4">
-            {roomAgents.length === 0 && <p className="text-sm text-gray-400">暂无 Agent</p>}
-            {roomAgents.map((a) => (
-              <div key={a.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100">
-                <div>
-                  <span className="text-sm font-medium">{a.name}</span>
-                  <span className={`ml-2 text-[11px] px-2 py-0.5 rounded-full ${a.autoEnabled ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>{a.autoEnabled ? '自动助理' : (a.roomRole === 'assistant' ? '助理' : '专家')}</span>
-                  {a.description && <span className="text-xs text-gray-400 ml-2">{a.description}</span>}
-                </div>
-                <button onClick={() => removeAgent(a.id)} className="text-xs text-red-500 hover:text-red-700">移除</button>
-              </div>
-            ))}
-          </div>
-          <h3 className="text-sm font-medium text-gray-600 mb-2">添加我的 Agent</h3>
-          <div className="space-y-2 mb-4">
-            {agents.filter((a) => !roomAgents.some((ra) => ra.id === a.id)).length === 0 && <p className="text-sm text-gray-400">暂无可添加的我的 Agent，可先新建业务 Agent。</p>}
-            {agents.filter((a) => !roomAgents.some((ra) => ra.id === a.id)).map((a) => (
-              <div key={a.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100">
-                <div>
-                  <span className="text-sm font-medium">{a.name}</span>
-                  {a.description && <span className="text-xs text-gray-400 ml-2">{a.description}</span>}
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => addAgent(a.id, { roomRole: 'specialist', autoEnabled: false })} className="text-xs text-green-600 hover:text-green-700">作为专家添加</button>
-                  <button onClick={() => addAgent(a.id, { roomRole: 'assistant', autoEnabled: true })} className="text-xs text-blue-600 hover:text-blue-700">设为自动助理</button>
-                </div>
-              </div>
-            ))}
-          </div>
-          <h3 className="text-sm font-medium text-gray-600 mb-2">官方推荐</h3>
-          <div className="flex gap-2 mb-3">
-            <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)} placeholder="搜索市场..." className="flex-1 px-3 py-2 border border-gray-300 rounded text-sm" onKeyDown={(e) => e.key === 'Enter' && searchAgents()} />
-            <button onClick={searchAgents} className="bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700">搜索</button>
-          </div>
-          <div className="space-y-2">
-            {searchResults.map((a) => (
-              <div key={a.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100 opacity-70">
-                <div>
-                  <span className="text-sm font-medium">{a.name}</span>
-                  {a.description && <span className="text-xs text-gray-400 ml-2">{a.description}</span>}
-                </div>
-                <span className="text-xs text-gray-400">推荐模板暂不直接添加</span>
-              </div>
-            ))}
-          </div>
         </section>
 
         {/* Danger Zone */}
@@ -366,6 +249,73 @@ export default function RoomSettingsPage() {
           </button>
         </section>
       </div>
+
+      {showAddCollaborator && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => setShowAddCollaborator(false)}>
+          <div className="bg-white w-full sm:max-w-2xl rounded-t-2xl sm:rounded-2xl p-5 shadow-xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-800">添加协作者</h3>
+              <button onClick={() => setShowAddCollaborator(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+            <div className="flex bg-gray-100 rounded-xl p-1 mb-4 w-fit">
+              <button onClick={() => setAddKind('people')} className={`px-4 py-2 rounded-lg text-sm ${addKind === 'people' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>人员</button>
+              <button onClick={() => setAddKind('agents')} className={`px-4 py-2 rounded-lg text-sm ${addKind === 'agents' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>Agent</button>
+            </div>
+
+            {addKind === 'people' && (
+              <div>
+                <div className="flex gap-2 mb-3">
+                  <input value={collaboratorQuery} onChange={(e) => setCollaboratorQuery(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchUsersForRoom()} placeholder="搜索用户名/昵称" className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                  <button onClick={searchUsersForRoom} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">搜索</button>
+                </div>
+                <div className="space-y-2">
+                  {userSearchResults.length === 0 && <p className="text-sm text-gray-400">搜索人员后添加到项目。</p>}
+                  {userSearchResults.map((u) => {
+                    const already = members.some((m) => (m.id || m.userId) === u.id)
+                    return (
+                      <div key={u.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {u.avatar ? <img src={u.avatar} className="w-8 h-8 rounded-full object-cover" /> : <span className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs">{(u.nickname || u.username || '?')[0].toUpperCase()}</span>}
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{u.nickname || u.username}</p>
+                            <p className="text-xs text-gray-400 truncate">@{u.username}</p>
+                          </div>
+                        </div>
+                        {already ? <span className="text-xs text-gray-400">已在项目</span> : <button onClick={() => addUserCollaborator(u.id, 'editor')} className="text-xs text-blue-600 hover:text-blue-700">添加为编辑者</button>}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {addKind === 'agents' && (
+              <div className="space-y-2">
+                {agents.length === 0 && <p className="text-sm text-gray-400">通讯录里还没有 Agent，请先回首页通讯录创建。</p>}
+                {agents.map((a) => {
+                  const already = roomAgents.some((ra) => ra.id === a.id)
+                  return (
+                    <div key={a.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-gray-100">
+                      <div className="min-w-0">
+                        <span className="text-sm font-medium">{a.name}</span>
+                        <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-600">{a.roleType === 'assistant' ? '助理' : '专家'}</span>
+                        {a.description && <p className="text-xs text-gray-400 mt-1 truncate">{a.description}</p>}
+                      </div>
+                      {already ? <span className="text-xs text-gray-400">已在项目</span> : (
+                        <div className="flex gap-2 shrink-0">
+                          <button onClick={() => addAgent(a.id, { roomRole: 'specialist', autoEnabled: false })} className="text-xs text-green-600 hover:text-green-700">作为专家</button>
+                          <button onClick={() => addAgent(a.id, { roomRole: 'assistant', autoEnabled: true })} className="text-xs text-blue-600 hover:text-blue-700">设为自动助理</button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+                <p className="text-xs text-gray-400 pt-2">设为自动助理会关闭当前项目其他 Agent 的自动响应。</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {showDeleteConfirm && room && canDeleteRoom && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center sm:p-4" onClick={() => !deleting && setShowDeleteConfirm(false)}>

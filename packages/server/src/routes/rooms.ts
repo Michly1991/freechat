@@ -109,6 +109,54 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     }
   })
 
+  // Add a user collaborator directly (owner/editor only)
+  app.post('/api/rooms/:id/members', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    const { userId, role = 'editor' } = request.body as any
+
+    if (!userId) {
+      return reply.code(400).send({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'userId is required' }
+      })
+    }
+    if (!['owner', 'editor', 'viewer'].includes(role)) {
+      return reply.code(400).send({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'invalid role' }
+      })
+    }
+
+    const current = db.prepare('SELECT role FROM room_members WHERE room_id = ? AND user_id = ?').get(id, user.id) as any
+    if (!current || !['owner', 'editor'].includes(current.role)) {
+      return reply.code(403).send({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Only project owner/editor can add collaborators' }
+      })
+    }
+
+    const target = db.prepare('SELECT id FROM users WHERE id = ?').get(userId) as any
+    if (!target) {
+      return reply.code(404).send({
+        success: false,
+        error: { code: 'USER_NOT_FOUND', message: 'User not found' }
+      })
+    }
+
+    await roomService.addMember(id, userId, role)
+    const members = await roomService.getRoomMembers(id)
+    getGateway()?.broadcast(id, {
+      msgId: uuidv4(),
+      roomId: id,
+      type: 'broadcast',
+      action: 'room.members_update',
+      payload: { members },
+      timestamp: Date.now()
+    })
+    return reply.send({ success: true, data: { members } })
+  })
+
   // Create invite link
   app.post('/api/rooms/:id/invite-link', async (request, reply) => {
     const user = (request as any).user

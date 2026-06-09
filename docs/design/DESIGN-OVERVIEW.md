@@ -110,6 +110,8 @@ schema_migrations      -- 数据库迁移记录
 
 多 Agent 触发规则：人类消息可以 @ 一个或多个 Agent；无人 @ 时只触发当前房间唯一 `auto_enabled` Agent；AI 普通消息不再触发其他 Agent，避免 Agent 互相对话造成循环。
 
+产品层将人员和 Agent 统一抽象为“协作者”：通讯录中包含“人员 / Agent”两个分类，Agent 的创建与管理放在通讯录 Agent 分类；项目设置页使用一个“添加协作者”弹窗，内部切换“人员 / Agent”，底层仍分别写入 `room_members` 和 `room_agents`。
+
 ### REST API
 
 - `/api/auth/*` - 认证（注册/登录/刷新）
