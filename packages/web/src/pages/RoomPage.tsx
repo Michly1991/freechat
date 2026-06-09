@@ -888,6 +888,7 @@ export default function RoomPage() {
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${statusColors[subtask.status] || 'bg-gray-100'}`}>{subtask.status}</span>
                       {renderAssigneeBadge(subtask, true)}
+                      {subtask.blockedReason && <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">{subtask.blockedReason}</span>}
                     </div>
                   </div>
                   <button onClick={() => deleteSubtask(subtask)} className="text-xs text-red-400 px-1">×</button>

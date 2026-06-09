@@ -11,6 +11,8 @@ export interface TaskItem {
   assigneeId?: string
   assigneeName?: string
   assigneeType?: 'human' | 'agent'
+  blockedReason?: string
+  dependencies?: string[]
   sortOrder: number
   createdBy: string
   createdAt: number
@@ -36,6 +38,8 @@ export function rowToTaskItem(row: any): TaskItem {
     assigneeId: row.assignee_id || undefined,
     assigneeName: row.assignee_name || undefined,
     assigneeType: row.assignee_type || undefined,
+    blockedReason: row.blocked_reason || undefined,
+    dependencies: row.dependencies ? String(row.dependencies).split(',').filter(Boolean) : undefined,
     sortOrder: row.sort_order || 0,
     createdBy: row.created_by,
     createdAt: row.created_at,
@@ -46,13 +50,31 @@ export function rowToTaskItem(row: any): TaskItem {
 
 export class TaskItemService {
   list(taskId: string): TaskItem[] {
-    const rows = db.prepare('SELECT * FROM task_items WHERE task_id = ? ORDER BY sort_order ASC, created_at ASC').all(taskId) as any[]
+    const rows = db.prepare(`
+      SELECT ti.*, (
+        SELECT group_concat(depends_on_item_id)
+        FROM task_item_dependencies d
+        WHERE d.item_id = ti.id
+      ) as dependencies
+      FROM task_items ti
+      WHERE ti.task_id = ?
+      ORDER BY ti.sort_order ASC, ti.created_at ASC
+    `).all(taskId) as any[]
     return rows.map(rowToTaskItem)
   }
 
   listForTasks(taskIds: string[]): Record<string, TaskItem[]> {
     if (taskIds.length === 0) return {}
-    const rows = db.prepare(`SELECT * FROM task_items WHERE task_id IN (${taskIds.map(() => '?').join(',')}) ORDER BY task_id ASC, sort_order ASC, created_at ASC`).all(...taskIds) as any[]
+    const rows = db.prepare(`
+      SELECT ti.*, (
+        SELECT group_concat(depends_on_item_id)
+        FROM task_item_dependencies d
+        WHERE d.item_id = ti.id
+      ) as dependencies
+      FROM task_items ti
+      WHERE ti.task_id IN (${taskIds.map(() => '?').join(',')})
+      ORDER BY ti.task_id ASC, ti.sort_order ASC, ti.created_at ASC
+    `).all(...taskIds) as any[]
     const grouped: Record<string, TaskItem[]> = {}
     rows.forEach((row) => {
       const item = rowToTaskItem(row)
@@ -71,7 +93,7 @@ export class TaskItemService {
     return summary
   }
 
-  async create(taskId: string, args: { title: string; description?: string; status?: TaskStatus; assigneeId?: string; assigneeName?: string; assigneeType?: 'human' | 'agent'; createdBy: string }): Promise<TaskItem> {
+  async create(taskId: string, args: { title: string; description?: string; status?: TaskStatus; assigneeId?: string; assigneeName?: string; assigneeType?: 'human' | 'agent'; blockedReason?: string; createdBy: string }): Promise<TaskItem> {
     const title = String(args.title || '').trim()
     if (!title) throw { code: 'VALIDATION_ERROR', message: 'title is required' }
     const task = db.prepare('SELECT id FROM tasks WHERE id = ?').get(taskId)
@@ -83,15 +105,23 @@ export class TaskItemService {
     const completedAt = DONE_STATUSES.has(status) ? now : null
     const id = `titem_${uuidv4()}`
     db.prepare(`
-      INSERT INTO task_items (id, task_id, title, description, status, assignee_id, assignee_name, assignee_type, sort_order, created_by, created_at, updated_at, completed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, taskId, title, args.description || null, status, args.assigneeId || null, args.assigneeName || null, args.assigneeType || null, (maxOrder?.max_order ?? -1) + 1, args.createdBy, now, now, completedAt)
+      INSERT INTO task_items (id, task_id, title, description, status, assignee_id, assignee_name, assignee_type, sort_order, created_by, created_at, updated_at, completed_at, blocked_reason)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, taskId, title, args.description || null, status, args.assigneeId || null, args.assigneeName || null, args.assigneeType || null, (maxOrder?.max_order ?? -1) + 1, args.createdBy, now, now, completedAt, args.blockedReason || null)
     this.promoteParentWhenChildActive(taskId, status)
     return this.get(id)
   }
 
   get(itemId: string): TaskItem {
-    const row = db.prepare('SELECT * FROM task_items WHERE id = ?').get(itemId) as any
+    const row = db.prepare(`
+      SELECT ti.*, (
+        SELECT group_concat(depends_on_item_id)
+        FROM task_item_dependencies d
+        WHERE d.item_id = ti.id
+      ) as dependencies
+      FROM task_items ti
+      WHERE ti.id = ?
+    `).get(itemId) as any
     if (!row) throw { code: 'TASK_ITEM_NOT_FOUND', message: 'Subtask not found' }
     return rowToTaskItem(row)
   }
@@ -111,6 +141,7 @@ export class TaskItemService {
     if (updates.assigneeId !== undefined) { fields.push('assignee_id = ?'); values.push(updates.assigneeId) }
     if (updates.assigneeName !== undefined) { fields.push('assignee_name = ?'); values.push(updates.assigneeName) }
     if (updates.assigneeType !== undefined) { fields.push('assignee_type = ?'); values.push(updates.assigneeType) }
+    if (updates.blockedReason !== undefined) { fields.push('blocked_reason = ?'); values.push(updates.blockedReason || null) }
     if (updates.sortOrder !== undefined) { fields.push('sort_order = ?'); values.push(updates.sortOrder) }
     if (fields.length === 0) return this.get(itemId)
     fields.push('updated_at = ?')
@@ -120,6 +151,38 @@ export class TaskItemService {
     if (result.changes === 0) throw { code: 'TASK_ITEM_NOT_FOUND', message: 'Subtask not found' }
     if (updates.status !== undefined) this.promoteParentWhenChildActive(before.taskId, updates.status)
     return this.get(itemId)
+  }
+
+  addDependency(itemId: string, dependsOnItemId: string) {
+    db.prepare(`
+      INSERT OR IGNORE INTO task_item_dependencies (item_id, depends_on_item_id, created_at)
+      VALUES (?, ?, ?)
+    `).run(itemId, dependsOnItemId, Date.now())
+  }
+
+  readyDependents(completedItemId: string): TaskItem[] {
+    const dependents = db.prepare(`
+      SELECT DISTINCT item_id FROM task_item_dependencies WHERE depends_on_item_id = ?
+    `).all(completedItemId) as any[]
+    const ready: TaskItem[] = []
+    for (const row of dependents) {
+      const item = this.get(row.item_id)
+      if (item.status !== 'blocked') continue
+      const deps = db.prepare(`
+        SELECT ti.status
+        FROM task_item_dependencies d
+        INNER JOIN task_items ti ON ti.id = d.depends_on_item_id
+        WHERE d.item_id = ?
+      `).all(item.id) as any[]
+      if (deps.length > 0 && deps.every((dep) => dep.status === 'done' || dep.status === 'cancelled')) {
+        ready.push(item)
+      }
+    }
+    return ready
+  }
+
+  async releaseDependent(itemId: string): Promise<TaskItem> {
+    return this.update(itemId, { status: 'assigned', blockedReason: '' } as any)
   }
 
   private promoteParentWhenChildActive(taskId: string, status: TaskStatus) {

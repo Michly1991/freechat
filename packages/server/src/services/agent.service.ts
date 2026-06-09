@@ -316,7 +316,30 @@ export class AgentService {
   /**
    * List agents in a room
    */
+  recoverStaleRuns(roomId?: string): void {
+    const cutoff = Date.now() - ((config.agent.timeoutMs || 120000) + (config.agent.killGraceMs || 3000) + 30000)
+    const runningRows = db.prepare(`
+      SELECT DISTINCT room_id, agent_id
+      FROM agent_runs
+      WHERE status = 'running' AND started_at < ? ${roomId ? 'AND room_id = ?' : ''}
+    `).all(...(roomId ? [cutoff, roomId] : [cutoff])) as any[]
+    if (runningRows.length === 0) return
+    const tx = db.transaction(() => {
+      db.prepare(`
+        UPDATE agent_runs
+        SET status = 'failed', error = COALESCE(error, 'Marked stale: run exceeded timeout without completion'), finished_at = COALESCE(finished_at, ?)
+        WHERE status = 'running' AND started_at < ? ${roomId ? 'AND room_id = ?' : ''}
+      `).run(...(roomId ? [Date.now(), cutoff, roomId] : [Date.now(), cutoff]))
+      for (const row of runningRows) {
+        const activeRun = db.prepare('SELECT id FROM agent_runs WHERE agent_id = ? AND status = ? LIMIT 1').get(row.agent_id, 'running') as any
+        if (!activeRun) db.prepare("UPDATE agents SET status = 'active', updated_at = ? WHERE id = ? AND status = 'working'").run(Date.now(), row.agent_id)
+      }
+    })
+    tx()
+  }
+
   async getRoomAgents(roomId: string): Promise<Agent[]> {
+    this.recoverStaleRuns(roomId)
     const rows = db.prepare(`
       SELECT a.*, ra.room_role, ra.auto_enabled, ra.priority as room_priority, (
         SELECT MAX(last_active_at)

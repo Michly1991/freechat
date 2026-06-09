@@ -211,13 +211,35 @@ export function initDatabase() {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       completed_at INTEGER,
+      blocked_reason TEXT,
       FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
     )
   `)
 
+  const taskItemCols = db.prepare('PRAGMA table_info(task_items)').all() as any[]
+  if (!taskItemCols.some((col) => col.name === 'blocked_reason')) {
+    db.exec('ALTER TABLE task_items ADD COLUMN blocked_reason TEXT')
+  }
+
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_task_items_task_status
     ON task_items(task_id, status, sort_order)
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_item_dependencies (
+      item_id TEXT NOT NULL,
+      depends_on_item_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (item_id, depends_on_item_id),
+      FOREIGN KEY (item_id) REFERENCES task_items(id) ON DELETE CASCADE,
+      FOREIGN KEY (depends_on_item_id) REFERENCES task_items(id) ON DELETE CASCADE
+    )
+  `)
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_task_item_dependencies_depends_on
+    ON task_item_dependencies(depends_on_item_id)
   `)
 
   // Tabs table

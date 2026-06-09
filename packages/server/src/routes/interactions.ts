@@ -50,6 +50,25 @@ async function invokeAssignedAgent(roomId: string, assigneeId: string | undefine
   })()
 }
 
+function normalizeDependsOn(value: any): number[] {
+  if (value === undefined || value === null || value === '') return []
+  const values = Array.isArray(value) ? value : [value]
+  return values.map((v) => Number(v)).filter((v) => Number.isInteger(v) && v >= 0)
+}
+
+function buildSubtaskWakePrompt(task: any, subtask: any, reason: string) {
+  return [
+    reason,
+    `父任务ID: ${task.id}`,
+    `父任务标题: ${task.title}`,
+    `子任务ID: ${subtask.id}`,
+    `子任务标题: ${subtask.title}`,
+    subtask.description ? `子任务说明: ${subtask.description}` : '',
+    '',
+    '请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。',
+  ].filter(Boolean).join('\n')
+}
+
 async function materializeTaskPlan(roomId: string, interaction: any) {
   if (interaction.type !== 'task_plan') return
   if (interaction.result?.value !== 'confirm') return
@@ -59,29 +78,31 @@ async function materializeTaskPlan(roomId: string, interaction: any) {
   const task = await taskService.createTask(roomId, plan.title, plan.description, plan.priority || 'medium', undefined, undefined, undefined, interaction.createdBy)
   broadcast(roomId, 'task.changed', { action: 'add', task })
   const createdItems: any[] = []
-  for (const item of (plan.items || [])) {
+  const wakeQueue: any[] = []
+  const planItems = plan.items || []
+  for (const [index, item] of planItems.entries()) {
     const resolved = await resolveAgentAssignee(roomId, item.assignee)
+    const deps = normalizeDependsOn(item.dependsOn)
+    const validDeps = deps.filter((depIndex) => depIndex < index && createdItems[depIndex])
+    const blocked = validDeps.length > 0
+    const blockedReason = blocked ? `等待前置步骤：${validDeps.map((depIndex) => createdItems[depIndex].title).join('、')}` : undefined
     const subtask = await taskItemService.create(task.id, {
       title: item.title,
-      description: [item.description, item.dependsOn !== undefined ? `依赖步骤: ${Number(item.dependsOn) + 1}` : ''].filter(Boolean).join('\n') || undefined,
+      description: item.description,
+      status: blocked ? 'blocked' : undefined,
+      blockedReason,
       assigneeId: resolved.assigneeId,
       assigneeName: resolved.assigneeName,
       assigneeType: resolved.assigneeType,
       createdBy: interaction.createdBy,
     })
-    createdItems.push(subtask)
-    if (resolved.assigneeId) {
-      await invokeAssignedAgent(roomId, resolved.assigneeId, [
-        '用户已确认任务计划，你被分派了其中一个子任务，请立即处理。',
-        `父任务ID: ${task.id}`,
-        `父任务标题: ${task.title}`,
-        `子任务ID: ${subtask.id}`,
-        `子任务标题: ${subtask.title}`,
-        subtask.description ? `子任务说明: ${subtask.description}` : '',
-        '',
-        '请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。',
-      ].filter(Boolean).join('\n'))
-    }
+    for (const depIndex of validDeps) taskItemService.addDependency(subtask.id, createdItems[depIndex].id)
+    const hydrated = taskItemService.get(subtask.id)
+    createdItems.push(hydrated)
+    if (!blocked && resolved.assigneeId) wakeQueue.push({ assigneeId: resolved.assigneeId, subtask: hydrated })
+  }
+  for (const item of wakeQueue) {
+    await invokeAssignedAgent(roomId, item.assigneeId, buildSubtaskWakePrompt(task, item.subtask, '用户已确认任务计划，你被分派了其中一个子任务，请立即处理。'))
   }
   const updatedTask = await taskService.getTask(task.id)
   broadcast(roomId, 'task.changed', { action: 'update', task: updatedTask })

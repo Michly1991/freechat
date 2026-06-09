@@ -683,6 +683,19 @@ export class WebSocketGateway {
     await this.broadcastTaskWithSubtasks(client.currentRoomId, taskId)
   }
 
+  private buildSubtaskWakePrompt(task: any, subtask: any, reason: string) {
+    return [
+      reason,
+      `父任务ID: ${task.id}`,
+      `父任务标题: ${task.title}`,
+      `子任务ID: ${subtask.id}`,
+      `子任务标题: ${subtask.title}`,
+      subtask.description ? `子任务说明: ${subtask.description}` : '',
+      '',
+      '请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。',
+    ].filter(Boolean).join('\n')
+  }
+
   private async handleTaskSubtaskUpdate(clientId: string, payload: any) {
     const client = this.clients.get(clientId)
     if (!client || !client.currentRoomId) return
@@ -697,8 +710,21 @@ export class WebSocketGateway {
       ...(payload.assigneeId !== undefined ? { assigneeId: payload.assigneeId } : {}),
       ...(payload.assigneeName !== undefined ? { assigneeName: payload.assigneeName } : {}),
       ...(payload.assigneeType !== undefined ? { assigneeType: payload.assigneeType } : {}),
+      ...(payload.blockedReason !== undefined ? { blockedReason: payload.blockedReason } : {}),
     })
+    const released = []
+    if (item.status === 'done') {
+      for (const dep of taskItemService.readyDependents(item.id)) released.push(await taskItemService.releaseDependent(dep.id))
+    }
     await this.broadcastTaskWithSubtasks(client.currentRoomId, item.taskId)
+    if (released.length > 0) {
+      const task = await taskService.getTask(item.taskId)
+      for (const dep of released) {
+        if (dep.assigneeType === 'agent' && dep.assigneeId) {
+          void this.invokeMentionedAgents(client.currentRoomId, this.buildSubtaskWakePrompt(task, dep, '前置子任务已完成，你负责的子任务已解除阻塞，请立即处理。'), [{ id: dep.assigneeId, name: dep.assigneeName || 'Agent', role: 'ai' }], 'task')
+        }
+      }
+    }
   }
 
   private async handleTaskSubtaskDelete(clientId: string, payload: any) {

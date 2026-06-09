@@ -76,6 +76,19 @@ async function resolveAgentAssignee(roomId: string, args: any): Promise<{ assign
   return { assigneeId: agent.id, assigneeName: agent.name, assigneeType: 'agent' }
 }
 
+function buildSubtaskWakePrompt(task: any, subtask: any, reason: string) {
+  return [
+    reason,
+    `父任务ID: ${task.id}`,
+    `父任务标题: ${task.title}`,
+    `子任务ID: ${subtask.id}`,
+    `子任务标题: ${subtask.title}`,
+    subtask.description ? `子任务说明: ${subtask.description}` : '',
+    '',
+    '请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。',
+  ].filter(Boolean).join('\n')
+}
+
 async function invokeAssignedAgent(roomId: string, assigneeId: string | undefined, assigningAgentId: string, prompt: string) {
   if (!assigneeId || assigneeId === assigningAgentId) return
   const roomAgents = await agentService.getRoomAgents(roomId)
@@ -229,9 +242,18 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           const before = taskItemService.get(itemId)
           await taskService.assertTaskInRoom(before.taskId, roomId)
           const subtask = await taskItemService.update(itemId, args.updates || {})
+          const released = []
+          if (subtask.status === 'done') {
+            for (const item of taskItemService.readyDependents(subtask.id)) released.push(await taskItemService.releaseDependent(item.id))
+          }
           const task = await taskService.getTask(subtask.taskId)
           broadcast(roomId, 'task.changed', { action: 'update', task })
-          return { success: true, data: { subtask, task } }
+          for (const item of released) {
+            if (item.assigneeType === 'agent' && item.assigneeId) {
+              await invokeAssignedAgent(roomId, item.assigneeId, agent.id, buildSubtaskWakePrompt(task, item, '前置子任务已完成，你负责的子任务已解除阻塞，请立即处理。'))
+            }
+          }
+          return { success: true, data: { subtask, task, released } }
         }
         case 'task.plan.create':
         case 'task.plan_create': {

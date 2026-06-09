@@ -144,6 +144,8 @@ export interface TaskItem {
   assigneeId?: string
   assigneeName?: string
   assigneeType?: 'human' | 'agent'
+  blockedReason?: string
+  dependencies?: string[]
   sortOrder: number
   createdBy: string
   createdAt: number
