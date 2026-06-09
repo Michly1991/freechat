@@ -561,6 +561,18 @@ export default function RoomPage() {
       </div>
     )
   }
+  const renderAssigneeBadge = (item: any, compact = false) => {
+    if (!item?.assigneeName) return null
+    const labelClass = compact ? 'text-[10px] text-gray-400 gap-1.5' : 'text-xs text-gray-400 gap-1.5'
+    const avatarSize = compact ? 'w-4 h-4' : 'w-5 h-5'
+    const iconSize = compact ? 'w-2.5 h-2.5' : 'w-3 h-3'
+    if (item.assigneeType === 'agent') {
+      const agent = roomAgents.find((a) => a.id === item.assigneeId || a.name === item.assigneeName) || { name: item.assigneeName, roleType: item.assigneeName.includes('助理') ? 'assistant' : 'specialist', status: 'active' }
+      return <span className={`inline-flex items-center ${labelClass}`}>{renderAgentAvatar(agent, avatarSize, iconSize)}<span>{item.assigneeName}</span></span>
+    }
+    const member = members.find((m) => (m.userId || m.id) === item.assigneeId || getMemberDisplayName(m) === item.assigneeName)
+    return <span className={`inline-flex items-center ${labelClass}`}>{renderAvatar(item.assigneeName, member?.avatar, avatarSize)}<span>{item.assigneeName}</span></span>
+  }
 
   const filteredMembers = members.filter((m) => {
     const id = m.id || m.userId
@@ -841,7 +853,7 @@ export default function RoomPage() {
         {task.description && <p className="text-xs text-gray-400 mt-1 line-clamp-2">{task.description}</p>}
         <div className="flex flex-wrap items-center gap-2 mt-3">
           <span className={`text-xs px-2 py-0.5 rounded-full ${statusColors[getEffectiveTaskStatus(task)] || 'bg-gray-100'}`}>{getEffectiveTaskStatus(task)}</span>
-          {task.assigneeName && <span className="text-xs text-gray-400">{task.assigneeType === 'agent' ? '🤖' : '👤'} {task.assigneeName}</span>}
+          {renderAssigneeBadge(task)}
         </div>
         <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${task.progressNote ? 'bg-blue-50 text-blue-700' : 'bg-gray-50 text-gray-400'}`}>
           <span className="font-medium">最近进展：</span>{task.progressNote || '暂无进展'}
@@ -875,7 +887,7 @@ export default function RoomPage() {
                     <p className={`text-xs font-medium break-words ${subtask.status === 'done' ? 'line-through text-gray-400' : 'text-gray-700'}`}>{subtask.title}</p>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${statusColors[subtask.status] || 'bg-gray-100'}`}>{subtask.status}</span>
-                      {subtask.assigneeName && <span className="text-[10px] text-gray-400">{subtask.assigneeType === 'agent' ? '🤖' : '👤'} {subtask.assigneeName}</span>}
+                      {renderAssigneeBadge(subtask, true)}
                     </div>
                   </div>
                   <button onClick={() => deleteSubtask(subtask)} className="text-xs text-red-400 px-1">×</button>
