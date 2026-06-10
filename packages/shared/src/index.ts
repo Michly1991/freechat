@@ -119,7 +119,11 @@ export interface Message {
 export interface Mention {
   id: string
   name: string
-  role: 'human' | 'ai'
+  role: 'human' | 'ai' | 'file'
+  type?: 'user' | 'agent' | 'file'
+  path?: string
+  mimeType?: string
+  size?: number
 }
 
 // === Task Types ===
@@ -151,6 +155,9 @@ export interface TaskItem {
   createdAt: number
   updatedAt: number
   completedAt?: number
+  retryCount?: number
+  lastRetryAt?: number
+  lastRetryBy?: string
 }
 
 export interface TaskSubtaskSummary {
@@ -183,6 +190,9 @@ export interface Task {
   createdAt: number
   updatedAt: number
   completedAt?: number
+  retryCount?: number
+  lastRetryAt?: number
+  lastRetryBy?: string
   subtasks?: TaskItem[]
   subtaskSummary?: TaskSubtaskSummary
 }

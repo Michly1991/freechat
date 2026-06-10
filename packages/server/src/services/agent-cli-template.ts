@@ -35,13 +35,16 @@ function usage() {
     '  ./freechat task create <title> [description] [--assignee <agentNameOrId>]',
     '  ./freechat task update <taskId> <field> <value> [field value...]',
     '  ./freechat task progress <taskId> <note>',
+    '  ./freechat task retry <taskId> [--reason <text>]',
     '  ./freechat task subtask list <taskId>',
     '  ./freechat task subtask add <taskId> <title> [description] [--assignee <agentNameOrId>]'
     '  ./freechat task subtask update <subtaskId> <field> <value> [field value...]',
+    '  ./freechat task subtask retry <subtaskId> [--reason <text>]',
     '  ./freechat task subtask delete <subtaskId>',
     '  ./freechat task plan create-json <localJsonPath>',
     '  ./freechat file list',
     '  ./freechat file read <path>',
+    '  ./freechat file info <path>',
     '  ./freechat file write <path> <content> [--show|--hide]',
     '  ./freechat file write-local <path> <localPath> [--show|--hide]',
     '  ./freechat file show <path> [tabKey]',
@@ -61,6 +64,7 @@ function usage() {
     '  ./freechat members list',
     '  ./freechat agent list-available',
     '  ./freechat agent add <agentNameOrId>',
+    '  ./freechat agent restart <agentNameOrId> [--clear-session true]',
     '  ./freechat agent create-request <name> --description <desc> --specialties <a,b>',
     '  ./freechat agent create-json <localJsonPath>',
     '  ./freechat room info',
@@ -69,6 +73,7 @@ function usage() {
     '  ./freechat interaction multi_choice <title> <opt1|opt2|...> [description]',
     '  ./freechat interaction create-json <localJsonPath>',
     '  ./freechat interaction list [status]',
+    '  ./freechat interaction respond <interactionId> <value|value1,value2> [inputKey=inputText...]',
     '  ./freechat interaction consume <interactionId>',
     '  ./freechat interaction show <interactionId>',
     '  ./freechat raw <action> \'<jsonArgs>\'',
@@ -176,6 +181,10 @@ if (domain === 'chat' && cmd === 'send') {
   const note = rest.slice(1).join(' ').trim();
   if (!note) die('note is required');
   call('task.progress', { taskId: rest[0], note });
+} else if (domain === 'task' && cmd === 'retry') {
+  const parsed = parseNamedOptions(rest);
+  if (!parsed.args[0]) die('taskId is required');
+  call('task.retry', { taskId: parsed.args[0], reason: parsed.options.reason });
 } else if (domain === 'task' && cmd === 'subtask' && rest[0] === 'list') {
   if (!rest[1]) die('taskId is required');
   call('task.subtask_list', { taskId: rest[1] });
@@ -186,6 +195,10 @@ if (domain === 'chat' && cmd === 'send') {
 } else if (domain === 'task' && cmd === 'subtask' && rest[0] === 'update') {
   if (!rest[1]) die('subtaskId is required');
   call('task.subtask_update', { itemId: rest[1], updates: pairsToObject(rest.slice(2)) });
+} else if (domain === 'task' && cmd === 'subtask' && rest[0] === 'retry') {
+  const parsed = parseNamedOptions(rest.slice(1));
+  if (!parsed.args[0]) die('subtaskId is required');
+  call('task.subtask_retry', { itemId: parsed.args[0], reason: parsed.options.reason });
 } else if (domain === 'task' && cmd === 'subtask' && rest[0] === 'delete') {
   if (!rest[1]) die('subtaskId is required');
   call('task.subtask_delete', { itemId: rest[1] });
@@ -197,6 +210,9 @@ if (domain === 'chat' && cmd === 'send') {
 } else if (domain === 'file' && cmd === 'read') {
   if (!rest[0]) die('path is required');
   call('file.read', { path: rest[0] });
+} else if (domain === 'file' && cmd === 'info') {
+  if (!rest[0]) die('path is required');
+  call('file.info', { path: rest[0] });
 } else if (domain === 'file' && cmd === 'write') {
   const parsed = parseShowFlag(rest);
   if (!parsed.args[0]) die('path is required');
@@ -255,6 +271,10 @@ if (domain === 'chat' && cmd === 'send') {
   if (!rest[0]) die('agentNameOrId is required');
   const opts = parseNamedOptions(rest.slice(1));
   call('agent.add', { agent: rest[0], roomRole: opts.roomRole || opts.role, autoEnabled: opts.autoEnabled === 'true', priority: opts.priority });
+} else if (domain === 'agent' && cmd === 'restart') {
+  if (!rest[0]) die('agentNameOrId is required');
+  const opts = parseNamedOptions(rest.slice(1));
+  call('agent.restart', { agent: rest[0], clearSession: opts.clearSession !== 'false' });
 } else if (domain === 'agent' && (cmd === 'create-request' || cmd === 'create')) {
   if (!rest[0]) die('agent name is required');
   const opts = parseNamedOptions(rest.slice(1));
@@ -272,6 +292,17 @@ if (domain === 'chat' && cmd === 'send') {
   call('interaction.create', { type: cmd, title: rest[0], description: desc || undefined, options });
 } else if (domain === 'interaction' && cmd === 'list') {
   call('interaction.list', { status: rest[0] || 'pending' });
+} else if (domain === 'interaction' && cmd === 'respond') {
+  if (!rest[0]) die('interactionId is required');
+  if (!rest[1]) die('value is required');
+  const rawValue = rest[1];
+  const value = rawValue.includes(',') ? rawValue.split(',').map(s => s.trim()).filter(Boolean) : rawValue;
+  const inputs = {};
+  for (const part of rest.slice(2)) {
+    const idx = part.indexOf('=');
+    if (idx > 0) inputs[part.slice(0, idx)] = part.slice(idx + 1);
+  }
+  call('interaction.respond', { id: rest[0], value, inputs });
 } else if (domain === 'interaction' && cmd === 'consume') {
   if (!rest[0]) die('interactionId is required');
   call('interaction.consume', { id: rest[0] });

@@ -106,12 +106,16 @@ export const api = {
     }),
   deleteFile: (roomId: string, path: string) =>
     request(`/rooms/${roomId}/files/${encodeURIComponent(path)}`, { method: 'DELETE' }),
-  uploadFile: (roomId: string, formData: FormData) =>
-    request(`/rooms/${roomId}/upload`, {
+  uploadFile: (roomId: string, fileOrForm: File | FormData, path = '') => {
+    const formData = fileOrForm instanceof FormData ? fileOrForm : new FormData()
+    if (!(fileOrForm instanceof FormData)) formData.append('file', fileOrForm)
+    if (path) formData.append('path', path)
+    return request<{ filename: string; path: string; size: number; mimeType?: string }>(`/rooms/${roomId}/files/upload`, {
       method: 'POST',
       body: formData,
       headers: {},
-    }),
+    })
+  },
   mkdir: (roomId: string, path: string) =>
     request(`/rooms/${roomId}/files/mkdir`, {
       method: 'POST',

@@ -71,6 +71,9 @@ export class TaskService {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       completedAt: row.completed_at,
+      retryCount: row.retry_count || 0,
+      lastRetryAt: row.last_retry_at || undefined,
+      lastRetryBy: row.last_retry_by || undefined,
       subtasks,
       subtaskSummary: taskItemService.summary(subtasks)
     } as any
@@ -109,6 +112,9 @@ export class TaskService {
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         completedAt: row.completed_at,
+        retryCount: row.retry_count || 0,
+        lastRetryAt: row.last_retry_at || undefined,
+        lastRetryBy: row.last_retry_by || undefined,
         subtasks,
         subtaskSummary: taskItemService.summary(subtasks)
       } as any

@@ -456,3 +456,19 @@ services:
 
 5. **SQLite 并发**：better-sqlite3 是同步 API，需要 WAL 模式 + 写入队列避免阻塞
    - 建议：开启 WAL，写操作走 async queue 串行化
+
+## 2026-06-10 RoomPage 大文件拆分
+
+为落实源码单文件大小预算，项目室页面继续从 `RoomPageImpl.tsx` 拆出专题组件与动作工厂：
+
+- `components/RoomChatPanel.tsx`：聊天消息列表、未读标记、输入框与 @ 提及弹层。
+- `components/InteractionCard.tsx`：交互请求卡、任务计划预览、选项输入与提交状态。
+- `components/RoomFilesPanel.tsx`：文件树、文件编辑器和文件面板布局。
+- `components/RoomTabsPanel.tsx`：动态 Tab 顶栏、新建/编辑 Tab 与 iframe 预览。
+- `components/RoomTasksPanel.tsx`：任务看板、子任务展开、归档区与任务卡片。
+- `components/RoomMembers.tsx`：桌面成员栏、移动端成员抽屉、成员/Agent 资料弹窗。
+- `components/RoomShellChrome.tsx`：房间顶部栏、桌面/移动导航、文件弹窗、诊断日志弹窗。
+- `room-actions.ts`：文件、Tab、任务的 UI 动作工厂，避免主页面继续堆操作逻辑。
+- `room-ui-utils.tsx`：成员/Agent 显示、状态点、头像和消息内容渲染工具。
+
+拆分后 `RoomPageImpl.tsx` 保留页面状态、数据加载、WebSocket 编排和各子组件装配，避免继续承载具体面板 JSX。

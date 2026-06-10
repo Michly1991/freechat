@@ -1,9 +1,20 @@
 import { FastifyInstance } from 'fastify'
 import { mkdir, readdir, readFile, writeFile, unlink, stat } from 'fs/promises'
-import { join, dirname } from 'path'
+import { join, dirname, basename } from 'path'
 import { existsSync } from 'fs'
 import { config } from '../config.js'
 import { tabConfigService } from '../services/tab-config.service.js'
+import { safeRoomFilePath } from '../services/file-mention-context.service.js'
+
+function safeOptionalDir(input = '') {
+  const trimmed = String(input || '').trim().replace(/^[/\\]+/, '')
+  if (!trimmed) return ''
+  return safeRoomFilePath(trimmed)
+}
+
+function cleanFilename(input = 'upload.bin') {
+  return basename(input).replace(/[\\/:*?"<>|]/g, '_').trim() || 'upload.bin'
+}
 
 export async function registerFileRoutes(app: FastifyInstance) {
   // 获取房间文件树
@@ -62,7 +73,8 @@ export async function registerFileRoutes(app: FastifyInstance) {
 
   // 读取文件内容
   app.get('/api/rooms/:roomId/files/:path', async (request, reply) => {
-    const { roomId, path: filePath } = request.params as any
+    const { roomId, path } = request.params as any
+    const filePath = safeRoomFilePath(path)
     const fullPath = join(config.workspace.root, roomId, 'files', filePath)
 
     try {
@@ -78,8 +90,9 @@ export async function registerFileRoutes(app: FastifyInstance) {
 
   // 创建/更新文件
   app.put('/api/rooms/:roomId/files/:path', async (request, reply) => {
-    const { roomId, path: filePath } = request.params as any
+    const { roomId, path } = request.params as any
     const { content } = request.body as any
+    const filePath = safeRoomFilePath(path)
     const fullPath = join(config.workspace.root, roomId, 'files', filePath)
 
     try {
@@ -94,7 +107,8 @@ export async function registerFileRoutes(app: FastifyInstance) {
 
   // 删除文件
   app.delete('/api/rooms/:roomId/files/:path', async (request, reply) => {
-    const { roomId, path: filePath } = request.params as any
+    const { roomId, path } = request.params as any
+    const filePath = safeRoomFilePath(path)
     const fullPath = join(config.workspace.root, roomId, 'files', filePath)
 
     try {
@@ -109,34 +123,33 @@ export async function registerFileRoutes(app: FastifyInstance) {
     }
   })
 
-  // 上传文件
-  app.post('/api/rooms/:roomId/upload', async (request, reply) => {
+  const handleUpload = async (request: any, reply: any) => {
     const { roomId } = request.params as any
-    const uploadDir = join(config.workspace.root, roomId, 'files')
-
     try {
       const file = await request.file()
-      if (!file) {
-        return reply.code(400).send({ success: false, error: 'No file uploaded' })
-      }
-
-      const filePath = join(uploadDir, file.filename)
-      await mkdir(dirname(filePath), { recursive: true })
-
+      if (!file) return reply.code(400).send({ success: false, error: { message: 'No file uploaded' } })
+      const dir = safeOptionalDir((file.fields?.path as any)?.value || (file.fields?.dir as any)?.value || '')
+      const rel = safeRoomFilePath(dir ? `${dir}/${cleanFilename(file.filename)}` : cleanFilename(file.filename))
+      const fullPath = join(config.workspace.root, roomId, 'files', rel)
+      await mkdir(dirname(fullPath), { recursive: true })
       const buffer = await file.toBuffer()
-      await writeFile(filePath, buffer)
-      await tabConfigService.addFile(roomId, 'files', file.filename)
-
-      return { success: true, data: { filename: file.filename, path: file.filename } }
+      await writeFile(fullPath, buffer)
+      await tabConfigService.addFile(roomId, 'files', rel)
+      return { success: true, data: { filename: cleanFilename(file.filename), path: rel, size: buffer.length, mimeType: file.mimetype } }
     } catch (err: any) {
-      return reply.code(500).send({ success: false, error: err.message })
+      return reply.code(err?.code === 'INVALID_PATH' ? 400 : 500).send({ success: false, error: { message: err.message || String(err) } })
     }
-  })
+  }
+
+  // 上传文件（保留旧路径，并提供标准 files/upload 路径）
+  app.post('/api/rooms/:roomId/upload', handleUpload)
+  app.post('/api/rooms/:roomId/files/upload', handleUpload)
 
   // 创建目录
   app.post('/api/rooms/:roomId/files/mkdir', async (request, reply) => {
     const { roomId } = request.params as any
-    const { path: dirPath } = request.body as any
+    const { path } = request.body as any
+    const dirPath = safeRoomFilePath(path)
     const fullPath = join(config.workspace.root, roomId, 'files', dirPath)
 
     try {

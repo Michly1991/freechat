@@ -70,7 +70,7 @@ function buildSubtaskWakePrompt(task: any, subtask: any, reason: string) {
   ].filter(Boolean).join('\n')
 }
 
-async function materializeAgentCreateRequest(roomId: string, interaction: any) {
+export async function materializeAgentCreateRequest(roomId: string, interaction: any) {
   if (interaction.result?.value !== 'confirm') return
   if (interaction.consumedAt) return
   const spec = interaction.payload?.agentCreate
@@ -99,7 +99,7 @@ async function materializeAgentCreateRequest(roomId: string, interaction: any) {
   broadcast(roomId, 'chat.message', msg)
 }
 
-async function materializeTaskPlan(roomId: string, interaction: any) {
+export async function materializeTaskPlan(roomId: string, interaction: any) {
   if (interaction.type !== 'task_plan') return
   if (interaction.result?.value !== 'confirm') return
   if (interaction.consumedAt) return
@@ -118,7 +118,7 @@ async function materializeTaskPlan(roomId: string, interaction: any) {
     const blockedReason = blocked ? `等待前置步骤：${validDeps.map((depIndex) => createdItems[depIndex].title).join('、')}` : undefined
     const subtask = await taskItemService.create(task.id, {
       title: item.title,
-      description: item.description,
+      description: [item.description, item.expectedOutput ? `预期产出：${item.expectedOutput}` : '', item.acceptanceCriteria ? `验收标准：${item.acceptanceCriteria}` : ''].filter(Boolean).join('\n'),
       status: blocked ? 'blocked' : undefined,
       blockedReason,
       assigneeId: resolved.assigneeId,

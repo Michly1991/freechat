@@ -2,37 +2,17 @@ import db from '../storage/db.js'
 import { v4 as uuidv4 } from 'uuid'
 import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
-import { spawn } from 'child_process'
 import { chmod, mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { config } from '../config.js'
-import { aiConfigService } from './ai-config.service.js'
 import { createAgentToolToken } from '../agent-tool-token.js'
 import { renderAgentCli } from './agent-cli-template.js'
 import { renderAgentApiDoc, renderAgentGuide } from './agent-workspace-template.js'
+import { AgentRuntimeService } from './agent-runtime.service.js'
+import { searchMarketplaceAgents } from './agent-marketplace.js'
 import type { Agent, AgentRuntimeConfig, AgentToolPermissions, RoomAgentRole } from '@freechat/shared'
-import { DEFAULT_ASSISTANT_AGENT_CONFIG, DEFAULT_SPECIALIST_AGENT_CONFIG, DEFAULT_AGENT_TOOLS } from '@freechat/shared'
-
-// Shape of an agent row in the DB
-interface AgentRow {
-  id: string
-  owner_id: string
-  name: string
-  role_type: string
-  deployment: string
-  description: string | null
-  specialties: string | null
-  config: string | null
-  api_key_hash: string | null
-  status: string
-  session_id: string | null
-  created_at: number
-  updated_at: number
-  agent_last_active_at?: number | null
-  room_role?: string | null
-  auto_enabled?: number | null
-  room_priority?: number | null
-}
+import { DEFAULT_AGENT_TOOLS } from '@freechat/shared'
+import { mergeAgentConfig, rowToAgent, type AgentRow } from './agent-mapper.js'
 
 export interface AgentConfig {
   name: string
@@ -55,21 +35,8 @@ export interface AddAgentToRoomOptions {
   priority?: number
 }
 
-function mergeAgentConfig(roleType: 'assistant' | 'specialist', config?: AgentRuntimeConfig): AgentRuntimeConfig {
-  const base = roleType === 'assistant' ? DEFAULT_ASSISTANT_AGENT_CONFIG : DEFAULT_SPECIALIST_AGENT_CONFIG
-  return {
-    ...base,
-    ...(config || {}),
-    behavior: { ...(base.behavior || {}), ...(config?.behavior || {}) },
-    tools: { ...(base.tools || {}), ...(config?.tools || {}) },
-    model: { ...(base.model || {}), ...(config?.model || {}) },
-  }
-}
-
 export class AgentService {
-  /**
-   * Create a new agent. Returns the plaintext api_key once.
-   */
+  private runtime = new AgentRuntimeService()
   async createAgent(ownerId: string, cfg: AgentConfig): Promise<AgentCreateResult> {
     const id = `agent_${uuidv4()}`
     const now = Date.now()
@@ -97,24 +64,18 @@ export class AgentService {
       now
     )
 
-    const agent = this.rowToAgent(db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentRow)
+    const agent = rowToAgent(db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentRow)
     return { agent, apiKey }
   }
 
-  /**
-   * Get agent by ID
-   */
   async getAgent(agentId: string): Promise<Agent> {
     const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as AgentRow | undefined
     if (!row) {
       throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found' }
     }
-    return this.rowToAgent(row)
+    return rowToAgent(row)
   }
 
-  /**
-   * List all agents owned by a user
-   */
   async getUserAgents(ownerId: string): Promise<Agent[]> {
     const rows = db.prepare(`
       SELECT * FROM agents
@@ -122,7 +83,7 @@ export class AgentService {
         AND (config IS NULL OR config NOT LIKE '%"defaultRoomAssistant":true%')
       ORDER BY created_at DESC
     `).all(ownerId) as AgentRow[]
-    return rows.map(r => this.rowToAgent(r))
+    return rows.map(r => rowToAgent(r))
   }
 
   async getAvailableAgentsForRoom(roomId: string, requesterAgentId: string): Promise<Agent[]> {
@@ -138,7 +99,7 @@ export class AgentService {
         )
       ORDER BY a.created_at DESC
     `).all(requester.owner_id, roomId) as AgentRow[]
-    return rows.map(r => this.rowToAgent(r))
+    return rows.map(r => rowToAgent(r))
   }
 
   async assertRoomAssistant(roomId: string, agentId: string): Promise<void> {
@@ -163,9 +124,6 @@ export class AgentService {
     return matched
   }
 
-  /**
-   * Update agent fields
-   */
   async updateAgent(agentId: string, updates: Partial<AgentConfig>): Promise<Agent> {
     const fields: string[] = []
     const values: any[] = []
@@ -211,16 +169,10 @@ export class AgentService {
     return this.getAgent(agentId)
   }
 
-  /**
-   * Delete agent
-   */
   async deleteAgent(agentId: string): Promise<void> {
     db.prepare('DELETE FROM agents WHERE id = ?').run(agentId)
   }
 
-  /**
-   * Regenerate API key for an agent. Returns the new plaintext key once.
-   */
   async regenerateApiKey(agentId: string): Promise<string> {
     const row = db.prepare('SELECT id FROM agents WHERE id = ?').get(agentId) as AgentRow | undefined
     if (!row) {
@@ -245,7 +197,7 @@ export class AgentService {
     for (const row of rows) {
       const valid = await bcrypt.compare(apiKey, row.api_key_hash!)
       if (valid) {
-        return this.rowToAgent(row)
+        return rowToAgent(row)
       }
     }
     return null
@@ -304,7 +256,7 @@ export class AgentService {
       ORDER BY ra.priority ASC, ra.added_at ASC
       LIMIT 1
     `).get(roomId) as AgentRow | undefined
-    return row ? this.rowToAgent(row) : null
+    return row ? rowToAgent(row) : null
   }
 
   /**
@@ -319,7 +271,7 @@ export class AgentService {
    * List agents in a room
    */
   recoverStaleRuns(roomId?: string): void {
-    const cutoff = Date.now() - ((config.agent.timeoutMs || 120000) + (config.agent.killGraceMs || 3000) + 30000)
+    const cutoff = Date.now() - ((config.agent.hardTimeoutMs || config.agent.taskTimeoutMs || config.agent.timeoutMs || 120000) + (config.agent.killGraceMs || 3000) + 30000)
     const runningRows = db.prepare(`
       SELECT DISTINCT room_id, agent_id
       FROM agent_runs
@@ -353,7 +305,7 @@ export class AgentService {
       WHERE ra.room_id = ?
       ORDER BY ra.auto_enabled DESC, ra.priority ASC, ra.added_at ASC
     `).all(roomId) as AgentRow[]
-    return rows.map(r => this.rowToAgent(r))
+    return rows.map(r => rowToAgent(r))
   }
 
   assertToolAllowed(agent: Agent, action: string): void {
@@ -513,452 +465,23 @@ export class AgentService {
     return workspaceDir
   }
 
-  /**
-   * Spawn an agent to process a message.
-   * Server-side agents default to Claude Code CLI with the agent private workspace as cwd.
-   * Provider API is only used when AGENT_RUNTIME=provider-api.
-   * Returns the agent's response text.
-   */
-  async spawnClaudeCode(
-    roomId: string,
-    agentId: string,
-    message: string
-  ): Promise<{ response: string; silent: boolean }> {
-    const agent = await this.getAgent(agentId)
-    const workspaceDir = await this.prepareAgentWorkspace(roomId, agent)
-    const runId = this.createAgentRun(roomId, agentId, message)
-
-    // Check for existing session
-    const existingSession = db.prepare(`
-      SELECT session_id FROM agent_sessions
-      WHERE room_id = ? AND agent_id = ?
-      ORDER BY last_active_at DESC
-      LIMIT 1
-    `).get(roomId, agentId) as { session_id: string } | undefined
-
-    // Optional provider API mode. Default server agent runtime is Claude Code CLI.
-    if (config.agent.runtime === 'provider-api') try {
-      const aiConfig = aiConfigService.getConfig()
-      const provider = aiConfig.providers[aiConfig.currentProvider]
-      const apiKey = aiConfigService.getApiKey(aiConfig.currentProvider)
-
-      if (provider && provider.enabled && apiKey) {
-        const agentPrompt = this.buildAgentSystemPrompt(agent)
-        
-        // Build messages array with conversation history
-        const messages: any[] = []
-        
-        // Add recent conversation history if session exists
-        if (existingSession) {
-          const history = await this.getSessionHistory(existingSession.session_id, 10)
-          messages.push(...history)
-        }
-        
-        // Add current user message
-        messages.push({ role: 'user', content: message })
-
-        const response = await fetch(`${provider.baseUrl}/v1/messages`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            [provider.apiKeyHeader]: apiKey,
-            'anthropic-version': '2023-06-01'
-          },
-          body: JSON.stringify({
-            model: provider.defaultModel,
-            max_tokens: 4096,
-            system: agentPrompt,
-            messages
-          })
-        })
-
-        if (response.ok) {
-          const data = await response.json() as any
-          const responseText = data.content?.[0]?.text || ''
-          
-          // Check for [SILENT] marker
-          if (responseText === '[SILENT]' || responseText.includes('[SILENT]')) {
-            this.finishAgentRun(runId, 'succeeded', '', undefined, existingSession?.session_id)
-            return { response: '', silent: true }
-          }
-
-          // Generate or reuse session ID
-          const newSessionId = existingSession?.session_id || uuidv4()
-          this.updateSession(roomId, agentId, newSessionId)
-          
-          // Save to conversation history
-          await this.saveMessageToHistory(newSessionId, 'user', message)
-          await this.saveMessageToHistory(newSessionId, 'assistant', responseText)
-          this.cleanupAgentHistory(newSessionId)
-          this.cleanupOldAgentSessions(roomId, agentId)
-          this.finishAgentRun(runId, 'succeeded', responseText, undefined, newSessionId)
-
-          return { response: responseText, silent: false }
-        } else {
-          const errData = await response.json() as any
-          console.error('AI provider API error:', response.status, errData)
-          // Fall through to Claude Code CLI
-        }
-      }
-    } catch (err) {
-      console.error('AI provider call failed, falling back to Claude Code CLI:', err)
-      // Fall through to Claude Code CLI
-    }
-
-    // Default: Use Claude Code CLI with this agent's private workspace as cwd
-    const args: string[] = [
-      '-p',
+  async spawnClaudeCode(roomId: string, agentId: string, message: string, options: { timeoutMs?: number } = {}): Promise<{ response: string; silent: boolean }> {
+    return this.runtime.spawnClaudeCode(
+      roomId,
+      agentId,
       message,
-      '--permission-mode',
-      'auto',
-      '--allowedTools',
-      'Bash(./freechat *)',
-      '--output-format',
-      'json'
-    ]
-
-    // Resume existing session if available
-    if (existingSession) {
-      args.push('--resume', existingSession.session_id)
-    }
-
-    const runClaude = (runArgs: string[]): Promise<{ response: string; silent: boolean; sessionId?: string }> => new Promise((resolve, reject) => {
-      const proc = spawn('claude', runArgs, {
-        cwd: workspaceDir,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env },
-      })
-
-      let stdout = ''
-      let stderr = ''
-      let settled = false
-      let timedOut = false
-      let killTimer: NodeJS.Timeout | undefined
-
-      const cleanup = () => {
-        if (watchdog) clearTimeout(watchdog)
-        if (killTimer) clearTimeout(killTimer)
-      }
-
-      const fail = (err: any) => {
-        if (settled) return
-        settled = true
-        cleanup()
-        reject(err)
-      }
-
-      const succeed = (value: { response: string; silent: boolean; sessionId?: string }) => {
-        if (settled) return
-        settled = true
-        cleanup()
-        resolve(value)
-      }
-
-      const watchdog = setTimeout(() => {
-        timedOut = true
-        const combined = `${stdout.trim()}\n${stderr.trim()}`.trim()
-        try {
-          if (!proc.killed) proc.kill('SIGTERM')
-        } catch {}
-
-        killTimer = setTimeout(() => {
-          try {
-            if (!proc.killed) proc.kill('SIGKILL')
-          } catch {}
-        }, config.agent.killGraceMs)
-
-        fail({
-          code: 'AGENT_TIMEOUT',
-          message: `Claude Code timed out after ${config.agent.timeoutMs}ms. Partial output: ${combined.slice(-2000)}`
-        })
-      }, config.agent.timeoutMs)
-
-      proc.stdout.on('data', (data: Buffer) => {
-        stdout += data.toString()
-        if (stdout.length > 1_000_000) stdout = stdout.slice(-1_000_000)
-      })
-      proc.stderr.on('data', (data: Buffer) => {
-        stderr += data.toString()
-        if (stderr.length > 1_000_000) stderr = stderr.slice(-1_000_000)
-      })
-
-      proc.on('close', (code, signal) => {
-        if (timedOut || settled) return
-        const raw = stdout.trim()
-        const combined = `${raw}\n${stderr}`.trim()
-
-        if (code !== 0) {
-          fail({
-            code: 'AGENT_EXECUTION_ERROR',
-            message: `Claude Code exited with code ${code}${signal ? ` signal ${signal}` : ''}: ${combined}`
-          })
-          return
-        }
-
-        let response = raw
-        let sessionId: string | undefined
-        try {
-          const parsed = JSON.parse(raw)
-          response = parsed.result || ''
-          sessionId = parsed.session_id
-        } catch {
-          const sessionMatch = raw.match(/session[_-]?id[:\s]+([^\s]+)/i)
-          sessionId = sessionMatch?.[1]
-        }
-
-        if (response === '[SILENT]' || response.includes('[SILENT]')) {
-          succeed({ response: '', silent: true, sessionId })
-          return
-        }
-
-        succeed({ response: response || '', silent: false, sessionId })
-      })
-
-      proc.on('error', (err) => {
-        fail({ code: 'AGENT_SPAWN_ERROR', message: `Failed to spawn Claude Code: ${err.message}` })
-      })
-    })
-
-    try {
-      const result = await runClaude(args)
-      if (result.sessionId) {
-        this.updateSession(roomId, agentId, result.sessionId)
-        this.cleanupAgentHistory(result.sessionId)
-      }
-      this.cleanupOldAgentSessions(roomId, agentId)
-      this.finishAgentRun(runId, 'succeeded', result.response, undefined, result.sessionId)
-      return { response: result.response, silent: result.silent }
-    } catch (err: any) {
-      if (existingSession && String(err.message || '').includes('No conversation found')) {
-        const freshArgs = args.filter((arg, index) => arg !== '--resume' && args[index - 1] !== '--resume')
-        const result = await runClaude(freshArgs)
-        if (result.sessionId) {
-          this.updateSession(roomId, agentId, result.sessionId)
-          this.cleanupAgentHistory(result.sessionId)
-        }
-        this.cleanupOldAgentSessions(roomId, agentId)
-        this.finishAgentRun(runId, 'succeeded', result.response, undefined, result.sessionId)
-        return { response: result.response, silent: result.silent }
-      }
-      this.finishAgentRun(runId, 'failed', undefined, err?.message || String(err), existingSession?.session_id)
-      throw err
-    }
-  }
-
-  private createAgentRun(roomId: string, agentId: string, input: string): string {
-    const id = `arun_${uuidv4()}`
-    db.prepare(`
-      INSERT INTO agent_runs (id, room_id, agent_id, status, input, started_at)
-      VALUES (?, ?, ?, 'running', ?, ?)
-    `).run(id, roomId, agentId, input, Date.now())
-    return id
-  }
-
-  private finishAgentRun(runId: string, status: 'succeeded' | 'failed' | 'cancelled', output?: string, error?: string, sessionId?: string): void {
-    db.prepare(`
-      UPDATE agent_runs
-      SET status = ?, output = ?, error = ?, session_id = ?, finished_at = ?
-      WHERE id = ?
-    `).run(status, output || null, error || null, sessionId || null, Date.now(), runId)
-  }
-
-  /**
-   * Update or create an agent session record
-   */
-  private updateSession(roomId: string, agentId: string, sessionId?: string): void {
-    if (!sessionId) return
-
-    const now = Date.now()
-    const existing = db.prepare(`
-      SELECT id, message_count FROM agent_sessions
-      WHERE room_id = ? AND agent_id = ? AND session_id = ?
-    `).get(roomId, agentId, sessionId) as { id: string; message_count: number } | undefined
-
-    if (existing) {
-      db.prepare(`
-        UPDATE agent_sessions SET message_count = ?, last_active_at = ? WHERE id = ?
-      `).run(existing.message_count + 1, now, existing.id)
-    } else {
-      const id = `asess_${uuidv4()}`
-      db.prepare(`
-        INSERT INTO agent_sessions (id, room_id, agent_id, session_id, message_count, created_at, last_active_at)
-        VALUES (?, ?, ?, ?, 1, ?, ?)
-      `).run(id, roomId, agentId, sessionId, now, now)
-    }
-  }
-
-  /**
-   * Get conversation history for a session
-   */
-  private async getSessionHistory(sessionId: string, limit: number = 10): Promise<any[]> {
-    try {
-      const messages = db.prepare(`
-        SELECT role, content FROM agent_messages
-        WHERE session_id = ?
-        ORDER BY created_at ASC
-        LIMIT ?
-      `).all(sessionId, limit) as { role: string; content: string }[]
-
-      return messages.map(m => ({ role: m.role, content: m.content }))
-    } catch (err) {
-      // Table might not exist yet
-      return []
-    }
-  }
-
-  /**
-   * Save a message to conversation history
-   */
-  private async saveMessageToHistory(sessionId: string, role: string, content: string): Promise<void> {
-    try {
-      const id = `amsg_${uuidv4()}`
-      const now = Date.now()
-      
-      db.prepare(`
-        INSERT INTO agent_messages (id, session_id, role, content, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(id, sessionId, role, content, now)
-    } catch (err) {
-      console.error('Failed to save message to history:', err)
-    }
-  }
-
-  private cleanupAgentHistory(sessionId: string): void {
-    try {
-      const limit = Math.max(1, config.agent.historyLimit)
-      const count = db.prepare('SELECT COUNT(*) as count FROM agent_messages WHERE session_id = ?').get(sessionId) as { count: number }
-      if (!count || count.count <= limit) return
-
-      const stale = db.prepare(`
-        SELECT id FROM agent_messages
-        WHERE session_id = ?
-        ORDER BY created_at ASC
-        LIMIT ?
-      `).all(sessionId, count.count - limit) as { id: string }[]
-
-      if (stale.length > 0) {
-        db.prepare(`DELETE FROM agent_messages WHERE id IN (${stale.map(() => '?').join(',')})`).run(...stale.map((m) => m.id))
-      }
-    } catch (err) {
-      console.error('Failed to cleanup agent history:', err)
-    }
-  }
-
-  private cleanupOldAgentSessions(roomId: string, agentId: string): void {
-    try {
-      const retentionMs = Math.max(1, config.agent.sessionRetentionDays) * 24 * 60 * 60 * 1000
-      const cutoff = Date.now() - retentionMs
-      const oldSessions = db.prepare(`
-        SELECT session_id FROM agent_sessions
-        WHERE room_id = ? AND agent_id = ? AND last_active_at < ?
-      `).all(roomId, agentId, cutoff) as { session_id: string }[]
-
-      if (oldSessions.length === 0) return
-      const sessionIds = oldSessions.map((s) => s.session_id)
-      db.prepare(`DELETE FROM agent_messages WHERE session_id IN (${sessionIds.map(() => '?').join(',')})`).run(...sessionIds)
-      db.prepare(`DELETE FROM agent_sessions WHERE room_id = ? AND agent_id = ? AND session_id IN (${sessionIds.map(() => '?').join(',')})`).run(roomId, agentId, ...sessionIds)
-    } catch (err) {
-      console.error('Failed to cleanup old agent sessions:', err)
-    }
-  }
-
-  /**
-   * Convert a DB row to an Agent object
-   */
-  private rowToAgent(row: AgentRow): Agent {
-    const status = (row.status as 'active' | 'inactive' | 'working' | 'error') || 'active'
-    const onlineStatus = status === 'working'
-      ? 'working'
-      : status === 'inactive'
-        ? 'offline'
-        : status === 'error'
-          ? 'error'
-          : 'online'
-
-    return {
-      id: row.id,
-      name: row.name,
-      roleType: row.role_type as 'assistant' | 'specialist',
-      deployment: row.deployment as 'server' | 'client',
-      description: row.description || undefined,
-      specialties: row.specialties ? JSON.parse(row.specialties) : undefined,
-      config: row.config ? JSON.parse(row.config) : undefined,
-      status,
-      onlineStatus,
-      lastActiveAt: row.agent_last_active_at || undefined,
-      sessionId: row.session_id || undefined,
-      roomRole: (row.room_role as RoomAgentRole) || undefined,
-      autoEnabled: row.auto_enabled !== undefined && row.auto_enabled !== null ? !!row.auto_enabled : undefined,
-      roomPriority: row.room_priority ?? undefined,
-    }
-  }
-
-  /**
-   * Search marketplace (hardcoded for now)
-   */
-  async searchMarketplace(query?: string): Promise<Agent[]> {
-    // Hardcoded marketplace agents
-    const marketplace: Agent[] = [
-      {
-        id: 'market_code_reviewer',
-        name: 'Code Reviewer',
-        roleType: 'specialist',
-        deployment: 'server',
-        description: 'Reviews code for bugs, style issues, performance, and security vulnerabilities.',
-        specialties: ['code-review', 'security', 'best-practices'],
-        status: 'active',
-      },
-      {
-        id: 'market_tech_writer',
-        name: 'Tech Writer',
-        roleType: 'specialist',
-        deployment: 'server',
-        description: 'Writes clear technical documentation, READMEs, and API references.',
-        specialties: ['documentation', 'writing', 'api-docs'],
-        status: 'active',
-      },
-      {
-        id: 'market_task_master',
-        name: 'Task Master',
-        roleType: 'assistant',
-        deployment: 'server',
-        description: 'Breaks down complex tasks into subtasks, tracks progress, and coordinates work.',
-        specialties: ['project-management', 'task-planning', 'coordination'],
-        status: 'active',
-      },
-      {
-        id: 'market_researcher',
-        name: 'Research Assistant',
-        roleType: 'specialist',
-        deployment: 'server',
-        description: 'Searches the web, summarizes findings, and compiles research reports.',
-        specialties: ['research', 'summarization', 'web-search'],
-        status: 'active',
-      },
-      {
-        id: 'market_debugger',
-        name: 'Debugger',
-        roleType: 'specialist',
-        deployment: 'server',
-        description: 'Expert at diagnosing and fixing bugs across multiple languages and frameworks.',
-        specialties: ['debugging', 'troubleshooting', 'fixes'],
-        status: 'active',
-      },
-    ]
-
-    if (!query) return marketplace
-
-    const q = query.toLowerCase()
-    return marketplace.filter(a =>
-      a.name.toLowerCase().includes(q) ||
-      a.description?.toLowerCase().includes(q) ||
-      a.specialties?.some(s => s.toLowerCase().includes(q))
+      (id) => this.getAgent(id),
+      (targetRoomId, agent) => this.prepareAgentWorkspace(targetRoomId, agent),
+      (agent) => this.buildAgentSystemPrompt(agent),
+      options
     )
   }
 
-  /**
-   * Get featured marketplace agents
-   */
+
+  async searchMarketplace(query?: string): Promise<Agent[]> {
+    return searchMarketplaceAgents(query)
+  }
+
   async getFeaturedAgents(): Promise<Agent[]> {
     return this.searchMarketplace()
   }

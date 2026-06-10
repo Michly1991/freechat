@@ -180,6 +180,9 @@ export function initDatabase() {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       completed_at INTEGER,
+      retry_count INTEGER DEFAULT 0,
+      last_retry_at INTEGER,
+      last_retry_by TEXT,
       FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
       FOREIGN KEY (created_by) REFERENCES users(id)
     )
@@ -191,9 +194,10 @@ export function initDatabase() {
   `)
 
   const taskCols = db.prepare('PRAGMA table_info(tasks)').all() as any[]
-  if (!taskCols.some((col) => col.name === 'progress_note')) {
-    db.exec('ALTER TABLE tasks ADD COLUMN progress_note TEXT')
-  }
+  if (!taskCols.some((col) => col.name === 'progress_note')) db.exec('ALTER TABLE tasks ADD COLUMN progress_note TEXT')
+  if (!taskCols.some((col) => col.name === 'retry_count')) db.exec('ALTER TABLE tasks ADD COLUMN retry_count INTEGER DEFAULT 0')
+  if (!taskCols.some((col) => col.name === 'last_retry_at')) db.exec('ALTER TABLE tasks ADD COLUMN last_retry_at INTEGER')
+  if (!taskCols.some((col) => col.name === 'last_retry_by')) db.exec('ALTER TABLE tasks ADD COLUMN last_retry_by TEXT')
 
   // Task subtasks/checklist table
   db.exec(`
@@ -212,14 +216,18 @@ export function initDatabase() {
       updated_at INTEGER NOT NULL,
       completed_at INTEGER,
       blocked_reason TEXT,
+      retry_count INTEGER DEFAULT 0,
+      last_retry_at INTEGER,
+      last_retry_by TEXT,
       FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
     )
   `)
 
   const taskItemCols = db.prepare('PRAGMA table_info(task_items)').all() as any[]
-  if (!taskItemCols.some((col) => col.name === 'blocked_reason')) {
-    db.exec('ALTER TABLE task_items ADD COLUMN blocked_reason TEXT')
-  }
+  if (!taskItemCols.some((col) => col.name === 'blocked_reason')) db.exec('ALTER TABLE task_items ADD COLUMN blocked_reason TEXT')
+  if (!taskItemCols.some((col) => col.name === 'retry_count')) db.exec('ALTER TABLE task_items ADD COLUMN retry_count INTEGER DEFAULT 0')
+  if (!taskItemCols.some((col) => col.name === 'last_retry_at')) db.exec('ALTER TABLE task_items ADD COLUMN last_retry_at INTEGER')
+  if (!taskItemCols.some((col) => col.name === 'last_retry_by')) db.exec('ALTER TABLE task_items ADD COLUMN last_retry_by TEXT')
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_task_items_task_status

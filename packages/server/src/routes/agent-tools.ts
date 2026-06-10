@@ -8,110 +8,16 @@ import { verifyAgentToolToken } from '../agent-tool-token.js'
 import { messageService } from '../services/message.service.js'
 import { taskService } from '../services/task.service.js'
 import { taskItemService } from '../services/task-item.service.js'
+import { taskRetryService } from '../services/task-retry.service.js'
 import { roomService } from '../services/room.service.js'
 import { agentService } from '../services/agent.service.js'
+import { agentRestartService } from '../services/agent-restart.service.js'
 import { tabConfigService } from '../services/tab-config.service.js'
 import { interactionService } from '../services/interaction.service.js'
+import { materializeAgentCreateRequest, materializeTaskPlan } from './interactions.js'
 import { getGateway } from '../ws/gateway.js'
 
-function safeRelativePath(input = ''): string {
-  const cleaned = normalize(input).replace(/^([/\\])+/, '')
-  if (cleaned.startsWith('..') || cleaned.includes(`..\\`) || cleaned.includes('../')) {
-    throw { code: 'INVALID_PATH', message: 'Path escapes room workspace' }
-  }
-  return cleaned || '.'
-}
-
-async function buildFileTree(dir: string, prefix = ''): Promise<any[]> {
-  const entries = await readdir(dir, { withFileTypes: true })
-  const items = []
-  for (const entry of entries) {
-    const fullPath = join(dir, entry.name)
-    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name
-    if (entry.isDirectory()) {
-      items.push({ name: entry.name, path: relativePath, type: 'directory', children: await buildFileTree(fullPath, relativePath) })
-    } else {
-      const stats = await stat(fullPath)
-      items.push({ name: entry.name, path: relativePath, type: 'file', size: stats.size, modifiedAt: stats.mtime.getTime() })
-    }
-  }
-  return items.sort((a, b) => {
-    if (a.type === 'directory' && b.type !== 'directory') return -1
-    if (a.type !== 'directory' && b.type === 'directory') return 1
-    return a.name.localeCompare(b.name)
-  })
-}
-
-function broadcast(roomId: string, action: string, payload: any) {
-  getGateway()?.broadcast(roomId, {
-    msgId: payload?.id || `${action}_${Date.now()}`,
-    roomId,
-    type: 'broadcast',
-    action,
-    payload,
-    timestamp: Date.now()
-  })
-}
-
-function throwTabNotFound(tabId?: string) {
-  throw { code: 'TAB_NOT_FOUND', message: tabId ? `Tab not found: ${tabId}` : 'Tab not found' }
-}
-
-function validateTabIds(roomId: string, tabIds: string[]) {
-  if (tabIds.length === 0) return
-  const rows = db.prepare(`SELECT id FROM tabs WHERE room_id = ? AND id IN (${tabIds.map(() => '?').join(',')})`).all(roomId, ...tabIds) as any[]
-  const existing = new Set(rows.map((r) => r.id))
-  const missing = tabIds.filter((id) => !existing.has(id))
-  if (missing.length > 0) throwTabNotFound(missing.join(', '))
-}
-
-async function resolveAgentAssignee(roomId: string, args: any): Promise<{ assigneeId?: string; assigneeName?: string; assigneeType?: 'human' | 'agent' }> {
-  const raw = args.assigneeId || args.assignee_id || args.assignee || args.assigneeName || args.assignee_name
-  if (!raw && !args.assigneeType && !args.assignee_type) return {}
-  const text = String(raw || '').trim().replace(/^@/, '')
-  if (!text) return {}
-  const roomAgents = await agentService.getRoomAgents(roomId)
-  const agent = roomAgents.find((a) => a.id === text || a.name === text || a.name.includes(text) || text.includes(a.name))
-  if (!agent) throw { code: 'AGENT_ASSIGNEE_NOT_FOUND', message: `Agent assignee not found in room: ${text}` }
-  return { assigneeId: agent.id, assigneeName: agent.name, assigneeType: 'agent' }
-}
-
-function buildSubtaskWakePrompt(task: any, subtask: any, reason: string) {
-  return [
-    reason,
-    `父任务ID: ${task.id}`,
-    `父任务标题: ${task.title}`,
-    `子任务ID: ${subtask.id}`,
-    `子任务标题: ${subtask.title}`,
-    subtask.description ? `子任务说明: ${subtask.description}` : '',
-    '',
-    '请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。',
-  ].filter(Boolean).join('\n')
-}
-
-async function invokeAssignedAgent(roomId: string, assigneeId: string | undefined, assigningAgentId: string, prompt: string) {
-  if (!assigneeId || assigneeId === assigningAgentId) return
-  const roomAgents = await agentService.getRoomAgents(roomId)
-  const assigned = roomAgents.find((a) => a.id === assigneeId)
-  if (!assigned) return
-
-  void (async () => {
-    try {
-      await agentService.updateAgent(assigned.id, { status: 'working' } as any)
-      broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'working', onlineStatus: 'working', lastActiveAt: Date.now() })
-      const result = await agentService.spawnClaudeCode(roomId, assigned.id, prompt)
-      await agentService.updateAgent(assigned.id, { status: 'active' } as any)
-      broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'active', onlineStatus: 'online', lastActiveAt: Date.now() })
-      if (result.silent || !result.response) return
-      const msg = await messageService.createMessage(roomId, assigned.id, assigned.name, 'ai', result.response)
-      broadcast(roomId, 'chat.message', msg)
-    } catch (err: any) {
-      await agentService.updateAgent(assigneeId, { status: 'error' } as any).catch(() => {})
-      broadcast(roomId, 'agent.status_update', { agentId: assigneeId, status: 'error', onlineStatus: 'error', lastActiveAt: Date.now(), lastError: err?.message || String(err) })
-      console.error(`Assigned agent ${assigneeId} invocation failed:`, err)
-    }
-  })()
-}
+import { broadcast, buildFileTree, buildSubtaskWakePrompt, invokeAssignedAgent, resolveAgentAssignee, safeRelativePath, throwTabNotFound, validateTabIds } from './agent-tools.helpers.js'
 
 export async function registerAgentToolRoutes(app: FastifyInstance) {
   app.post('/api/agent-tools/:roomId', async (request, reply) => {
@@ -142,10 +48,11 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           return { success: true, data: { tasks } }
         }
         case 'task.create': {
-          const resolved = await resolveAgentAssignee(roomId, args)
-          const assigneeId = resolved.assigneeId || args.assigneeId || agent.id
-          const assigneeName = resolved.assigneeName || args.assigneeName || agent.name
-          const assigneeType = resolved.assigneeType || args.assigneeType || 'agent'
+          const hasExplicitAssignee = !!(args.assignee || args.assigneeId || args.assigneeName)
+          const resolved = hasExplicitAssignee ? await resolveAgentAssignee(roomId, args) : {}
+          const assigneeId = resolved.assigneeId || args.assigneeId || (agent.roleType === 'assistant' ? undefined : agent.id)
+          const assigneeName = resolved.assigneeName || args.assigneeName || (agent.roleType === 'assistant' ? undefined : agent.name)
+          const assigneeType = resolved.assigneeType || args.assigneeType || (assigneeId ? 'agent' : undefined)
           const task = await taskService.createTask(
             roomId,
             args.title,
@@ -191,6 +98,26 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           const task = await taskService.updateTask(taskId, { progressNote: note } as any)
           broadcast(roomId, 'task.changed', { action: 'update', task })
           return { success: true, data: { task } }
+        }
+        case 'task.retry': {
+          const taskId = args.taskId || args.id || args.task_id
+          if (!taskId) throw { code: 'VALIDATION_ERROR', message: 'taskId is required' }
+          await taskService.assertTaskInRoom(taskId, roomId)
+          const { task, wakeItems } = await taskRetryService.retryTaskFailedItems(taskId, agent.id, args.reason)
+          broadcast(roomId, 'task.changed', { action: 'update', task })
+          for (const item of wakeItems) await invokeAssignedAgent(roomId, item.assigneeId!, agent.id, buildSubtaskWakePrompt(task, item, '任务被人工重试，请重新处理该子任务。'))
+          return { success: true, data: { task, wakeItems } }
+        }
+        case 'task.subtask_retry':
+        case 'task.subtask.retry': {
+          const itemId = args.itemId || args.subtaskId || args.id || args.item_id
+          if (!itemId) throw { code: 'VALIDATION_ERROR', message: 'itemId is required' }
+          const before = taskItemService.get(itemId)
+          await taskService.assertTaskInRoom(before.taskId, roomId)
+          const { subtask, task, shouldWake } = await taskRetryService.retrySubtask(itemId, agent.id, args.reason)
+          broadcast(roomId, 'task.changed', { action: 'update', task })
+          if (shouldWake) await invokeAssignedAgent(roomId, subtask.assigneeId!, agent.id, buildSubtaskWakePrompt(task, subtask, '任务被人工重试，请重新处理该子任务。'))
+          return { success: true, data: { subtask, task } }
         }
         case 'task.subtask_list':
         case 'task.subtask.list': {
@@ -279,6 +206,8 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
                   description: item.description,
                   assignee: item.assignee || item.assigneeName || item.assigneeId,
                   dependsOn: item.dependsOn,
+                  expectedOutput: item.expectedOutput,
+                  acceptanceCriteria: item.acceptanceCriteria,
                 })),
               }
             }
@@ -319,6 +248,17 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           const interaction = interactionService.get(roomId, args.id || args.interactionId)
           return { success: true, data: { interaction } }
         }
+        case 'interaction.respond': {
+          const interactionId = args.id || args.interactionId
+          if (!interactionId) throw { code: 'VALIDATION_ERROR', message: 'interactionId is required' }
+          const value = args.value ?? args.values
+          if (value === undefined) throw { code: 'VALIDATION_ERROR', message: 'value is required' }
+          const interaction = interactionService.respond(roomId, interactionId, args.userId || agent.id, value, args.inputs || {})
+          broadcast(roomId, 'interaction.updated', { interaction })
+          await materializeAgentCreateRequest(roomId, interaction)
+          await materializeTaskPlan(roomId, interaction)
+          return { success: true, data: { interaction } }
+        }
         case 'interaction.consume': {
           const interaction = interactionService.consume(roomId, args.id || args.interactionId, agent.id)
           broadcast(roomId, 'interaction.updated', { interaction })
@@ -334,6 +274,11 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           const rel = safeRelativePath(args.path)
           const content = await readFile(join(filesDir, rel), 'utf8')
           return { success: true, data: { path: rel, content } }
+        }
+        case 'file.info': {
+          const rel = safeRelativePath(args.path)
+          const info = await stat(join(filesDir, rel))
+          return { success: true, data: { path: rel, name: rel.split('/').pop(), size: info.size, modifiedAt: info.mtime.getTime(), type: info.isDirectory() ? 'directory' : 'file' } }
         }
         case 'file.write': {
           const rel = safeRelativePath(args.path)
@@ -492,6 +437,18 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           } as any)
           broadcast(roomId, 'interaction.created', { interaction: result.interaction })
           broadcast(roomId, 'chat.message', result.message)
+          return { success: true, data: result }
+        }
+        case 'agent.restart': {
+          await agentService.assertRoomAssistant(roomId, agent.id)
+          const target = args.agent || args.agentId || args.id || args.name
+          if (!target) throw { code: 'VALIDATION_ERROR', message: 'agent is required' }
+          const result = await agentRestartService.softRestart(roomId, target, agent.id, args.clearSession !== false)
+          broadcast(roomId, 'agent.status_update', { agentId: result.agent.id, status: 'active', onlineStatus: 'online', lastActiveAt: Date.now(), lastError: null })
+          if (result.pendingSubtasks.length > 0) {
+            const lines = result.pendingSubtasks.map((item: any, i: number) => `${i + 1}. 父任务 ${item.task_id}「${item.task_title}」 / 子任务 ${item.id}「${item.title}」`).join('\n')
+            await invokeAssignedAgent(roomId, result.agent.id, agent.id, `你刚刚被人工软恢复，请继续处理已分派但未完成的子任务：\n${lines}\n\n请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。`)
+          }
           return { success: true, data: result }
         }
         case 'agent.add': {

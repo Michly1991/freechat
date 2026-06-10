@@ -18,6 +18,9 @@ export interface TaskItem {
   createdAt: number
   updatedAt: number
   completedAt?: number
+  retryCount?: number
+  lastRetryAt?: number
+  lastRetryBy?: string
 }
 
 const TASK_STATUSES = new Set<TaskStatus>(['todo', 'assigned', 'doing', 'review', 'blocked', 'done', 'failed', 'cancelled'])
@@ -45,6 +48,9 @@ export function rowToTaskItem(row: any): TaskItem {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completed_at || undefined,
+    retryCount: row.retry_count || 0,
+    lastRetryAt: row.last_retry_at || undefined,
+    lastRetryBy: row.last_retry_by || undefined,
   }
 }
 
