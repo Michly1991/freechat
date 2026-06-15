@@ -442,3 +442,14 @@ agent_runs (
 ```
 
 调用开始时写入 `running`，成功、静默成功、重试成功或失败时更新终态。这样后续可以在前端展示 Agent 执行历史，也能排查 CLI 超时、session 损坏、模型配置错误等问题。
+
+## 默认助理唯一性约束（2026-06-15）
+
+每个房间只能有一个真正的默认助理：`room_role='assistant'` 且 `auto_enabled=1` 的房间内 Agent 副本。
+
+约束：
+
+- 全局内置默认助理模板（`config.builtInKey='default_assistant'`）不能作为普通 specialist 直接出现在房间里。
+- 当房间已经有默认助理时，再添加内置默认助理模板应被后端忽略，避免 @ 候选出现两个“助理”。
+- `getRoomAgents` 会对历史脏数据做兜底过滤：若已有主默认助理，则隐藏同名的内置默认助理模板/specialist。
+- 前端 @ 候选和成员面板也会基于 `visibleRoomAgents` 做同名助理去重兜底，优先展示 `autoEnabled` 的房间默认助理。

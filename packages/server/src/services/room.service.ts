@@ -15,7 +15,7 @@ interface InitialRoomAgent {
 }
 
 export class RoomService {
-  async createRoom(name: string, description: string | null, userId: string, initialMemberIds: string[] = [], initialAgents: InitialRoomAgent[] = []): Promise<Room> {
+  async createRoom(name: string, description: string | null, userId: string, initialMemberIds: string[] = [], initialAgents: InitialRoomAgent[] = [], options: { skipDefaultAssistant?: boolean } = {}): Promise<Room> {
     const id = `room_${uuidv4()}`
     const assistantAgentId = `agent_${uuidv4()}`
     const now = Date.now()
@@ -45,6 +45,7 @@ export class RoomService {
       }
     }
     const hasCustomAutoAgent = ownedAgents.some((agent) => agent.autoEnabled)
+    const shouldCreateDefaultAssistant = !options.skipDefaultAssistant
 
     const create = db.transaction(() => {
       db.prepare(`
@@ -65,31 +66,33 @@ export class RoomService {
         `).run(id, memberId, now)
       }
 
-      // Create a default assistant agent for every room.
-      db.prepare(`
-        INSERT INTO agents (id, owner_id, name, role_type, deployment, description, specialties, config, api_key_hash, status, created_at, updated_at)
-        VALUES (?, ?, ?, 'assistant', 'server', ?, ?, ?, ?, 'active', ?, ?)
-      `).run(
-        assistantAgentId,
-        userId,
-        '助理',
-        '默认房间助理，可以参与讨论、总结信息、协调专家 Agent，并在需要时做最终决策。',
-        JSON.stringify(['协作', '总结', '任务协调', '决策']),
-        JSON.stringify({
-          defaultRoomAssistant: true,
-          roomId: id,
-          behavior: { replyMode: 'auto_when_relevant', silentAllowed: true },
-          tools: { chat: true, task: true, file: true, tab: true, interaction: true, members: true }
-        }),
-        apiKeyHash,
-        now,
-        now
-      )
+      if (shouldCreateDefaultAssistant) {
+        // Create a default assistant agent for rooms that do not use a scene-provided assistant.
+        db.prepare(`
+          INSERT INTO agents (id, owner_id, name, role_type, deployment, description, specialties, config, api_key_hash, status, is_template, template_version, source_template_id, source_template_version, is_modified, created_at, updated_at)
+          VALUES (?, ?, ?, 'assistant', 'server', ?, ?, ?, ?, 'active', 0, 1, NULL, NULL, 0, ?, ?)
+        `).run(
+          assistantAgentId,
+          userId,
+          '助理',
+          '默认房间助理，可以参与讨论、总结信息、协调专家 Agent，并在需要时做最终决策。',
+          JSON.stringify(['协作', '总结', '任务协调', '决策']),
+          JSON.stringify({
+            defaultRoomAssistant: true,
+            roomId: id,
+            behavior: { replyMode: 'auto_when_relevant', silentAllowed: true },
+            tools: { chat: true, task: true, file: true, tab: true, interaction: true, members: true }
+          }),
+          apiKeyHash,
+          now,
+          now
+        )
 
-      db.prepare(`
-        INSERT INTO room_agents (room_id, agent_id, added_by, added_at, room_role, auto_enabled, priority)
-        VALUES (?, ?, ?, ?, 'assistant', ?, 0)
-      `).run(id, assistantAgentId, userId, now, hasCustomAutoAgent ? 0 : 1)
+        db.prepare(`
+          INSERT INTO room_agents (room_id, agent_id, added_by, added_at, room_role, auto_enabled, priority)
+          VALUES (?, ?, ?, ?, 'assistant', ?, 0)
+        `).run(id, assistantAgentId, userId, now, hasCustomAutoAgent ? 0 : 1)
+      }
 
       for (const agent of ownedAgents) {
         db.prepare(`

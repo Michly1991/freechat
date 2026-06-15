@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify'
-import { mkdir, readdir, readFile, writeFile, stat } from 'fs/promises'
+import { mkdir, readdir, readFile, writeFile, stat, rm } from 'fs/promises'
 import { join, dirname, normalize } from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import db from '../storage/db.js'
@@ -10,12 +10,19 @@ import { taskService } from '../services/task.service.js'
 import { taskItemService } from '../services/task-item.service.js'
 import { taskRetryService } from '../services/task-retry.service.js'
 import { roomService } from '../services/room.service.js'
+import { membersService } from '../services/members.service.js'
 import { agentService } from '../services/agent.service.js'
 import { agentRestartService } from '../services/agent-restart.service.js'
+import { agentCapabilityService } from '../services/agent-capability.service.js'
+import { sceneTemplateService } from '../services/scene-template.service.js'
 import { tabConfigService } from '../services/tab-config.service.js'
 import { interactionService } from '../services/interaction.service.js'
 import { materializeAgentCreateRequest, materializeTaskPlan } from './interactions.js'
+import { handleAppUiTool } from './agent-tools.app-ui.js'
 import { getGateway } from '../ws/gateway.js'
+import { getActiveAgentStream } from '../ws/agent-stream-events.js'
+import { agentStreamService } from '../services/agent-stream.service.js'
+import { roomAnalyticsService } from '../services/room-analytics.service.js'
 
 import { broadcast, buildFileTree, buildSubtaskWakePrompt, invokeAssignedAgent, resolveAgentAssignee, safeRelativePath, throwTabNotFound, validateTabIds } from './agent-tools.helpers.js'
 
@@ -30,15 +37,57 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
     }
 
     const agent = await agentService.getAgent(verified.agentId)
-    const { action, args = {} } = request.body as any
+    const actorUserId = verified.actorUserId || (db.prepare('SELECT created_by FROM rooms WHERE id = ?').get(roomId) as any)?.created_by || agent.ownerId || agent.id
+    const assertActorCanEditRoom = () => {
+      const member = db.prepare('SELECT role FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, actorUserId) as any
+      if (!member || !['owner', 'editor'].includes(member.role)) throw { code: 'FORBIDDEN', message: 'Only project owner/editor can perform this operation' }
+    }
+    const body = request.body as any
+    const action = body.action || body.tool
+    const args = body.args || {}
     const filesDir = join(config.workspace.root, roomId, 'files')
+    const activeRunId = roomAnalyticsService.findActiveRun(roomId, agent.id)
+    const activeStreamId = getActiveAgentStream(roomId, agent.id)
+    let toolCallId: string | null = null
+    let toolError: any = null
+    if (action) {
+      toolCallId = roomAnalyticsService.createToolCall({
+        roomId,
+        agentId: agent.id,
+        runId: activeRunId,
+        streamId: activeStreamId,
+        toolName: String(action),
+        action: String(action),
+        inputSummary: roomAnalyticsService.summarizeInput(args),
+      })
+      reply.raw.once('finish', () => {
+        if (!toolCallId) return
+        const failed = reply.statusCode >= 400
+        roomAnalyticsService.finishToolCall(toolCallId, failed
+          ? { status: 'failed', errorCode: roomAnalyticsService.errorCode(toolError, reply.statusCode), errorMessage: roomAnalyticsService.errorMessage(toolError || `HTTP ${reply.statusCode}`) }
+          : { status: 'succeeded' })
+      })
+    }
 
     try {
       agentService.assertToolAllowed(agent, String(action || ''))
+      if (activeStreamId && action && !String(action).startsWith('tool.')) {
+        const activity = agentStreamService.addActivity(activeStreamId, { text: `正在执行 ${String(action)}`, tool: String(action) })
+        broadcast(roomId, 'agent.stream.activity', { id: activeStreamId, agentId: agent.id, ...activity })
+      }
+      const appUiTool = await handleAppUiTool({ action: String(action || ''), args, roomId, actorUserId, agentId: agent.id, broadcast })
+      if (appUiTool.handled) {
+        return appUiTool.response
+      }
       switch (action) {
         case 'chat.send': {
           const content = String(args.content || '').trim()
           if (!content) throw { code: 'VALIDATION_ERROR', message: 'content is required' }
+          const escapedAgentName = agent.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          const selfMention = new RegExp(`@\\s*${escapedAgentName}`)
+          if (selfMention.test(content) && /(?:通知|转发|提醒|交给|让|叫|已通知|已转发|已提醒)/.test(content)) {
+            throw { code: 'AGENT_SELF_MENTION_FORBIDDEN', message: `你就是 ${agent.name}，不要通知/转发/提醒 @自己；请直接处理并用第一人称汇报。` }
+          }
           const msg = await messageService.createMessage(roomId, agent.id, agent.name, 'ai', content)
           broadcast(roomId, 'chat.message', msg)
           return { success: true, data: { message: msg } }
@@ -73,7 +122,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
               `分派来源 Agent: ${agent.name}`,
               '',
               '请先用 ./freechat task update 标记状态/进展，完成后在聊天中简短汇报。',
-            ].filter(Boolean).join('\n'))
+            ].filter(Boolean).join('\n'), actorUserId)
           }
           return { success: true, data: { task } }
         }
@@ -105,7 +154,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           await taskService.assertTaskInRoom(taskId, roomId)
           const { task, wakeItems } = await taskRetryService.retryTaskFailedItems(taskId, agent.id, args.reason)
           broadcast(roomId, 'task.changed', { action: 'update', task })
-          for (const item of wakeItems) await invokeAssignedAgent(roomId, item.assigneeId!, agent.id, buildSubtaskWakePrompt(task, item, '任务被人工重试，请重新处理该子任务。'))
+          for (const item of wakeItems) await invokeAssignedAgent(roomId, item.assigneeId!, agent.id, buildSubtaskWakePrompt(task, item, '任务被人工重试，请重新处理该子任务。'), actorUserId)
           return { success: true, data: { task, wakeItems } }
         }
         case 'task.subtask_retry':
@@ -116,7 +165,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           await taskService.assertTaskInRoom(before.taskId, roomId)
           const { subtask, task, shouldWake } = await taskRetryService.retrySubtask(itemId, agent.id, args.reason)
           broadcast(roomId, 'task.changed', { action: 'update', task })
-          if (shouldWake) await invokeAssignedAgent(roomId, subtask.assigneeId!, agent.id, buildSubtaskWakePrompt(task, subtask, '任务被人工重试，请重新处理该子任务。'))
+          if (shouldWake) await invokeAssignedAgent(roomId, subtask.assigneeId!, agent.id, buildSubtaskWakePrompt(task, subtask, '任务被人工重试，请重新处理该子任务。'), actorUserId)
           return { success: true, data: { subtask, task } }
         }
         case 'task.subtask_list':
@@ -158,7 +207,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
               `分派来源 Agent: ${agent.name}`,
               '',
               '请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。',
-            ].filter(Boolean).join('\n'))
+            ].filter(Boolean).join('\n'), actorUserId)
           }
           return { success: true, data: { subtask, task } }
         }
@@ -177,7 +226,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           broadcast(roomId, 'task.changed', { action: 'update', task })
           for (const item of released) {
             if (item.assigneeType === 'agent' && item.assigneeId) {
-              await invokeAssignedAgent(roomId, item.assigneeId, agent.id, buildSubtaskWakePrompt(task, item, '前置子任务已完成，你负责的子任务已解除阻塞，请立即处理。'))
+              await invokeAssignedAgent(roomId, item.assigneeId, agent.id, buildSubtaskWakePrompt(task, item, '前置子任务已完成，你负责的子任务已解除阻塞，请立即处理。'), actorUserId)
             }
           }
           return { success: true, data: { subtask, task, released } }
@@ -282,12 +331,30 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
         }
         case 'file.write': {
           const rel = safeRelativePath(args.path)
+          if (/^res\//.test(rel)) {
+            throw { code: 'PROJECT_RES_PATH_FORBIDDEN', message: '项目正式交付文件不要写到 res/。res/ 是 Agent 私有草稿目录名；请改写到业务目录，例如 星源纪/正文/...、星源纪/剧情/...，或页面源文件 ui/xxx.html。' }
+          }
           const fullPath = join(filesDir, rel)
           await mkdir(dirname(fullPath), { recursive: true })
           await writeFile(fullPath, String(args.content || ''), 'utf8')
           if (args.showInTab === true || args.addToTab === true) {
             await tabConfigService.addFile(roomId, String(args.tabKey || 'files'), rel)
           }
+          broadcast(roomId, 'files.updated', { path: rel })
+          const hint = /\.html?$/i.test(rel) ? `HTML 文件已写入项目文件区。如需显示在页面区域，请继续执行：./freechat tab create-file "页面标题" "${rel}"` : undefined
+          return { success: true, data: { path: rel, hint } }
+        }
+        case 'file.mkdir': {
+          const rel = safeRelativePath(args.path)
+          await mkdir(join(filesDir, rel), { recursive: true })
+          if (args.showInTab === true || args.addToTab === true) await tabConfigService.addDir(roomId, String(args.tabKey || 'files'), rel)
+          broadcast(roomId, 'files.updated', { path: rel })
+          return { success: true, data: { path: rel } }
+        }
+        case 'file.delete': {
+          const rel = safeRelativePath(args.path)
+          await rm(join(filesDir, rel), { recursive: true, force: true })
+          await tabConfigService.removeFile(roomId, String(args.tabKey || 'files'), rel).catch(() => {})
           broadcast(roomId, 'files.updated', { path: rel })
           return { success: true, data: { path: rel } }
         }
@@ -322,11 +389,15 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           db.prepare(`
             INSERT INTO tabs (id, room_id, title, content, icon, sort_order, created_by, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(tabId, roomId, title, String(args.content || ''), args.icon || '📄', (maxOrder?.max_order ?? -1) + 1, agent.id, now, now)
+          `).run(tabId, roomId, title, String(args.content || ''), args.icon || '📄', (maxOrder?.max_order ?? -1) + 1, actorUserId, now, now)
+          if (args.makeDefault === true || args.default === true) {
+            db.prepare(`INSERT INTO room_tab_preferences (room_id, default_tab_id, updated_by, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(room_id) DO UPDATE SET default_tab_id = excluded.default_tab_id, updated_by = excluded.updated_by, updated_at = excluded.updated_at`).run(roomId, tabId, actorUserId, now)
+          }
+          const defaultTabId = (db.prepare('SELECT default_tab_id FROM room_tab_preferences WHERE room_id = ?').get(roomId) as any)?.default_tab_id || tabId
           await roomService.updateLastActive(roomId)
           const tab = db.prepare('SELECT * FROM tabs WHERE id = ? AND room_id = ?').get(tabId, roomId)
-          broadcast(roomId, 'tabs.updated', { action: 'add', tab })
-          return { success: true, data: { tab } }
+          broadcast(roomId, 'tabs.updated', { action: 'add', tab, defaultTabId })
+          return { success: true, data: { tab, defaultTabId } }
         }
         case 'tab.create-from-file': {
           const title = String(args.title || '').trim()
@@ -339,11 +410,15 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           db.prepare(`
             INSERT INTO tabs (id, room_id, title, content, icon, sort_order, created_by, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(tabId, roomId, title, content, args.icon || '📄', (maxOrder?.max_order ?? -1) + 1, agent.id, now, now)
+          `).run(tabId, roomId, title, content, args.icon || '📄', (maxOrder?.max_order ?? -1) + 1, actorUserId, now, now)
+          if (args.makeDefault === true || args.default === true) {
+            db.prepare(`INSERT INTO room_tab_preferences (room_id, default_tab_id, updated_by, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(room_id) DO UPDATE SET default_tab_id = excluded.default_tab_id, updated_by = excluded.updated_by, updated_at = excluded.updated_at`).run(roomId, tabId, actorUserId, now)
+          }
+          const defaultTabId = (db.prepare('SELECT default_tab_id FROM room_tab_preferences WHERE room_id = ?').get(roomId) as any)?.default_tab_id || tabId
           await roomService.updateLastActive(roomId)
           const tab = db.prepare('SELECT * FROM tabs WHERE id = ? AND room_id = ?').get(tabId, roomId)
-          broadcast(roomId, 'tabs.updated', { action: 'add', tab })
-          return { success: true, data: { tab } }
+          broadcast(roomId, 'tabs.updated', { action: 'add', tab, defaultTabId })
+          return { success: true, data: { tab, defaultTabId } }
         }
         case 'tab.update': {
           const tabId = String(args.tabId || args.id || '').trim()
@@ -374,11 +449,27 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
         case 'tab.delete': {
           const tabId = String(args.tabId || args.id || '').trim()
           if (!tabId) throw { code: 'VALIDATION_ERROR', message: 'tabId is required' }
+          const currentDefault = (db.prepare('SELECT default_tab_id FROM room_tab_preferences WHERE room_id = ?').get(roomId) as any)?.default_tab_id
           const result = db.prepare('DELETE FROM tabs WHERE id = ? AND room_id = ?').run(tabId, roomId)
           if (result.changes === 0) throwTabNotFound(tabId)
+          if (currentDefault === tabId) {
+            const next = db.prepare('SELECT id FROM tabs WHERE room_id = ? ORDER BY sort_order ASC, created_at ASC LIMIT 1').get(roomId) as any
+            db.prepare(`INSERT INTO room_tab_preferences (room_id, default_tab_id, updated_by, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(room_id) DO UPDATE SET default_tab_id = excluded.default_tab_id, updated_by = excluded.updated_by, updated_at = excluded.updated_at`).run(roomId, next?.id || null, actorUserId, Date.now())
+          }
           await roomService.updateLastActive(roomId)
-          broadcast(roomId, 'tabs.updated', { action: 'delete', tabId })
+          const defaultTabId = (db.prepare('SELECT default_tab_id FROM room_tab_preferences WHERE room_id = ?').get(roomId) as any)?.default_tab_id || null
+          broadcast(roomId, 'tabs.updated', { action: 'delete', tabId, defaultTabId })
           return { success: true }
+        }
+        case 'tab.set-default': {
+          const target = String(args.tabId || args.id || args.title || '').trim()
+          if (!target) throw { code: 'VALIDATION_ERROR', message: 'tabId or title is required' }
+          const tab = db.prepare('SELECT * FROM tabs WHERE room_id = ? AND (id = ? OR title = ?) LIMIT 1').get(roomId, target, target) as any
+          if (!tab) throwTabNotFound(target)
+          db.prepare(`INSERT INTO room_tab_preferences (room_id, default_tab_id, updated_by, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(room_id) DO UPDATE SET default_tab_id = excluded.default_tab_id, updated_by = excluded.updated_by, updated_at = excluded.updated_at`).run(roomId, tab.id, actorUserId, Date.now())
+          await roomService.updateLastActive(roomId)
+          broadcast(roomId, 'tabs.updated', { action: 'set-default', tabId: tab.id, defaultTabId: tab.id })
+          return { success: true, data: { defaultTabId: tab.id, tab } }
         }
         case 'tab.reorder': {
           if (!Array.isArray(args.tabIds)) throw { code: 'VALIDATION_ERROR', message: 'tabIds must be an array' }
@@ -447,7 +538,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           broadcast(roomId, 'agent.status_update', { agentId: result.agent.id, status: 'active', onlineStatus: 'online', lastActiveAt: Date.now(), lastError: null })
           if (result.pendingSubtasks.length > 0) {
             const lines = result.pendingSubtasks.map((item: any, i: number) => `${i + 1}. 父任务 ${item.task_id}「${item.task_title}」 / 子任务 ${item.id}「${item.title}」`).join('\n')
-            await invokeAssignedAgent(roomId, result.agent.id, agent.id, `你刚刚被人工软恢复，请继续处理已分派但未完成的子任务：\n${lines}\n\n请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。`)
+            await invokeAssignedAgent(roomId, result.agent.id, agent.id, `你刚刚被人工软恢复，请继续处理已分派但未完成的子任务：\n${lines}\n\n请先用 ./freechat task subtask update 标记状态/进展。项目交付文件必须通过 ./freechat file write-local <项目文件路径> <本地文件路径> --show 或 ./freechat file write <项目文件路径> <内容> --show 写入；直接写 res/ 只是私有工作区，用户文件目录不可见。完成后在聊天中简短汇报。`, actorUserId)
           }
           return { success: true, data: result }
         }
@@ -455,7 +546,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           await agentService.assertRoomAssistant(roomId, agent.id)
           const target = await agentService.resolveAvailableAgentForRoom(roomId, agent.id, args.agent || args.agentId || args.name)
           const roomRole = args.roomRole === 'assistant' ? 'assistant' : (target.roleType === 'assistant' ? 'assistant' : 'specialist')
-          await agentService.addAgentToRoom(roomId, target.id, agent.id, {
+          await agentService.addAgentToRoom(roomId, target.id, actorUserId, {
             roomRole,
             autoEnabled: args.autoEnabled === true,
             priority: Number(args.priority || 0),
@@ -466,20 +557,174 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           broadcast(roomId, 'room.members_update', { members, agents })
           return { success: true, data: { agent: target, agents } }
         }
+        case 'agent.remove': {
+          await agentService.assertRoomAssistant(roomId, agent.id)
+          assertActorCanEditRoom()
+          const target = args.agent || args.agentId || args.id || args.name
+          if (!target) throw { code: 'VALIDATION_ERROR', message: 'agent is required' }
+          const roomAgents = await agentService.getRoomAgents(roomId)
+          const targetAgent = roomAgents.find((item: any) => item.id === target || item.name === target)
+          if (!targetAgent) throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found in room' }
+          await agentService.removeAgentFromRoom(roomId, targetAgent.id)
+          await agentService.refreshRoomAgentContext(roomId)
+          const nextAgents = await agentService.getRoomAgents(roomId)
+          broadcast(roomId, 'room.members_update', { members: await roomService.getRoomMembers(roomId), agents: nextAgents })
+          return { success: true, data: { agents: nextAgents } }
+        }
+        case 'agent.detail': {
+          const target = args.agent || args.agentId || args.id || agent.id
+          const targetAgent = await agentService.getAgent(target)
+          const skills = agentCapabilityService.listSkills(targetAgent.id)
+          const scripts = agentCapabilityService.listScripts(targetAgent.id)
+          return { success: true, data: { agent: targetAgent, skills, scripts } }
+        }
+        case 'agent.update': {
+          const target = args.agent || args.agentId || args.id
+          if (!target) throw { code: 'VALIDATION_ERROR', message: 'agent is required' }
+          await agentService.assertAgentOwner(target, actorUserId, undefined)
+          const updated = await agentService.updateAgent(target, args.updates || args)
+          await agentService.refreshRoomAgentContext(roomId).catch(() => {})
+          return { success: true, data: { agent: updated } }
+        }
+        case 'agent.skill.list': {
+          const target = args.agent || args.agentId || args.id || agent.id
+          return { success: true, data: { skills: agentCapabilityService.listSkills(target) } }
+        }
+        case 'agent.skill.create': {
+          const target = args.agent || args.agentId || args.id
+          if (!target) throw { code: 'VALIDATION_ERROR', message: 'agent is required' }
+          await agentService.assertAgentOwner(target, actorUserId, undefined)
+          const skill = agentCapabilityService.createSkill(target, args)
+          await agentService.refreshRoomAgentContext(roomId).catch(() => {})
+          return { success: true, data: { skill } }
+        }
+        case 'agent.skill.update': {
+          const target = args.agent || args.agentId || args.id
+          const skillId = args.skillId || args.skill_id
+          if (!target || !skillId) throw { code: 'VALIDATION_ERROR', message: 'agent and skillId are required' }
+          await agentService.assertAgentOwner(target, actorUserId, undefined)
+          const skill = agentCapabilityService.updateSkill(target, skillId, args.updates || args)
+          await agentService.refreshRoomAgentContext(roomId).catch(() => {})
+          return { success: true, data: { skill } }
+        }
+        case 'agent.skill.delete': {
+          const target = args.agent || args.agentId || args.id
+          const skillId = args.skillId || args.skill_id
+          if (!target || !skillId) throw { code: 'VALIDATION_ERROR', message: 'agent and skillId are required' }
+          await agentService.assertAgentOwner(target, actorUserId, undefined)
+          agentCapabilityService.deleteSkill(target, skillId)
+          await agentService.refreshRoomAgentContext(roomId).catch(() => {})
+          return { success: true }
+        }
+        case 'agent.script.list': {
+          const target = args.agent || args.agentId || args.id || agent.id
+          return { success: true, data: { scripts: agentCapabilityService.listScripts(target) } }
+        }
+        case 'agent.script.create': {
+          const target = args.agent || args.agentId || args.id
+          if (!target) throw { code: 'VALIDATION_ERROR', message: 'agent is required' }
+          await agentService.assertAgentOwner(target, actorUserId, undefined)
+          const script = agentCapabilityService.createScript(target, args)
+          await agentService.refreshRoomAgentContext(roomId).catch(() => {})
+          return { success: true, data: { script } }
+        }
+        case 'agent.script.update': {
+          const target = args.agent || args.agentId || args.id
+          const scriptId = args.scriptId || args.script_id
+          if (!target || !scriptId) throw { code: 'VALIDATION_ERROR', message: 'agent and scriptId are required' }
+          await agentService.assertAgentOwner(target, actorUserId, undefined)
+          const script = agentCapabilityService.updateScript(target, scriptId, args.updates || args)
+          await agentService.refreshRoomAgentContext(roomId).catch(() => {})
+          return { success: true, data: { script } }
+        }
+        case 'agent.script.delete': {
+          const target = args.agent || args.agentId || args.id
+          const scriptId = args.scriptId || args.script_id
+          if (!target || !scriptId) throw { code: 'VALIDATION_ERROR', message: 'agent and scriptId are required' }
+          await agentService.assertAgentOwner(target, actorUserId, undefined)
+          agentCapabilityService.deleteScript(target, scriptId)
+          await agentService.refreshRoomAgentContext(roomId).catch(() => {})
+          return { success: true }
+        }
+        case 'scene.list': {
+          return { success: true, data: { scenes: sceneTemplateService.listScenes({ id: actorUserId, role: undefined }) } }
+        }
+        case 'scene.create': {
+          const scene = sceneTemplateService.createScene(actorUserId, args)
+          return { success: true, data: { scene } }
+        }
+        case 'scene.update': {
+          const sceneId = args.sceneId || args.id
+          if (!sceneId) throw { code: 'VALIDATION_ERROR', message: 'sceneId is required' }
+          const scene = sceneTemplateService.updateScene({ id: actorUserId, role: undefined }, sceneId, args.updates || args)
+          return { success: true, data: { scene } }
+        }
         case 'members.list': {
           const members = await roomService.getRoomMembers(roomId)
           const agents = await agentService.getRoomAgents(roomId)
           return { success: true, data: { members, agents } }
         }
+        case 'members.add': {
+          assertActorCanEditRoom()
+          const userId = args.userId || args.id
+          if (!userId) throw { code: 'VALIDATION_ERROR', message: 'userId is required' }
+          const role = ['owner', 'editor', 'viewer'].includes(args.role) ? args.role : 'editor'
+          await roomService.addMember(roomId, userId, role)
+          await agentService.refreshRoomAgentContext(roomId).catch(() => {})
+          const members = await roomService.getRoomMembers(roomId)
+          broadcast(roomId, 'room.members_update', { members, agents: await agentService.getRoomAgents(roomId) })
+          return { success: true, data: { members } }
+        }
+        case 'profiles.update': {
+          assertActorCanEditRoom()
+          const memberId = args.memberId || args.userId || args.id
+          if (!memberId) throw { code: 'VALIDATION_ERROR', message: 'memberId is required' }
+          const profile = await membersService.setProfile(roomId, memberId, {
+            displayName: args.displayName || args.roleTitle || args.role_title,
+            roleDescription: args.roleDescription || args.persona,
+            avatar: args.avatar,
+            customData: args.customData || {
+              specialties: args.specialties,
+              roleTitle: args.roleTitle || args.role_title,
+              persona: args.persona,
+            },
+          })
+          await agentService.refreshRoomAgentContext(roomId).catch(() => {})
+          return { success: true, data: { profile } }
+        }
         case 'room.info': {
           const room = await roomService.getRoom(roomId)
           return { success: true, data: { room } }
         }
+        case 'room.update': {
+          assertActorCanEditRoom()
+          const room = await roomService.updateRoom(roomId, args.name, args.description)
+          broadcast(roomId, 'room.updated', { room })
+          return { success: true, data: { room } }
+        }
+        case 'room.create-invite': {
+          assertActorCanEditRoom()
+          const code = uuidv4().replace(/-/g, '').substring(0, 12)
+          const now = Date.now()
+          const expiresAt = args.expiresInDays ? now + Number(args.expiresInDays) * 24 * 60 * 60 * 1000 : null
+          db.prepare(`
+            INSERT INTO room_invites (code, room_id, created_by, max_uses, expires_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).run(code, roomId, actorUserId, args.maxUses || null, expiresAt, now)
+          return { success: true, data: { code, url: `/invite?code=${code}`, expiresAt } }
+        }
         default:
-          return reply.code(400).send({ success: false, error: { code: 'UNKNOWN_ACTION', message: `Unknown action: ${action}` } })
+          toolError = { code: 'UNKNOWN_ACTION', message: `Unknown action: ${action}` }
+          return reply.code(400).send({ success: false, error: toolError })
       }
     } catch (err: any) {
-      return reply.code(err.code === 'TAB_NOT_FOUND' ? 404 : (err.code === 'INVALID_PATH' || err.code === 'VALIDATION_ERROR' ? 400 : (err.code === 'AGENT_TOOL_FORBIDDEN' ? 403 : 500))).send({
+      const status = ['TAB_NOT_FOUND', 'USER_NOT_FOUND', 'DM_NOT_FOUND', 'REQUEST_NOT_FOUND', 'ROOM_NOT_FOUND', 'AGENT_NOT_FOUND'].includes(err.code) ? 404
+        : ['INVALID_PATH', 'VALIDATION_ERROR', 'CANNOT_ADD_SELF'].includes(err.code) ? 400
+          : ['AGENT_TOOL_FORBIDDEN', 'FORBIDDEN'].includes(err.code) ? 403
+            : ['ALREADY_FRIENDS', 'REQUEST_PENDING'].includes(err.code) ? 409
+              : 500
+      toolError = err
+      return reply.code(status).send({
         success: false,
         error: { code: err.code || 'INTERNAL_ERROR', message: err.message || String(err) }
       })

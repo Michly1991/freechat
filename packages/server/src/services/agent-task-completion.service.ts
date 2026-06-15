@@ -6,7 +6,10 @@ function extractSubtaskId(input: string): string | undefined {
 }
 
 function looksCompleted(output: string): boolean {
-  return /完成|已完成|写入|保存|已保存|生成/.test(output) && !/无法完成|未完成|失败|报错/.test(output)
+  const text = String(output || '')
+  const positive = /完成|已完成|写入|保存|已保存|生成/.test(text)
+  const hardNegative = /无法完成|未完成|任务失败|产物失败|写入失败|保存失败/.test(text)
+  return positive && !hardNegative
 }
 
 export class AgentTaskCompletionService {

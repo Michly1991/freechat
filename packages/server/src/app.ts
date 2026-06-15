@@ -16,7 +16,10 @@ import { registerDmRoutes } from './routes/dm.js'
 import { registerConversationRoutes } from './routes/conversations.js'
 import { registerMessageRoutes } from './routes/messages.js'
 import { registerInteractionRoutes } from './routes/interactions.js'
+import { registerSceneRoutes } from './routes/scenes.js'
 import { registerAgentToolRoutes } from './routes/agent-tools.js'
+import { registerRoomAnalyticsRoutes } from './routes/room-analytics.js'
+import { registerPersonalAnalyticsRoutes } from './routes/personal-analytics.js'
 import { authenticate } from './auth/middleware.js'
 import { initDatabase } from './storage/db.js'
 import { initWebSocket } from './ws/gateway.js'
@@ -85,6 +88,9 @@ async function buildApp() {
   await registerConversationRoutes(app)
   await registerMessageRoutes(app)
   await registerInteractionRoutes(app)
+  await registerSceneRoutes(app)
+  await registerRoomAnalyticsRoutes(app)
+  await registerPersonalAnalyticsRoutes(app)
   await registerAgentToolRoutes(app)
 
   // Error handler

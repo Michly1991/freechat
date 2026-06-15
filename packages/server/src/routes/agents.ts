@@ -2,6 +2,10 @@ import { FastifyInstance } from 'fastify'
 import { agentService } from '../services/agent.service.js'
 import { roomService } from '../services/room.service.js'
 import { messageService } from '../services/message.service.js'
+import { agentCapabilityService } from '../services/agent-capability.service.js'
+import { templatePermissionService } from '../services/template-permission.service.js'
+import { agentRestartService } from '../services/agent-restart.service.js'
+import { getGateway } from '../ws/gateway.js'
 
 export async function registerAgentRoutes(app: FastifyInstance) {
   // ===== User's own agents =====
@@ -11,7 +15,11 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const user = (request as any).user
     try {
       const agents = await agentService.getUserAgents(user.id)
-      return reply.send({ success: true, data: { agents } })
+      const enriched = await Promise.all(agents.map(async (agent: any) => {
+        const canEdit = await agentService.canEditAgent(agent.id, user)
+        return { ...agent, canEdit, canDelete: canEdit && agent.canDelete !== false }
+      }))
+      return reply.send({ success: true, data: { agents: enriched } })
     } catch (err: any) {
       throw err
     }
@@ -57,7 +65,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const body = request.body as any
 
     try {
-      await agentService.assertAgentOwner(id, user.id)
+      await agentService.assertAgentOwner(id, user.id, user.role)
 
       const updated = await agentService.updateAgent(id, {
         name: body.name,
@@ -77,13 +85,141 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     }
   })
 
+  // GET /api/agents/:id/detail - template/project agent detail with skills and scripts
+  app.get('/api/agents/:id/detail', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    try {
+      const agent: any = await agentService.getAgent(id)
+      agent.canEdit = await agentService.canEditAgent(id, user)
+      agent.canDelete = agent.canEdit && agent.canDelete !== false
+      const skills = agentCapabilityService.listSkills(id)
+      const scripts = agentCapabilityService.listScripts(id)
+      return reply.send({ success: true, data: { agent, skills, scripts } })
+    } catch (err: any) {
+      throw err
+    }
+  })
+
+  app.get('/api/agents/:id/permissions', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    await agentService.getAgent(id)
+    const canManage = !agentService.isLockedBuiltInAgent(id) && templatePermissionService.canManage('agent', id, user)
+    const members = canManage ? templatePermissionService.listMembers('agent', id) : []
+    const requests = canManage ? templatePermissionService.listRequestsForTarget('agent', id) : []
+    return reply.send({ success: true, data: { canManage, members, requests } })
+  })
+
+  app.post('/api/agents/:id/permissions', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    const body = request.body as any
+    if (!String(body?.userId || '').trim()) return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'userId is required' } })
+    agentService.assertAgentMutable(id)
+    const members = templatePermissionService.grant('agent', id, user, String(body.userId), body.role || 'editor')
+    return reply.send({ success: true, data: { members } })
+  })
+
+  app.delete('/api/agents/:id/permissions/:userId', async (request, reply) => {
+    const user = (request as any).user
+    const { id, userId } = request.params as any
+    agentService.assertAgentMutable(id)
+    const members = templatePermissionService.revoke('agent', id, user, userId)
+    return reply.send({ success: true, data: { members } })
+  })
+
+  app.post('/api/agents/:id/permission-requests', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    const body = request.body as any
+    agentService.assertAgentMutable(id)
+    const requestRow = templatePermissionService.request('agent', id, user.id, body?.message, body?.role || 'editor')
+    return reply.code(201).send({ success: true, data: { request: requestRow } })
+  })
+
+  app.post('/api/agents/:id/permission-requests/:requestId/resolve', async (request, reply) => {
+    const user = (request as any).user
+    const { requestId } = request.params as any
+    const body = request.body as any
+    const decision = body?.decision === 'reject' ? 'reject' : 'approve'
+    const requestRow = templatePermissionService.resolveRequest(requestId, user, decision)
+    return reply.send({ success: true, data: { request: requestRow } })
+  })
+
+  app.get('/api/agents/:id/skills', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    await agentService.getAgent(id)
+    return reply.send({ success: true, data: { skills: agentCapabilityService.listSkills(id) } })
+  })
+
+  app.post('/api/agents/:id/skills', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    const body = request.body as any
+    if (!String(body?.name || '').trim()) return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'name is required' } })
+    await agentService.assertAgentOwner(id, user.id, user.role)
+    const skill = agentCapabilityService.createSkill(id, { ...body, name: String(body.name).trim() })
+    return reply.code(201).send({ success: true, data: { skill } })
+  })
+
+  app.patch('/api/agents/:id/skills/:skillId', async (request, reply) => {
+    const user = (request as any).user
+    const { id, skillId } = request.params as any
+    await agentService.assertAgentOwner(id, user.id, user.role)
+    const skill = agentCapabilityService.updateSkill(id, skillId, request.body as any)
+    return reply.send({ success: true, data: { skill } })
+  })
+
+  app.delete('/api/agents/:id/skills/:skillId', async (request, reply) => {
+    const user = (request as any).user
+    const { id, skillId } = request.params as any
+    await agentService.assertAgentOwner(id, user.id, user.role)
+    agentCapabilityService.deleteSkill(id, skillId)
+    return reply.send({ success: true })
+  })
+
+  app.get('/api/agents/:id/scripts', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    await agentService.getAgent(id)
+    return reply.send({ success: true, data: { scripts: agentCapabilityService.listScripts(id) } })
+  })
+
+  app.post('/api/agents/:id/scripts', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    const body = request.body as any
+    if (!String(body?.name || '').trim()) return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'name is required' } })
+    await agentService.assertAgentOwner(id, user.id, user.role)
+    const script = agentCapabilityService.createScript(id, { ...body, name: String(body.name).trim() })
+    return reply.code(201).send({ success: true, data: { script } })
+  })
+
+  app.patch('/api/agents/:id/scripts/:scriptId', async (request, reply) => {
+    const user = (request as any).user
+    const { id, scriptId } = request.params as any
+    await agentService.assertAgentOwner(id, user.id, user.role)
+    const script = agentCapabilityService.updateScript(id, scriptId, request.body as any)
+    return reply.send({ success: true, data: { script } })
+  })
+
+  app.delete('/api/agents/:id/scripts/:scriptId', async (request, reply) => {
+    const user = (request as any).user
+    const { id, scriptId } = request.params as any
+    await agentService.assertAgentOwner(id, user.id, user.role)
+    agentCapabilityService.deleteScript(id, scriptId)
+    return reply.send({ success: true })
+  })
+
   // DELETE /api/agents/:id - delete agent
   app.delete('/api/agents/:id', async (request, reply) => {
     const user = (request as any).user
     const { id } = request.params as any
 
     try {
-      await agentService.assertAgentOwner(id, user.id)
+      await agentService.assertAgentOwner(id, user.id, user.role)
       await agentService.deleteAgent(id)
       return reply.send({ success: true })
     } catch (err: any) {
@@ -97,7 +233,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const { id } = request.params as any
 
     try {
-      await agentService.assertAgentOwner(id, user.id)
+      await agentService.assertAgentOwner(id, user.id, user.role)
       const apiKey = await agentService.regenerateApiKey(id)
       return reply.send({ success: true, data: { apiKey } })
     } catch (err: any) {
@@ -202,6 +338,34 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     } catch (err: any) {
       throw err
     }
+  })
+
+  // POST /api/rooms/:roomId/agents/:agentId/restart - soft restart room agent
+  app.post('/api/rooms/:roomId/agents/:agentId/restart', async (request, reply) => {
+    const user = (request as any).user
+    const { roomId, agentId } = request.params as any
+    const { clearSession = true } = request.body as any || {}
+
+    const canEdit = await agentService.canEditRoomAgents(roomId, user.id)
+    if (!canEdit) {
+      return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Only project owner/editor can restart agents' } })
+    }
+
+    const result = await agentRestartService.softRestart(roomId, agentId, user.id, clearSession !== false)
+    const gateway = getGateway()
+    gateway?.broadcast(roomId, {
+      msgId: `agent_restart_${Date.now()}`,
+      roomId,
+      type: 'broadcast',
+      action: 'agent.status_update',
+      payload: { agentId: result.agent.id, status: result.agent.status, onlineStatus: 'online', lastActiveAt: Date.now() },
+      timestamp: Date.now()
+    })
+    if (result.pendingSubtasks.length > 0) {
+      const lines = result.pendingSubtasks.map((item: any, i: number) => `${i + 1}. 父任务 ${item.task_id}「${item.task_title}」 / 子任务 ${item.id}「${item.title}」`).join('\n')
+      void gateway?.invokeAgents(roomId, `你刚刚被人工软恢复，请继续处理已分派但未完成的子任务：\n${lines}\n\n请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。`, [{ id: result.agent.id, name: result.agent.name, role: 'ai' }], 'task', user.id)
+    }
+    return reply.send({ success: true, data: result })
   })
 
   // POST /api/rooms/:roomId/agents/:agentId/invoke - invoke agent with a message

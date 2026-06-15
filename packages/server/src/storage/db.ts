@@ -49,6 +49,44 @@ function runMigrations() {
   }
 }
 
+
+function ensureColumn(table: string, cols: any[], name: string, ddl: string) {
+  if (!cols.some((col) => col.name === name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`)
+}
+
+function ensureAgentAnalyticsSchema() {
+  const cols = db.prepare('PRAGMA table_info(agent_runs)').all() as any[]
+  ensureColumn('agent_runs', cols, 'runtime', 'runtime TEXT')
+  ensureColumn('agent_runs', cols, 'model', 'model TEXT')
+  ensureColumn('agent_runs', cols, 'duration_ms', 'duration_ms INTEGER')
+  ensureColumn('agent_runs', cols, 'input_tokens', 'input_tokens INTEGER DEFAULT 0')
+  ensureColumn('agent_runs', cols, 'output_tokens', 'output_tokens INTEGER DEFAULT 0')
+  ensureColumn('agent_runs', cols, 'cache_creation_input_tokens', 'cache_creation_input_tokens INTEGER DEFAULT 0')
+  ensureColumn('agent_runs', cols, 'cache_read_input_tokens', 'cache_read_input_tokens INTEGER DEFAULT 0')
+  ensureColumn('agent_runs', cols, 'total_tokens', 'total_tokens INTEGER DEFAULT 0')
+  ensureColumn('agent_runs', cols, 'tool_call_count', 'tool_call_count INTEGER DEFAULT 0')
+  ensureColumn('agent_runs', cols, 'tool_duration_ms', 'tool_duration_ms INTEGER DEFAULT 0')
+  ensureColumn('agent_runs', cols, 'actor_user_id', 'actor_user_id TEXT')
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_runs_room_agent_started ON agent_runs(room_id, agent_id, started_at)`)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_tool_calls (
+      id TEXT PRIMARY KEY, room_id TEXT NOT NULL, agent_id TEXT NOT NULL, run_id TEXT, stream_id TEXT,
+      tool_name TEXT NOT NULL, action TEXT, status TEXT NOT NULL, error_code TEXT, error_message TEXT,
+      input_summary TEXT, output_summary TEXT, started_at INTEGER NOT NULL, finished_at INTEGER, duration_ms INTEGER,
+      FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+      FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+      FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE SET NULL,
+      FOREIGN KEY (stream_id) REFERENCES agent_streams(id) ON DELETE SET NULL
+    )
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_room_started ON agent_tool_calls(room_id, started_at)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_run ON agent_tool_calls(run_id)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_agent_started ON agent_tool_calls(agent_id, started_at)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_room_status_started ON agent_tool_calls(room_id, status, started_at)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_room_tool_status ON agent_tool_calls(room_id, tool_name, status)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_error_code ON agent_tool_calls(room_id, error_code, started_at)`)
+}
+
 export function initDatabase() {
   runMigrations()
   // Users table
@@ -75,9 +113,15 @@ export function initDatabase() {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       last_active_at INTEGER NOT NULL,
+      scene_template_id TEXT,
+      scene_template_version INTEGER,
       FOREIGN KEY (created_by) REFERENCES users(id)
     )
   `)
+
+  const roomCols = db.prepare('PRAGMA table_info(rooms)').all() as any[]
+  if (!roomCols.some((col) => col.name === 'scene_template_id')) db.exec('ALTER TABLE rooms ADD COLUMN scene_template_id TEXT')
+  if (!roomCols.some((col) => col.name === 'scene_template_version')) db.exec('ALTER TABLE rooms ADD COLUMN scene_template_version INTEGER')
 
   // Room members table
   db.exec(`
@@ -267,6 +311,18 @@ export function initDatabase() {
     )
   `)
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS room_tab_preferences (
+      room_id TEXT PRIMARY KEY,
+      default_tab_id TEXT,
+      updated_by TEXT,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+      FOREIGN KEY (default_tab_id) REFERENCES tabs(id) ON DELETE SET NULL,
+      FOREIGN KEY (updated_by) REFERENCES users(id)
+    )
+  `)
+
   // Agents table
   db.exec(`
     CREATE TABLE IF NOT EXISTS agents (
@@ -281,9 +337,149 @@ export function initDatabase() {
       api_key_hash TEXT,
       status TEXT DEFAULT 'active',
       session_id TEXT,
+      is_template INTEGER DEFAULT 1,
+      template_version INTEGER DEFAULT 1,
+      source_template_id TEXT,
+      source_template_version INTEGER,
+      is_modified INTEGER DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (owner_id) REFERENCES users(id)
+    )
+  `)
+
+  const agentCols = db.prepare('PRAGMA table_info(agents)').all() as any[]
+  if (!agentCols.some((col) => col.name === 'is_template')) db.exec('ALTER TABLE agents ADD COLUMN is_template INTEGER DEFAULT 1')
+  if (!agentCols.some((col) => col.name === 'template_version')) db.exec('ALTER TABLE agents ADD COLUMN template_version INTEGER DEFAULT 1')
+  if (!agentCols.some((col) => col.name === 'source_template_id')) db.exec('ALTER TABLE agents ADD COLUMN source_template_id TEXT')
+  if (!agentCols.some((col) => col.name === 'source_template_version')) db.exec('ALTER TABLE agents ADD COLUMN source_template_version INTEGER')
+  if (!agentCols.some((col) => col.name === 'is_modified')) db.exec('ALTER TABLE agents ADD COLUMN is_modified INTEGER DEFAULT 0')
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_skills (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      content TEXT NOT NULL DEFAULT '',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+    )
+  `)
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_agent_skills_agent
+    ON agent_skills(agent_id, sort_order, created_at)
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_scripts (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      language TEXT NOT NULL DEFAULT 'bash',
+      content TEXT NOT NULL DEFAULT '',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      run_policy TEXT NOT NULL DEFAULT 'manual_only',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+    )
+  `)
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_agent_scripts_agent
+    ON agent_scripts(agent_id, sort_order, created_at)
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scene_templates (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT,
+      built_in_key TEXT,
+      name TEXT NOT NULL,
+      description TEXT,
+      icon TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `)
+
+  const sceneCols = db.prepare('PRAGMA table_info(scene_templates)').all() as any[]
+  if (!sceneCols.some((col) => col.name === 'owner_id')) db.exec('ALTER TABLE scene_templates ADD COLUMN owner_id TEXT')
+  if (!sceneCols.some((col) => col.name === 'built_in_key')) db.exec('ALTER TABLE scene_templates ADD COLUMN built_in_key TEXT')
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_scene_templates_status_created ON scene_templates(status, created_at)`)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scene_template_agents (
+      id TEXT PRIMARY KEY,
+      scene_id TEXT NOT NULL,
+      agent_template_id TEXT NOT NULL,
+      room_role TEXT NOT NULL DEFAULT 'specialist',
+      auto_enabled INTEGER NOT NULL DEFAULT 0,
+      priority INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (scene_id) REFERENCES scene_templates(id) ON DELETE CASCADE,
+      FOREIGN KEY (agent_template_id) REFERENCES agents(id) ON DELETE CASCADE
+    )
+  `)
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_scene_template_agents_scene
+    ON scene_template_agents(scene_id, priority, created_at)
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS template_permission_members (
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      granted_by TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (target_type, target_id, user_id)
+    )
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_template_permission_members_user ON template_permission_members(user_id, target_type, role)`)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS template_permission_requests (
+      id TEXT PRIMARY KEY,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      requester_id TEXT NOT NULL,
+      requested_role TEXT NOT NULL,
+      message TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      resolved_by TEXT,
+      resolved_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_template_permission_requests_target ON template_permission_requests(target_type, target_id, status)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_template_permission_requests_requester ON template_permission_requests(requester_id, status)`)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scene_template_pages (
+      id TEXT PRIMARY KEY,
+      scene_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      icon TEXT,
+      content TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (scene_id) REFERENCES scene_templates(id) ON DELETE CASCADE
     )
   `)
 
@@ -386,6 +582,17 @@ export function initDatabase() {
       output TEXT,
       error TEXT,
       session_id TEXT,
+      runtime TEXT,
+      model TEXT,
+      duration_ms INTEGER,
+      input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0,
+      cache_creation_input_tokens INTEGER DEFAULT 0,
+      cache_read_input_tokens INTEGER DEFAULT 0,
+      total_tokens INTEGER DEFAULT 0,
+      tool_call_count INTEGER DEFAULT 0,
+      tool_duration_ms INTEGER DEFAULT 0,
+      actor_user_id TEXT,
       started_at INTEGER NOT NULL,
       finished_at INTEGER,
       FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
@@ -393,9 +600,47 @@ export function initDatabase() {
     )
   `)
 
+  ensureAgentAnalyticsSchema()
+
+  // Agent stream activity records for restoring in-progress and completed Agent work traces
   db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_agent_runs_room_agent_started
-    ON agent_runs(room_id, agent_id, started_at)
+    CREATE TABLE IF NOT EXISTS agent_streams (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      actor_name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      final_message_id TEXT,
+      error TEXT,
+      started_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+      FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+      FOREIGN KEY (final_message_id) REFERENCES messages(id) ON DELETE SET NULL
+    )
+  `)
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_agent_streams_room_status_started
+    ON agent_streams(room_id, status, started_at)
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_stream_events (
+      id TEXT PRIMARY KEY,
+      stream_id TEXT NOT NULL,
+      kind TEXT,
+      text TEXT NOT NULL,
+      tool TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (stream_id) REFERENCES agent_streams(id) ON DELETE CASCADE
+    )
+  `)
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_agent_stream_events_stream_created
+    ON agent_stream_events(stream_id, created_at)
   `)
 
   // Friend requests table

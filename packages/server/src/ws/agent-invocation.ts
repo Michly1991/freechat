@@ -3,10 +3,14 @@ import { agentService } from '../services/agent.service.js'
 import { interactionService } from '../services/interaction.service.js'
 import { messageService } from '../services/message.service.js'
 import { agentTaskCompletionService } from '../services/agent-task-completion.service.js'
+import { agentArtifactService } from '../services/agent-artifact.service.js'
 import { fileMentionContextService } from '../services/file-mention-context.service.js'
+import { longTaskService } from '../services/long-task.service.js'
 import { config } from '../config.js'
 import { buildAssistantAutoPrompt, shouldConsiderAssistantAutoReply } from './assistant-auto-prompt.js'
 import type { BroadcastToRoom, InvokeReason } from './gateway-types.js'
+import { clearActiveAgentStream, setActiveAgentStream } from './agent-stream-events.js'
+import { agentStreamService } from '../services/agent-stream.service.js'
 
 export class AgentInvocationHandler {
   private assistantAutoReplyCooldowns: Map<string, number> = new Map()
@@ -65,7 +69,7 @@ export class AgentInvocationHandler {
     return true
   }
 
-  async maybeAutoInvokeAssistant(roomId: string, actorName: string, content: string, mentions: any[] = []) {
+  async maybeAutoInvokeAssistant(roomId: string, actorName: string, content: string, mentions: any[] = [], actorUserId?: string) {
     const pendingInteractions = interactionService.list(roomId, { status: 'pending' }).slice(0, 5)
     const pendingReplyText = pendingInteractions.length > 0 && /^(确认|可以|同意|开始|继续|取消|不要|不用|否|好|好的|ok|OK|yes|no)[。.!！?？]*$/.test(String(content || '').trim())
     if (!shouldConsiderAssistantAutoReply(content, { hasPendingInteraction: pendingInteractions.length > 0 })) return
@@ -89,17 +93,30 @@ export class AgentInvocationHandler {
       .map((m) => `${m.actorRole === 'ai' ? 'AI' : '用户'} ${m.actorName}: ${m.content}`)
       .join('\n')
 
+    const contentWithFiles = `${content}${await fileMentionContextService.build(roomId, mentions)}`
+    const decision = pendingInteractions.length === 0 ? await longTaskService.decideWithAgent(roomId, assistant, contentWithFiles, context, actorUserId) : { mode: 'chat' as const }
+    if (decision.mode === 'long_task') {
+      const plan = await longTaskService.createPlan(roomId, actorUserId, assistant, contentWithFiles, context, decision)
+      const responseMsg = await messageService.createMessage(roomId, assistant.id, assistant.name, 'ai', plan.summaryMessage)
+      this.broadcastToRoom(roomId, { msgId: responseMsg.id, roomId, type: 'broadcast', action: 'chat.message', payload: responseMsg, timestamp: Date.now() })
+      this.broadcastToRoom(roomId, { msgId: uuidv4(), roomId, type: 'broadcast', action: 'task.changed', payload: { action: 'add', task: plan.task }, timestamp: Date.now() })
+      if (plan.wakePrompt && plan.firstSubtask) {
+        void this.invokeMentionedAgents(roomId, plan.wakePrompt, [{ id: assistant.id, name: assistant.name, role: 'ai' }], 'task', actorUserId)
+      }
+      return
+    }
+
     const prompt = buildAssistantAutoPrompt({
       context,
       actorName,
-      content: `${content}${await fileMentionContextService.build(roomId, mentions)}`,
+      content: contentWithFiles,
       pendingInteractions: pendingInteractions.map((item) => ({ id: item.id, type: item.type, title: item.title, description: item.description })),
     })
 
-    await this.invokeMentionedAgents(roomId, prompt, [{ id: assistant.id, name: assistant.name, role: 'ai' }], 'auto')
+    await this.invokeMentionedAgents(roomId, prompt, [{ id: assistant.id, name: assistant.name, role: 'ai' }], 'auto', actorUserId)
   }
 
-  async invokeMentionedAgents(roomId: string, content: string, mentions: any[], receiptReason: InvokeReason = 'mention') {
+  async invokeMentionedAgents(roomId: string, content: string, mentions: any[], receiptReason: InvokeReason = 'mention', actorUserId?: string) {
     const agentMentions = mentions.filter((m) => m?.role === 'ai' && m?.id)
     if (agentMentions.length === 0) return
 
@@ -120,15 +137,58 @@ export class AgentInvocationHandler {
         payload: { agentId, status: 'working', onlineStatus: 'working', lastActiveAt: Date.now() },
         timestamp: Date.now()
       })
+      const streamMessage = agentStreamService.createStream(roomId, agentId, agent.name)
+      const streamMessageId = streamMessage.id
+      setActiveAgentStream(roomId, agentId, streamMessageId)
+      const streamStartedAt = streamMessage.createdAt
+      this.broadcastToRoom(roomId, {
+        msgId: streamMessageId,
+        roomId,
+        type: 'broadcast',
+        action: 'agent.stream.started',
+        payload: streamMessage,
+        timestamp: streamStartedAt
+      })
+      let activityTick = 0
+      const activityTimer = setInterval(() => {
+        activityTick += 1
+        const activity = agentStreamService.addActivity(streamMessageId, { kind: 'heartbeat', text: activityTick === 1 ? '正在思考并检查上下文' : `仍在处理，已用时 ${Math.round((Date.now() - streamStartedAt) / 1000)} 秒` })
+        this.broadcastToRoom(roomId, {
+          msgId: uuidv4(),
+          roomId,
+          type: 'broadcast',
+          action: 'agent.stream.activity',
+          payload: { id: streamMessageId, agentId, ...activity },
+          timestamp: Date.now()
+        })
+      }, 8000)
 
       try {
         await agentService.updateAgent(agentId, { status: 'working' } as any)
-        const contentWithFiles = `${content}${await fileMentionContextService.build(roomId, mentions)}`
+        const selfMentionContext = agentMentions.some((m) => m.id === agentId)
+          ? `用户明确 @ 了你本人（${agent.name}, ${agent.id}）。你就是被 @ 的 Agent；不要转发、通知或提醒同名 Agent，请直接处理用户请求。\n\n`
+          : ''
+        const contentWithFiles = `${selfMentionContext}${content}${await fileMentionContextService.build(roomId, mentions)}`
         const timeoutMs = receiptReason === 'task' ? config.agent.taskTimeoutMs : config.agent.chatTimeoutMs
-        const result = await agentService.spawnClaudeCode(roomId, agentId, contentWithFiles, { timeoutMs })
+        const runtimeActivity = agentStreamService.addActivity(streamMessageId, { text: '正在调用 Agent Runtime' })
+        this.broadcastToRoom(roomId, { msgId: uuidv4(), roomId, type: 'broadcast', action: 'agent.stream.activity', payload: { id: streamMessageId, agentId, ...runtimeActivity }, timestamp: Date.now() })
+        const result = await agentService.spawnClaudeCode(roomId, agentId, contentWithFiles, {
+          timeoutMs,
+          actorUserId,
+          onEvent: (event) => {
+            if (event.type === 'delta') {
+              this.broadcastToRoom(roomId, { msgId: uuidv4(), roomId, type: 'broadcast', action: 'agent.stream.delta', payload: { id: streamMessageId, agentId, content: event.text }, timestamp: Date.now() })
+              return
+            }
+            const activity = agentStreamService.addActivity(streamMessageId, { kind: event.kind, text: event.text, tool: event.tool })
+            this.broadcastToRoom(roomId, { msgId: uuidv4(), roomId, type: 'broadcast', action: 'agent.stream.activity', payload: { id: streamMessageId, agentId, ...activity }, timestamp: Date.now() })
+          }
+        })
+        if (receiptReason === 'task') await agentArtifactService.publishDeclaredArtifacts(roomId, agentId, content)
         const completed = receiptReason === 'task' ? await agentTaskCompletionService.autoCompleteFromRun(content, result.response || '') : null
         if (completed) this.broadcastToRoom(roomId, { msgId: uuidv4(), roomId, type: 'broadcast', action: 'task.changed', payload: { action: 'update', task: completed.task }, timestamp: Date.now() })
         await agentService.updateAgent(agentId, { status: 'active' } as any)
+        clearInterval(activityTimer)
 
         this.broadcastToRoom(roomId, {
           msgId: uuidv4(),
@@ -143,16 +203,28 @@ export class AgentInvocationHandler {
           if (item.assigneeType === 'agent' && item.assigneeId) void this.invokeMentionedAgents(roomId, `前置子任务已完成，你负责的子任务已解除阻塞，请立即处理。\n父任务ID: ${completed.task.id}\n父任务标题: ${completed.task.title}\n子任务ID: ${item.id}\n子任务标题: ${item.title}\n${item.description ? `子任务说明: ${item.description}` : ''}\n请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。`, [{ id: item.assigneeId, name: item.assigneeName || 'Agent', role: 'ai' }], 'task')
         }
 
-        if (result.silent || !result.response) continue
+        if (result.silent || !result.response) {
+          agentStreamService.completeStream(streamMessageId, undefined, true)
+          this.broadcastToRoom(roomId, { msgId: uuidv4(), roomId, type: 'broadcast', action: 'agent.stream.completed', payload: { id: streamMessageId, agentId, silent: true, content: '' }, timestamp: Date.now() })
+          clearActiveAgentStream(roomId, agentId, streamMessageId)
+          continue
+        }
 
+        const activities = agentStreamService.getActivities(streamMessageId)
         const responseMsg = await messageService.createMessage(
           roomId,
           agentId,
           agent.name,
           'ai',
-          result.response
+          result.response,
+          undefined,
+          undefined,
+          'text',
+          { agentStream: { id: streamMessageId, activities } }
         )
+        agentStreamService.completeStream(streamMessageId, responseMsg.id)
 
+        this.broadcastToRoom(roomId, { msgId: uuidv4(), roomId, type: 'broadcast', action: 'agent.stream.completed', payload: { id: streamMessageId, agentId, finalMessageId: responseMsg.id, content: result.response, activities }, timestamp: Date.now() })
         this.broadcastToRoom(roomId, {
           msgId: responseMsg.id,
           roomId,
@@ -161,7 +233,9 @@ export class AgentInvocationHandler {
           payload: responseMsg,
           timestamp: Date.now()
         })
+        clearActiveAgentStream(roomId, agentId, streamMessageId)
       } catch (err: any) {
+        clearInterval(activityTimer)
         const message = err?.message || String(err)
         const isTimeout = /timed out|timeout/i.test(message)
         await agentService.updateAgent(agentId, { status: isTimeout ? 'active' : 'error' } as any).catch(() => {})
@@ -173,6 +247,9 @@ export class AgentInvocationHandler {
           payload: { agentId, status: isTimeout ? 'active' : 'error', onlineStatus: isTimeout ? 'online' : 'error', lastActiveAt: Date.now(), lastError: message },
           timestamp: Date.now()
         })
+        agentStreamService.failStream(streamMessageId, message)
+        this.broadcastToRoom(roomId, { msgId: uuidv4(), roomId, type: 'broadcast', action: 'agent.stream.failed', payload: { id: streamMessageId, agentId, error: message }, timestamp: Date.now() })
+        clearActiveAgentStream(roomId, agentId, streamMessageId)
         console.error(`Agent ${agentId} invocation failed:`, err)
       }
     }

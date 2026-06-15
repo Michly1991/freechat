@@ -19,6 +19,11 @@ export interface AgentRow {
   room_role?: string | null
   auto_enabled?: number | null
   room_priority?: number | null
+  is_template?: number | null
+  template_version?: number | null
+  source_template_id?: string | null
+  source_template_version?: number | null
+  is_modified?: number | null
 }
 
 export function mergeAgentConfig(roleType: 'assistant' | 'specialist', config?: AgentRuntimeConfig): AgentRuntimeConfig {
@@ -33,6 +38,9 @@ export function mergeAgentConfig(roleType: 'assistant' | 'specialist', config?: 
 }
 
 export function rowToAgent(row: AgentRow): Agent {
+  const config = row.config ? JSON.parse(row.config) : undefined
+  const builtInKey = config?.builtInKey
+  const isBuiltIn = !!builtInKey || !!config?.locked
   const status = (row.status as 'active' | 'inactive' | 'working' | 'error') || 'active'
   const onlineStatus = status === 'working'
     ? 'working'
@@ -44,12 +52,13 @@ export function rowToAgent(row: AgentRow): Agent {
 
   return {
     id: row.id,
+    ownerId: row.owner_id,
     name: row.name,
     roleType: row.role_type as 'assistant' | 'specialist',
     deployment: row.deployment as 'server' | 'client',
     description: row.description || undefined,
     specialties: row.specialties ? JSON.parse(row.specialties) : undefined,
-    config: row.config ? JSON.parse(row.config) : undefined,
+    config,
     status,
     onlineStatus,
     lastActiveAt: row.agent_last_active_at || undefined,
@@ -57,5 +66,13 @@ export function rowToAgent(row: AgentRow): Agent {
     roomRole: (row.room_role as RoomAgentRole) || undefined,
     autoEnabled: row.auto_enabled !== undefined && row.auto_enabled !== null ? !!row.auto_enabled : undefined,
     roomPriority: row.room_priority ?? undefined,
-  }
+    isTemplate: row.is_template !== undefined && row.is_template !== null ? !!row.is_template : undefined,
+    templateVersion: row.template_version ?? undefined,
+    sourceTemplateId: row.source_template_id || undefined,
+    sourceTemplateVersion: row.source_template_version ?? undefined,
+    isModified: row.is_modified !== undefined && row.is_modified !== null ? !!row.is_modified : undefined,
+    isBuiltIn,
+    builtInKey,
+    canDelete: !isBuiltIn,
+  } as Agent
 }

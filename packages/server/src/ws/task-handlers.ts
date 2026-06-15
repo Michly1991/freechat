@@ -10,7 +10,7 @@ export class TaskHandler {
   constructor(
     private getClient: (clientId: string) => ClientConnection | undefined,
     private broadcastToRoom: BroadcastToRoom,
-    private invokeMentionedAgents: (roomId: string, content: string, mentions: any[], reason?: InvokeReason) => Promise<void>
+    private invokeMentionedAgents: (roomId: string, content: string, mentions: any[], reason?: InvokeReason, actorUserId?: string) => Promise<void>
   ) {}
 
   async handleTaskList(clientId: string, payload: any) {
@@ -87,7 +87,7 @@ export class TaskHandler {
         '- 用 ./freechat task progress 写入最近进展，用户会在任务卡片看到。',
         '- 子任务状态要及时维护，父任务会汇总显示子任务状态。',
       ].filter(Boolean).join('\n')
-      void this.invokeMentionedAgents(client.currentRoomId, prompt, [{ id: assigneeId, name: assigneeName || '助理', role: 'ai' }], 'task')
+      void this.invokeMentionedAgents(client.currentRoomId, prompt, [{ id: assigneeId, name: assigneeName || '助理', role: 'ai' }], 'task', client.userId)
     }
   }
 
@@ -203,7 +203,7 @@ export class TaskHandler {
       const task = await taskService.getTask(item.taskId)
       for (const dep of released) {
         if (dep.assigneeType === 'agent' && dep.assigneeId) {
-          void this.invokeMentionedAgents(client.currentRoomId, this.buildSubtaskWakePrompt(task, dep, '前置子任务已完成，你负责的子任务已解除阻塞，请立即处理。'), [{ id: dep.assigneeId, name: dep.assigneeName || 'Agent', role: 'ai' }], 'task')
+          void this.invokeMentionedAgents(client.currentRoomId, this.buildSubtaskWakePrompt(task, dep, '前置子任务已完成，你负责的子任务已解除阻塞，请立即处理。'), [{ id: dep.assigneeId, name: dep.assigneeName || 'Agent', role: 'ai' }], 'task', client.userId)
         }
       }
     }
@@ -217,7 +217,7 @@ export class TaskHandler {
     await taskService.assertTaskInRoom(taskId, client.currentRoomId)
     const { task, wakeItems } = await taskRetryService.retryTaskFailedItems(taskId, client.userId, payload.reason)
     this.broadcastToRoom(client.currentRoomId, { msgId: uuidv4(), roomId: client.currentRoomId, type: 'broadcast', action: 'task.changed', payload: { action: 'update', task }, timestamp: Date.now() })
-    for (const item of wakeItems) void this.invokeMentionedAgents(client.currentRoomId, this.buildSubtaskWakePrompt(task, item, '用户已人工重试该子任务，请重新处理。'), [{ id: item.assigneeId, name: item.assigneeName || 'Agent', role: 'ai' }], 'task')
+    for (const item of wakeItems) void this.invokeMentionedAgents(client.currentRoomId, this.buildSubtaskWakePrompt(task, item, '用户已人工重试该子任务，请重新处理。'), [{ id: item.assigneeId, name: item.assigneeName || 'Agent', role: 'ai' }], 'task', client.userId)
   }
 
   async handleTaskSubtaskRetry(clientId: string, payload: any) {
@@ -229,7 +229,7 @@ export class TaskHandler {
     await taskService.assertTaskInRoom(before.taskId, client.currentRoomId)
     const { subtask, task, shouldWake } = await taskRetryService.retrySubtask(itemId, client.userId, payload.reason)
     this.broadcastToRoom(client.currentRoomId, { msgId: uuidv4(), roomId: client.currentRoomId, type: 'broadcast', action: 'task.changed', payload: { action: 'update', task }, timestamp: Date.now() })
-    if (shouldWake) void this.invokeMentionedAgents(client.currentRoomId, this.buildSubtaskWakePrompt(task, subtask, '用户已人工重试该子任务，请重新处理。'), [{ id: subtask.assigneeId, name: subtask.assigneeName || 'Agent', role: 'ai' }], 'task')
+    if (shouldWake) void this.invokeMentionedAgents(client.currentRoomId, this.buildSubtaskWakePrompt(task, subtask, '用户已人工重试该子任务，请重新处理。'), [{ id: subtask.assigneeId, name: subtask.assigneeName || 'Agent', role: 'ai' }], 'task', client.userId)
   }
 
   async handleTaskSubtaskDelete(clientId: string, payload: any) {

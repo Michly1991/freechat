@@ -6,13 +6,16 @@ import { chmod, mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { config } from '../config.js'
 import { createAgentToolToken } from '../agent-tool-token.js'
-import { renderAgentCli } from './agent-cli-template.js'
+import { renderAgentCliCjs, renderAgentCliWrapper } from './agent-cli-template.js'
 import { renderAgentApiDoc, renderAgentGuide } from './agent-workspace-template.js'
 import { AgentRuntimeService } from './agent-runtime.service.js'
 import { searchMarketplaceAgents } from './agent-marketplace.js'
 import type { Agent, AgentRuntimeConfig, AgentToolPermissions, RoomAgentRole } from '@freechat/shared'
 import { DEFAULT_AGENT_TOOLS } from '@freechat/shared'
 import { mergeAgentConfig, rowToAgent, type AgentRow } from './agent-mapper.js'
+import { agentCapabilityService } from './agent-capability.service.js'
+import { renderRoleCapabilitiesForPrompt } from './agent-role-capabilities.js'
+import { templatePermissionService } from './template-permission.service.js'
 
 export interface AgentConfig {
   name: string
@@ -48,8 +51,8 @@ export class AgentService {
     const mergedConfig = mergeAgentConfig(cfg.roleType, cfg.config)
 
     db.prepare(`
-      INSERT INTO agents (id, owner_id, name, role_type, deployment, description, specialties, config, api_key_hash, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+      INSERT INTO agents (id, owner_id, name, role_type, deployment, description, specialties, config, api_key_hash, status, is_template, template_version, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 1, 1, ?, ?)
     `).run(
       id,
       ownerId,
@@ -76,29 +79,37 @@ export class AgentService {
     return rowToAgent(row)
   }
 
-  async getUserAgents(ownerId: string): Promise<Agent[]> {
+  async getUserAgents(_ownerId: string): Promise<Agent[]> {
     const rows = db.prepare(`
       SELECT * FROM agents
-      WHERE owner_id = ?
+      WHERE COALESCE(is_template, 1) = 1
         AND (config IS NULL OR config NOT LIKE '%"defaultRoomAssistant":true%')
-      ORDER BY created_at DESC
-    `).all(ownerId) as AgentRow[]
+      ORDER BY
+        CASE WHEN config LIKE '%"builtInKey":"default_assistant"%' THEN 0 ELSE 1 END ASC,
+        created_at DESC
+    `).all() as AgentRow[]
     return rows.map(r => rowToAgent(r))
   }
 
   async getAvailableAgentsForRoom(roomId: string, requesterAgentId: string): Promise<Agent[]> {
-    const requester = db.prepare('SELECT owner_id FROM agents WHERE id = ?').get(requesterAgentId) as any
+    const requester = db.prepare('SELECT id FROM agents WHERE id = ?').get(requesterAgentId) as any
     if (!requester) throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found' }
     const rows = db.prepare(`
       SELECT a.* FROM agents a
-      WHERE a.owner_id = ?
-        AND a.status != 'inactive'
+      WHERE a.status != 'inactive'
+        AND COALESCE(a.is_template, 1) = 1
         AND (a.config IS NULL OR a.config NOT LIKE '%"defaultRoomAssistant":true%')
         AND NOT EXISTS (
-          SELECT 1 FROM room_agents ra WHERE ra.room_id = ? AND ra.agent_id = a.id
+          SELECT 1
+          FROM room_agents ra
+          INNER JOIN agents existing ON existing.id = ra.agent_id
+          WHERE ra.room_id = ?
+            AND (existing.id = a.id OR existing.source_template_id = a.id)
         )
-      ORDER BY a.created_at DESC
-    `).all(requester.owner_id, roomId) as AgentRow[]
+      ORDER BY
+        CASE WHEN a.config LIKE '%"builtInKey":"default_assistant"%' THEN 0 ELSE 1 END ASC,
+        a.created_at DESC
+    `).all(roomId) as AgentRow[]
     return rows.map(r => rowToAgent(r))
   }
 
@@ -124,7 +135,73 @@ export class AgentService {
     return matched
   }
 
+  async cloneAgentTemplate(templateId: string, ownerId: string, overrides: { name?: string; roomId?: string } = {}): Promise<Agent> {
+    const template = db.prepare('SELECT * FROM agents WHERE id = ? AND status != ?').get(templateId, 'inactive') as AgentRow | undefined
+    if (!template) throw { code: 'AGENT_NOT_FOUND', message: 'Agent template not found' }
+
+    const id = `agent_${uuidv4()}`
+    const now = Date.now()
+    const apiKey = `fc_${crypto.randomBytes(32).toString('hex')}`
+    const apiKeyHash = await bcrypt.hash(apiKey, 10)
+    const configObj = template.config ? JSON.parse(template.config) : undefined
+    const clonedConfig = { ...(configObj || {}), ...(overrides.roomId ? { roomId: overrides.roomId } : {}) }
+
+    db.prepare(`
+      INSERT INTO agents (id, owner_id, name, role_type, deployment, description, specialties, config, api_key_hash, status, is_template, template_version, source_template_id, source_template_version, is_modified, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 0, 1, ?, ?, 0, ?, ?)
+    `).run(
+      id,
+      ownerId,
+      overrides.name || template.name,
+      template.role_type,
+      template.deployment,
+      template.description,
+      template.specialties,
+      JSON.stringify(clonedConfig),
+      apiKeyHash,
+      template.id,
+      template.template_version || 1,
+      now,
+      now
+    )
+    agentCapabilityService.cloneCapabilities(template.id, id)
+    return rowToAgent(db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentRow)
+  }
+
+  isLockedBuiltInAgent(agentId: string): boolean {
+    const row = db.prepare('SELECT config FROM agents WHERE id = ?').get(agentId) as { config?: string } | undefined
+    if (!row) throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found' }
+    const config = row.config ? JSON.parse(row.config) : {}
+    return !!config.locked || !!config.builtInKey
+  }
+
+  private isBuiltInDefaultAssistantConfig(config: any): boolean {
+    return !!config?.defaultRoomAssistant || config?.builtInKey === 'default_assistant'
+  }
+
+  private isBuiltInDefaultAssistant(agent: Agent): boolean {
+    return agent.roleType === 'assistant' && this.isBuiltInDefaultAssistantConfig(agent.config || {})
+  }
+
+  private roomHasAssistant(roomId: string): boolean {
+    const row = db.prepare(`
+      SELECT 1 FROM room_agents ra
+      INNER JOIN agents a ON a.id = ra.agent_id
+      WHERE ra.room_id = ? AND ra.room_role = 'assistant' AND ra.auto_enabled = 1 AND a.status != 'inactive'
+      LIMIT 1
+    `).get(roomId)
+    return !!row
+  }
+
+  assertAgentMutable(agentId: string): void {
+    if (this.isLockedBuiltInAgent(agentId)) {
+      throw { code: 'BUILT_IN_AGENT_LOCKED', message: '系统内置 Agent 不可编辑或删除' }
+    }
+  }
+
   async updateAgent(agentId: string, updates: Partial<AgentConfig>): Promise<Agent> {
+    const mutableKeys = Object.keys(updates).filter((key) => key !== 'status')
+    if (mutableKeys.length > 0) this.assertAgentMutable(agentId)
     const fields: string[] = []
     const values: any[] = []
 
@@ -166,10 +243,12 @@ export class AgentService {
     values.push(agentId)
 
     db.prepare(`UPDATE agents SET ${fields.join(', ')} WHERE id = ?`).run(...values)
+    db.prepare('UPDATE agents SET is_modified = 1 WHERE id = ? AND COALESCE(is_template, 1) = 0').run(agentId)
     return this.getAgent(agentId)
   }
 
   async deleteAgent(agentId: string): Promise<void> {
+    this.assertAgentMutable(agentId)
     db.prepare('DELETE FROM agents WHERE id = ?').run(agentId)
   }
 
@@ -208,18 +287,43 @@ export class AgentService {
    */
   async addAgentToRoom(roomId: string, agentId: string, addedBy: string, options: AddAgentToRoomOptions = {}): Promise<void> {
     const now = Date.now()
-    const agent = await this.getAgent(agentId)
-    const roomRole = options.roomRole || (agent.roleType === 'assistant' ? 'assistant' : 'specialist')
-    const autoEnabled = options.autoEnabled === true
+    let agent = await this.getAgent(agentId)
+    if (this.isBuiltInDefaultAssistant(agent) && this.roomHasAssistant(roomId)) {
+      return
+    }
+    let targetAgentId = agentId
+    if (agent.isTemplate) {
+      agent = await this.cloneAgentTemplate(agentId, addedBy, { roomId })
+      targetAgentId = agent.id
+    }
+    const requestedRole = options.roomRole || (agent.roleType === 'assistant' ? 'assistant' : 'specialist')
+    const roomRole = this.isBuiltInDefaultAssistant(agent) && this.roomHasAssistant(roomId) ? 'specialist' : requestedRole
+    const autoEnabled = roomRole === 'assistant' ? true : options.autoEnabled === true
 
     const tx = db.transaction(() => {
-      if (autoEnabled) {
+      if (roomRole === 'assistant') {
+        const defaultAssistantRows = db.prepare(`
+          SELECT a.id FROM agents a
+          INNER JOIN room_agents ra ON a.id = ra.agent_id
+          WHERE ra.room_id = ? AND a.role_type = 'assistant' AND a.config LIKE ?
+        `).all(roomId, '%"defaultRoomAssistant":true%') as any[]
+        for (const row of defaultAssistantRows) {
+          db.prepare('DELETE FROM room_agents WHERE room_id = ? AND agent_id = ?').run(roomId, row.id)
+          db.prepare('DELETE FROM agents WHERE id = ?').run(row.id)
+        }
+        db.prepare(`
+          UPDATE room_agents
+          SET auto_enabled = 0, room_role = 'specialist'
+          WHERE room_id = ?
+            AND agent_id IN (SELECT id FROM agents WHERE role_type = 'assistant')
+        `).run(roomId)
+      } else if (autoEnabled) {
         db.prepare('UPDATE room_agents SET auto_enabled = 0 WHERE room_id = ?').run(roomId)
       }
       db.prepare(`
         INSERT OR REPLACE INTO room_agents (room_id, agent_id, added_by, added_at, room_role, auto_enabled, priority)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(roomId, agentId, addedBy, now, roomRole, autoEnabled ? 1 : 0, options.priority || 0)
+      `).run(roomId, targetAgentId, addedBy, now, roomRole, autoEnabled ? 1 : 0, options.priority || 0)
     })
     tx()
 
@@ -227,10 +331,15 @@ export class AgentService {
     // Agent membership is tracked via room_agents table
   }
 
-  async assertAgentOwner(agentId: string, userId: string): Promise<void> {
-    const row = db.prepare('SELECT owner_id FROM agents WHERE id = ?').get(agentId) as any
-    if (!row) throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found' }
-    if (row.owner_id !== userId) throw { code: 'FORBIDDEN', message: 'You do not own this agent' }
+  async canEditAgent(agentId: string, user: { id: string; role?: string }): Promise<boolean> {
+    if (this.isLockedBuiltInAgent(agentId)) return false
+    return templatePermissionService.canEdit('agent', agentId, user)
+  }
+
+  async assertAgentOwner(agentId: string, userId: string, userRole?: string): Promise<void> {
+    this.assertAgentMutable(agentId)
+    const ok = await this.canEditAgent(agentId, { id: userId, role: userRole })
+    if (!ok) throw { code: 'FORBIDDEN', message: 'Only the Agent owner/admin can edit this Agent' }
   }
 
   async canUseAgent(agentId: string, userId: string): Promise<boolean> {
@@ -305,7 +414,11 @@ export class AgentService {
       WHERE ra.room_id = ?
       ORDER BY ra.auto_enabled DESC, ra.priority ASC, ra.added_at ASC
     `).all(roomId) as AgentRow[]
-    return rows.map(r => rowToAgent(r))
+    const agents = rows.map(r => rowToAgent(r))
+    const hasPrimaryAssistant = agents.some((agent) => agent.roleType === 'assistant' && agent.roomRole === 'assistant' && agent.autoEnabled)
+    return hasPrimaryAssistant
+      ? agents.filter((agent) => !(agent.roleType === 'assistant' && this.isBuiltInDefaultAssistant(agent) && agent.roomRole !== 'assistant'))
+      : agents
   }
 
   assertToolAllowed(agent: Agent, action: string): void {
@@ -332,14 +445,19 @@ export class AgentService {
       silentAllowed: true,
       ...(cfg.behavior || {})
     }
+    const roleCapabilities = renderRoleCapabilitiesForPrompt(agent.roleType)
+
     return [
       '你是 FreeChat 项目中的业务 Agent。',
       '',
       `【Agent 名称】${agent.name}`,
       `【Agent 类型】${agent.roleType === 'assistant' ? '业务助理' : '业务专家'}`,
-      agent.description ? `【业务职责】${agent.description}` : '',
+      `【当前身份】你就是 ${agent.name}，当前 Agent ID 是 ${agent.id}。用户 @${agent.name} 或提到这个 ID 时，就是在直接要求你本人处理。`,
+      '【自我识别硬规则】不要把当前 Agent 当作另一个协作者；不要说“已通知/转发/提醒 @自己”或“某某会处理”。如果房间里没有其他合适 Agent，就直接以第一人称处理并汇报。',
+      roleCapabilities,
+      agent.description ? `【业务职责/定制定位】${agent.description}` : '',
       agent.specialties?.length ? `【专长】${agent.specialties.join('、')}` : '',
-      cfg.systemPrompt ? `【业务自定义提示词】\n${cfg.systemPrompt}` : '',
+      cfg.systemPrompt ? `【业务自定义提示词（在助理基础职责之上叠加）】\n${cfg.systemPrompt}` : '',
       '',
       `【响应模式】${behavior.replyMode}`,
       behavior.silentAllowed ? '不需要回应时必须只输出 [SILENT]。' : '',
@@ -357,6 +475,7 @@ export class AgentService {
       '2. 需要用户决策时使用 interaction。',
       '3. 处理长期事项时使用 task/progress。',
       '3.1 需要查看房间协作者时使用 ./freechat members list；助理需要拉入已有业务 Agent 时可使用 ./freechat agent list-available 和 ./freechat agent add <名称或ID>；缺少必要专家时可用 ./freechat agent create-request 发起创建确认卡，但必须等待用户确认。',
+      '3.2 目录规则：当前工作区 res/ 只放你的私有草稿，用户项目正式文件必须通过 ./freechat file write/write-local 写到业务路径（如 星源纪/正文/...、星源纪/剧情/...），不要写项目路径 res/...。HTML 写到 ui/*.html 只是文件；要显示在页面区必须继续执行 ./freechat tab create-file 或 tab create-local。主交付页面/阅读页/看板页创建后必须加 --default 或执行 ./freechat tab set-default <tabId|标题>，让用户进入页面区直接看到默认首页。file write --show 只加入文件视图，不创建页面 Tab。页面内目录/导航要跨 FreeChat 页面跳转时，用 data-freechat-tab-id 或 data-freechat-tab-title，可选 data-freechat-anchor；普通 href 不能切换外层 Tab。HTML 可以修改，但 HTML 只负责展示和交互；小说卷/章/集目录必须来自 manifest.json，正文必须来自 Markdown 文件。新增/删除/修改集数时优先修改 manifest 和正文文件，不要把正文或硬编码目录塞进 HTML。',
       agent.roleType === 'assistant'
         ? '4. 你是默认入口和调度者；用户未明确 @ 专家时，只代表自己/助理响应。遇到复合任务、长内容任务、或明显命中房间专家专长的任务，必须先用 members.list 查看专家；有匹配专家时禁止自己直接产出最终成品，必须用 ./freechat task plan create-json 创建真实交互卡，或用 task/subtask --assignee 分派专家。禁止只用普通聊天文本/Markdown 表格假装任务计划。用户给出大致题材但缺少时长/受众等细节时，不要只追问；应先用合理默认假设创建计划卡，并在计划说明里写清可后续调整。'
         : '4. 专家只处理人类明确 @ 或任务分派给自己的事项；不要抢助理的入口职责。',
@@ -395,7 +514,16 @@ export class AgentService {
       ].filter(Boolean).join('\n')
     }).join('\n')
 
-    const agentLines = agents.map((a) => {
+    const currentAgentIds = new Set(currentAgent ? [currentAgent.id] : [])
+    const currentAgentLine = currentAgent ? [
+      `- ${currentAgent.name}（你 / 当前 Agent）`,
+      `  - ID: ${currentAgent.id}`,
+      `  - Type: ${currentAgent.roleType}`,
+      `  - Room Role: ${currentAgent.roomRole || (currentAgent.roleType === 'assistant' ? 'assistant' : 'specialist')}`,
+      `  - 规则: 这是你自己，不是可通知或转发的另一个 Agent。用户 @${currentAgent.name} 就是在直接叫你处理。`,
+    ].join('\n') : ''
+
+    const agentLines = agents.filter((a) => !currentAgentIds.has(a.id)).map((a) => {
       const cfg = a.config || {}
       return [
         `- ${a.name}`,
@@ -410,7 +538,7 @@ export class AgentService {
       ].filter(Boolean).join('\n')
     }).join('\n')
 
-    const membersMd = `# Members and Agents\n\n所有当前房间协作者如下。分派专家时必须使用这里的 Agent 名称或 ID，例如：\`./freechat task create "任务" "说明" --assignee "专家名称"\`。\n\n## Humans\n\n${humanLines || '- none'}\n\n## Agents\n\n${agentLines || '- none'}\n`
+    const membersMd = `# Members and Agents\n\n所有当前房间协作者如下。分派专家时必须使用这里的 Agent 名称或 ID，例如：\`./freechat task create "任务" "说明" --assignee "专家名称"\`。\n\n## Humans\n\n${humanLines || '- none'}\n\n## Current Agent\n\n${currentAgentLine || '- 当前为房间共享上下文，无单一当前 Agent'}\n\n## Other Agents\n\n${agentLines || '- none'}\n`
     return { roomMd, membersMd }
   }
 
@@ -431,7 +559,7 @@ export class AgentService {
     }
   }
 
-  async prepareAgentWorkspace(roomId: string, agent: Agent): Promise<string> {
+  async prepareAgentWorkspace(roomId: string, agent: Agent, actorUserId?: string): Promise<string> {
     const workspaceDir = join(config.workspace.root, roomId, 'agents', agent.id)
     const metaDir = join(workspaceDir, '.freechat')
     const skillsDir = join(workspaceDir, 'skills')
@@ -443,15 +571,31 @@ export class AgentService {
     await mkdir(resDir, { recursive: true })
     await mkdir(scriptsDir, { recursive: true })
 
-    const toolToken = createAgentToolToken(roomId, agent.id)
+    const toolToken = createAgentToolToken(roomId, agent.id, actorUserId)
     const toolApiUrl = `http://127.0.0.1:${config.port}`
     const contextFiles = await this.buildRoomContextFiles(roomId, agent)
 
     const cliPath = join(workspaceDir, 'freechat')
-    await writeFile(cliPath, renderAgentCli({ apiUrl: toolApiUrl, roomId, token: toolToken }), 'utf8')
+    const cliCjsPath = join(metaDir, 'freechat.cjs')
+    await writeFile(cliPath, renderAgentCliWrapper(), 'utf8')
     await chmod(cliPath, 0o700)
+    await writeFile(cliCjsPath, renderAgentCliCjs({ apiUrl: toolApiUrl, roomId, token: toolToken }), 'utf8')
+    await chmod(cliCjsPath, 0o700)
 
     const agentGuide = renderAgentGuide(agent)
+
+    const safeName = (name: string) => String(name || 'item').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'item'
+    const skills = agentCapabilityService.listSkills(agent.id).filter((skill) => skill.enabled)
+    for (const skill of skills) {
+      await writeFile(join(skillsDir, `${safeName(skill.name)}.md`), skill.content || `# ${skill.name}\n\n${skill.description || ''}\n`, 'utf8')
+    }
+    const scripts = agentCapabilityService.listScripts(agent.id).filter((script) => script.enabled)
+    for (const script of scripts) {
+      const ext = script.language === 'python' ? 'py' : script.language === 'typescript' ? 'ts' : script.language === 'javascript' ? 'js' : script.language === 'bash' ? 'sh' : 'txt'
+      const scriptPath = join(scriptsDir, `${safeName(script.name)}.${ext}`)
+      await writeFile(scriptPath, script.content || '', 'utf8')
+      if (script.runPolicy === 'agent_allowed' || script.language === 'bash') await chmod(scriptPath, 0o700).catch(() => {})
+    }
 
     await writeFile(join(workspaceDir, 'AGENT.md'), agentGuide, 'utf8')
     await writeFile(join(workspaceDir, 'CLAUDE.md'), `${agentGuide}\n\n启动后请先遵守本文件和 .freechat/API.md。\n`, 'utf8')
@@ -465,7 +609,7 @@ export class AgentService {
     return workspaceDir
   }
 
-  async spawnClaudeCode(roomId: string, agentId: string, message: string, options: { timeoutMs?: number } = {}): Promise<{ response: string; silent: boolean }> {
+  async spawnClaudeCode(roomId: string, agentId: string, message: string, options: { timeoutMs?: number; actorUserId?: string; onEvent?: (event: any) => void } = {}): Promise<{ response: string; silent: boolean }> {
     return this.runtime.spawnClaudeCode(
       roomId,
       agentId,

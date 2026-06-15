@@ -1,4 +1,4 @@
-import type { CreateRoomModalProps, JoinRoomModalProps } from './types'
+import type { AddFriendModalProps, CreateRoomModalProps, JoinRoomModalProps } from './types'
 
 export function JoinRoomModal({ show, inviteCode, joining, setInviteCode, setShowJoin, handleJoinRoom }: JoinRoomModalProps) {
   if (!show) return null
@@ -21,6 +21,44 @@ export function JoinRoomModal({ show, inviteCode, joining, setInviteCode, setSho
   )
 }
 
+export function AddFriendModal({ show, searchQ, searchResults, setSearchQ, setShowAddFriend, searchUsers, sendFriendRequest }: AddFriendModalProps) {
+  if (!show) return null
+  const close = () => setShowAddFriend(false)
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl p-4 sm:p-6 w-full max-w-md max-h-[85vh] overflow-y-auto">
+        <h3 className="text-lg font-semibold mb-1">添加好友</h3>
+        <p className="text-sm text-gray-500 mb-4">搜索用户名或昵称，向对方发送好友申请。</p>
+        <div className="flex gap-2">
+          <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchUsers()} placeholder="输入用户名/昵称" className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm" autoFocus />
+          <button onClick={searchUsers} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">搜索</button>
+        </div>
+        <div className="mt-4 space-y-2">
+          {searchResults.length === 0 ? <p className="text-sm text-gray-400 text-center py-6">输入关键词后搜索用户</p> : searchResults.map((u) => (
+            <div key={u.id} className="flex items-center justify-between gap-3 p-3 border border-gray-100 rounded-xl">
+              <div className="flex items-center gap-3 min-w-0">
+                {u.avatar ? <img src={u.avatar} className="w-9 h-9 rounded-full object-cover" /> : <span className="w-9 h-9 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm">{(u.nickname || u.username || '?')[0].toUpperCase()}</span>}
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-800 truncate">{u.nickname || u.username}</p>
+                  <p className="text-xs text-gray-400 truncate">@{u.username}</p>
+                </div>
+              </div>
+              {u.friendStatus === 'none' && <button onClick={() => sendFriendRequest(u.id)} className="text-sm text-blue-600 hover:text-blue-700 shrink-0">加好友</button>}
+              {u.friendStatus === 'friends' && <span className="text-xs text-green-600 shrink-0">已是好友</span>}
+              {u.friendStatus === 'pending_sent' && <span className="text-xs text-gray-400 shrink-0">已申请</span>}
+              {u.friendStatus === 'pending_received' && <span className="text-xs text-orange-500 shrink-0">待你处理</span>}
+              {u.friendStatus === 'self' && <span className="text-xs text-gray-400 shrink-0">自己</span>}
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-end mt-5">
+          <button type="button" onClick={close} className="px-4 py-2 text-gray-600 hover:text-gray-800">关闭</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function CreateRoomModal(props: CreateRoomModalProps) {
   const {
     show,
@@ -28,6 +66,9 @@ export function CreateRoomModal(props: CreateRoomModalProps) {
     newDesc,
     friends,
     agents,
+    scenes,
+    selectedSceneId,
+    setSelectedSceneId,
     selectedFriendIds,
     selectedAgents,
     setNewName,
@@ -53,6 +94,23 @@ export function CreateRoomModal(props: CreateRoomModalProps) {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">描述（可选）</label>
             <textarea value={newDesc} onChange={(e) => setNewDesc(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="项目描述" rows={3} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">项目场景（可选）</label>
+            <select value={selectedSceneId} onChange={(e) => {
+              const nextSceneId = e.target.value
+              setSelectedSceneId(nextSceneId)
+              const scene = scenes.find((item) => item.id === nextSceneId)
+              if (scene?.agents?.length) {
+                setSelectedAgents(scene.agents.map((agent: any) => ({ agentId: agent.agentId, autoEnabled: !!agent.autoEnabled })))
+              } else if (!nextSceneId) {
+                setSelectedAgents([])
+              }
+            }} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+              <option value="">空白项目</option>
+              {scenes.map((scene) => <option key={scene.id} value={scene.id}>{scene.name}</option>)}
+            </select>
+            {selectedSceneId && <p className="text-xs text-gray-500 mt-1">场景会把默认 Agent、页面和初始内容克隆到项目；后续修改不会影响外部模板。</p>}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">选择协作者（可选）</label>

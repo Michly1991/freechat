@@ -56,8 +56,8 @@ export function renderMessageContent(content: string, isOwn = false) {
   const parts = content.split(/(@[^@\s]+)/g)
   return parts.map((part, i) => {
     if (part.startsWith('@')) {
-      return <span key={i} className={`inline-block px-1 rounded text-xs font-medium ${isOwn ? 'bg-blue-500 text-white' : 'bg-blue-100 text-blue-700'}`}>{part}</span>
+      return <span key={i} className={`inline-block max-w-full break-words [overflow-wrap:anywhere] px-1 rounded text-xs font-medium ${isOwn ? 'bg-blue-500 text-white' : 'bg-blue-100 text-blue-700'}`}>{part}</span>
     }
-    return <span key={i}>{part}</span>
+    return <span key={i} className="break-words [overflow-wrap:anywhere]">{part}</span>
   })
 }

@@ -28,7 +28,7 @@ async function resolveAgentAssignee(roomId: string, raw: any): Promise<{ assigne
   return { assigneeId: agent.id, assigneeName: agent.name, assigneeType: 'agent' }
 }
 
-async function invokeAssignedAgent(roomId: string, assigneeId: string | undefined, prompt: string) {
+async function invokeAssignedAgent(roomId: string, assigneeId: string | undefined, prompt: string, actorUserId?: string) {
   if (!assigneeId) return
   const agents = await agentService.getRoomAgents(roomId)
   const assigned = agents.find((a) => a.id === assigneeId)
@@ -37,7 +37,7 @@ async function invokeAssignedAgent(roomId: string, assigneeId: string | undefine
     try {
       await agentService.updateAgent(assigned.id, { status: 'working' } as any)
       broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'working', onlineStatus: 'working', lastActiveAt: Date.now() })
-      const result = await agentService.spawnClaudeCode(roomId, assigned.id, prompt)
+      const result = await agentService.spawnClaudeCode(roomId, assigned.id, prompt, { actorUserId })
       await agentService.updateAgent(assigned.id, { status: 'active' } as any)
       broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'active', onlineStatus: 'online', lastActiveAt: Date.now() })
       if (result.silent || !result.response) return
@@ -84,7 +84,7 @@ export async function materializeAgentCreateRequest(roomId: string, interaction:
     specialties: Array.isArray(spec.specialties) ? spec.specialties : [],
     config: spec.config,
   } as any)
-  await agentService.addAgentToRoom(roomId, created.agent.id, interaction.createdBy, {
+  await agentService.addAgentToRoom(roomId, created.agent.id, ownerId, {
     roomRole: spec.roomRole === 'assistant' ? 'assistant' : 'specialist',
     autoEnabled: spec.autoEnabled === true,
     priority: Number(spec.priority || 0),
@@ -132,7 +132,7 @@ export async function materializeTaskPlan(roomId: string, interaction: any) {
     if (!blocked && resolved.assigneeId) wakeQueue.push({ assigneeId: resolved.assigneeId, subtask: hydrated })
   }
   for (const item of wakeQueue) {
-    await invokeAssignedAgent(roomId, item.assigneeId, buildSubtaskWakePrompt(task, item.subtask, '用户已确认任务计划，你被分派了其中一个子任务，请立即处理。'))
+    await invokeAssignedAgent(roomId, item.assigneeId, buildSubtaskWakePrompt(task, item.subtask, '用户已确认任务计划，你被分派了其中一个子任务，请立即处理。'), interaction.resolvedBy || interaction.createdBy)
   }
   const updatedTask = await taskService.getTask(task.id)
   broadcast(roomId, 'task.changed', { action: 'update', task: updatedTask })

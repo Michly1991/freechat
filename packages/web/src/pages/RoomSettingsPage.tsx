@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useAuthStore } from '../stores/authStore'
 import { useFeedback } from '../components/FeedbackProvider'
+import RoomAnalyticsPanel from '../features/analytics/RoomAnalyticsPanel'
 
 export default function RoomSettingsPage() {
   const { roomId } = useParams<{ roomId: string }>()
@@ -136,6 +137,9 @@ export default function RoomSettingsPage() {
             <button onClick={saveRoom} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">保存</button>
           </div>
         </section>
+
+        {/* Analytics */}
+        {roomId && <RoomAnalyticsPanel roomId={roomId} />}
 
         {/* Invite */}
         <section className="bg-white rounded-lg border border-gray-200 p-5">

@@ -7,6 +7,7 @@ export function HomeHeader({
   setShowQuickActions,
   onShowJoin,
   onShowCreate,
+  onShowAddFriend,
   onSettings,
   onLogout,
 }: HeaderProps) {
@@ -18,12 +19,15 @@ export function HomeHeader({
           <button
             onClick={() => setShowQuickActions((v) => !v)}
             className="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center text-xl leading-none hover:bg-blue-700"
-            title="新建/加入"
+            title="快捷操作"
           >
             <Plus className="w-5 h-5" />
           </button>
           {showQuickActions && (
             <div className="absolute right-0 top-11 w-40 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden z-20">
+              <button onClick={onShowAddFriend} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50">
+                添加好友
+              </button>
               <button onClick={onShowJoin} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50">
                 加入项目
               </button>

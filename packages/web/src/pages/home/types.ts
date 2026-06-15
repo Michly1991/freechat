@@ -3,7 +3,7 @@ import type { SwipeAction } from '../../components/SwipeActionItem'
 import type { AgentFormState, AgentToolKey } from '../home-agent-form'
 
 export type HomeTab = 'messages' | 'contacts' | 'settings'
-export type ContactKind = 'people' | 'agents'
+export type ContactKind = 'people' | 'agents' | 'scenes'
 export type SelectedAgent = { agentId: string; autoEnabled: boolean }
 
 export type HeaderProps = {
@@ -12,6 +12,7 @@ export type HeaderProps = {
   setShowQuickActions: Dispatch<SetStateAction<boolean>>
   onShowJoin: () => void
   onShowCreate: () => void
+  onShowAddFriend: () => void
   onSettings: () => void
   onLogout: () => void
 }
@@ -43,6 +44,8 @@ export type ContactsSectionProps = {
   searchResults: any[]
   friends: any[]
   agents: any[]
+  scenes: any[]
+  reloadScenes: () => void
   friendRequests: { received: any[]; sent: any[] }
   showCreateAgent: boolean
   editingAgentId: string | null
@@ -76,12 +79,25 @@ export type JoinRoomModalProps = {
   handleJoinRoom: (e: FormEvent) => void
 }
 
+export type AddFriendModalProps = {
+  show: boolean
+  searchQ: string
+  searchResults: any[]
+  setSearchQ: Dispatch<SetStateAction<string>>
+  setShowAddFriend: Dispatch<SetStateAction<boolean>>
+  searchUsers: () => void
+  sendFriendRequest: (targetUserId: string) => void
+}
+
 export type CreateRoomModalProps = {
   show: boolean
   newName: string
   newDesc: string
   friends: any[]
   agents: any[]
+  scenes: any[]
+  selectedSceneId: string
+  setSelectedSceneId: Dispatch<SetStateAction<string>>
   selectedFriendIds: string[]
   selectedAgents: SelectedAgent[]
   setNewName: Dispatch<SetStateAction<string>>

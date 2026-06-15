@@ -89,7 +89,8 @@ export class MessageService {
     }
   }
 
-  async getMessages(roomId: string, limit: number = MAX_MESSAGES_PER_ROOM, before?: string): Promise<Message[]> {
+  async getMessagesPage(roomId: string, limit: number = MAX_MESSAGES_PER_ROOM, before?: string): Promise<{ messages: Message[]; hasMore: boolean }> {
+    const pageLimit = Math.max(1, limit)
     let query = 'SELECT * FROM messages WHERE room_id = ? AND deleted = 0'
     const params: any[] = [roomId]
 
@@ -102,11 +103,13 @@ export class MessageService {
     }
 
     query += ' ORDER BY created_at DESC LIMIT ?'
-    params.push(limit)
+    params.push(pageLimit + 1)
 
     const rows: any[] = db.prepare(query).all(...params)
+    const hasMore = rows.length > pageLimit
+    const pageRows = rows.slice(0, pageLimit)
 
-    return rows.reverse().map(row => {
+    const messages = pageRows.reverse().map(row => {
       let payload = row.payload ? JSON.parse(row.payload) : undefined
       if ((row.kind || 'text') === 'interaction_request') {
         const interactionId = payload?.interactionId || payload?.interaction?.id
@@ -129,6 +132,11 @@ export class MessageService {
         createdAt: row.created_at
       }
     })
+    return { messages, hasMore }
+  }
+
+  async getMessages(roomId: string, limit: number = MAX_MESSAGES_PER_ROOM, before?: string): Promise<Message[]> {
+    return (await this.getMessagesPage(roomId, limit, before)).messages
   }
 
   async updateMessage(messageId: string, content: string): Promise<Message> {

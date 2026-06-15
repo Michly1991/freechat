@@ -7,7 +7,7 @@ import type { SwipeAction } from '../components/SwipeActionItem'
 import { agentToForm, buildAgentPayload, emptyAgentForm, type AgentToolKey } from './home-agent-form'
 import { ContactsSection } from './home/ContactsSection'
 import { HomeHeader } from './home/HomeHeader'
-import { CreateRoomModal, JoinRoomModal } from './home/HomeModals'
+import { AddFriendModal, CreateRoomModal, JoinRoomModal } from './home/HomeModals'
 import { DesktopTabs, MobileNav } from './home/HomeTabs'
 import { MessagesSection } from './home/MessagesSection'
 import { SettingsSection } from './home/SettingsSection'
@@ -18,6 +18,8 @@ export default function HomePage() {
   const [conversations, setConversations] = useState<any[]>([])
   const [friends, setFriends] = useState<any[]>([])
   const [agents, setAgents] = useState<any[]>([])
+  const [scenes, setScenes] = useState<any[]>([])
+  const [selectedSceneId, setSelectedSceneId] = useState('')
   const [contactKind, setContactKind] = useState<ContactKind>('people')
   const [showCreateAgent, setShowCreateAgent] = useState(false)
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
@@ -31,6 +33,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
   const [showJoin, setShowJoin] = useState(false)
+  const [showAddFriend, setShowAddFriend] = useState(false)
   const [showQuickActions, setShowQuickActions] = useState(false)
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
@@ -48,7 +51,7 @@ export default function HomePage() {
 
   const loadHome = async () => {
     setLoading(true)
-    await Promise.all([loadRooms(), loadFriends(), loadAgents(), loadFriendRequests(), loadConversations()])
+    await Promise.all([loadRooms(), loadFriends(), loadAgents(), loadScenes(), loadFriendRequests(), loadConversations()])
     setLoading(false)
   }
 
@@ -66,6 +69,10 @@ export default function HomePage() {
 
   const loadAgents = async () => {
     try { const data = await api.getAgents(); setAgents(data.agents || []) } catch (err) { console.error(err) }
+  }
+
+  const loadScenes = async () => {
+    try { const data = await api.getScenes(); setScenes(data.scenes || []) } catch (err) { console.error(err) }
   }
 
   const loadFriendRequests = async () => {
@@ -185,14 +192,16 @@ export default function HomePage() {
       const result = await api.createRoom({
         name: newName,
         description: newDesc,
+        sceneId: selectedSceneId || undefined,
         memberIds: selectedFriendIds,
-        agents: selectedAgents.map((a) => ({ agentId: a.agentId, roomRole: a.autoEnabled ? 'assistant' : 'specialist', autoEnabled: a.autoEnabled })),
+        agents: selectedSceneId ? [] : selectedAgents.map((a) => ({ agentId: a.agentId, roomRole: a.autoEnabled ? 'assistant' : 'specialist', autoEnabled: a.autoEnabled })),
       })
       setShowCreate(false)
       setNewName('')
       setNewDesc('')
       setSelectedFriendIds([])
       setSelectedAgents([])
+      setSelectedSceneId('')
       loadRooms()
       if (result?.room?.id) navigate(`/room/${result.room.id}`)
     } catch (err: any) {
@@ -245,25 +254,32 @@ export default function HomePage() {
     }
   }
 
+  const openQuickAddFriend = () => {
+    setShowQuickActions(false)
+    setActiveHomeTab('contacts')
+    setContactKind('people')
+    setShowAddFriend(true)
+  }
   const openQuickJoin = () => { setShowQuickActions(false); setShowJoin(true) }
   const openQuickCreate = () => { setShowQuickActions(false); setShowCreate(true) }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <HomeHeader user={user} showQuickActions={showQuickActions} setShowQuickActions={setShowQuickActions} onShowJoin={openQuickJoin} onShowCreate={openQuickCreate} onSettings={() => navigate('/settings')} onLogout={handleLogout} />
+      <HomeHeader user={user} showQuickActions={showQuickActions} setShowQuickActions={setShowQuickActions} onShowJoin={openQuickJoin} onShowCreate={openQuickCreate} onShowAddFriend={openQuickAddFriend} onSettings={() => navigate('/settings')} onLogout={handleLogout} />
       <main className="max-w-5xl mx-auto px-0 sm:px-4 py-0 sm:py-8 pb-20 sm:pb-8">
         <DesktopTabs activeHomeTab={activeHomeTab} setActiveHomeTab={setActiveHomeTab} />
         {activeHomeTab === 'messages' && (
           <MessagesSection conversations={conversations} deletingId={deletingId} openSwipeId={openSwipeId} setOpenSwipeId={setOpenSwipeId} loadConversations={loadConversations} getConversationActions={getConversationActions} toggleConversationPref={toggleConversationPref} deleteConversation={deleteConversation} navigateTo={navigate} />
         )}
         {activeHomeTab === 'contacts' && (
-          <ContactsSection contactKind={contactKind} setContactKind={setContactKind} searchQ={searchQ} setSearchQ={setSearchQ} searchResults={searchResults} friends={friends} agents={agents} friendRequests={friendRequests} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} searchUsers={searchUsers} sendFriendRequest={sendFriendRequest} acceptFriendRequest={acceptFriendRequest} rejectFriendRequest={rejectFriendRequest} openDm={openDm} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />
+          <ContactsSection contactKind={contactKind} setContactKind={setContactKind} searchQ={searchQ} setSearchQ={setSearchQ} searchResults={searchResults} friends={friends} agents={agents} scenes={scenes} reloadScenes={loadScenes} friendRequests={friendRequests} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} searchUsers={searchUsers} sendFriendRequest={sendFriendRequest} acceptFriendRequest={acceptFriendRequest} rejectFriendRequest={rejectFriendRequest} openDm={openDm} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />
         )}
         {activeHomeTab === 'settings' && <SettingsSection user={user} onSettings={() => navigate('/settings')} onLogout={handleLogout} />}
       </main>
       <MobileNav activeHomeTab={activeHomeTab} setActiveHomeTab={setActiveHomeTab} />
       <JoinRoomModal show={showJoin} inviteCode={inviteCode} joining={joining} setInviteCode={setInviteCode} setShowJoin={setShowJoin} handleJoinRoom={handleJoinRoom} />
-      <CreateRoomModal show={showCreate} newName={newName} newDesc={newDesc} friends={friends} agents={agents} selectedFriendIds={selectedFriendIds} selectedAgents={selectedAgents} setNewName={setNewName} setNewDesc={setNewDesc} setShowCreate={setShowCreate} setSelectedAgents={setSelectedAgents} handleCreate={handleCreate} toggleSelectedFriend={toggleSelectedFriend} toggleSelectedAgent={toggleSelectedAgent} setAgentAutoEnabled={setAgentAutoEnabled} />
+      <AddFriendModal show={showAddFriend} searchQ={searchQ} searchResults={searchResults} setSearchQ={setSearchQ} setShowAddFriend={setShowAddFriend} searchUsers={searchUsers} sendFriendRequest={sendFriendRequest} />
+      <CreateRoomModal show={showCreate} newName={newName} newDesc={newDesc} friends={friends} agents={agents} scenes={scenes} selectedSceneId={selectedSceneId} setSelectedSceneId={setSelectedSceneId} selectedFriendIds={selectedFriendIds} selectedAgents={selectedAgents} setNewName={setNewName} setNewDesc={setNewDesc} setShowCreate={setShowCreate} setSelectedAgents={setSelectedAgents} handleCreate={handleCreate} toggleSelectedFriend={toggleSelectedFriend} toggleSelectedAgent={toggleSelectedAgent} setAgentAutoEnabled={setAgentAutoEnabled} />
     </div>
   )
 }

@@ -6,7 +6,7 @@ import { getAgentStatusDotClass, getAgentStatusLabel } from '../room-ui-utils'
 export const roomPanels: { key: Panel; label: string; icon: string }[] = [
   { key: 'chat', label: '聊天', icon: 'message' },
   { key: 'files', label: '文件', icon: 'folder' },
-  { key: 'tabs', label: '标签', icon: 'panels' },
+  { key: 'tabs', label: '页面', icon: 'panels' },
   { key: 'tasks', label: '任务', icon: 'check' },
 ]
 

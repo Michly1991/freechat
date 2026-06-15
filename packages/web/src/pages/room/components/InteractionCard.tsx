@@ -83,12 +83,12 @@ export function InteractionCard(props: InteractionCardProps) {
   }
 
   return (
-    <div id={`interaction-${interaction.id}`} className={`fc-enter fc-card-hover max-w-[96%] sm:max-w-[680px] rounded-2xl border p-4 shadow-sm ${toneClasses}`}>
+    <div id={`interaction-${interaction.id}`} className={`fc-enter fc-card-hover min-w-0 max-w-full sm:max-w-[680px] overflow-hidden rounded-2xl border p-4 shadow-sm ${toneClasses}`}>
       <div className="flex items-start gap-3">
         <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold ${iconClasses}`}>{interaction.status === 'resolved' && !canChange ? '✓' : interaction.priority === 'danger' ? '!' : interaction.type === 'task_plan' ? '计' : interaction.type === 'multi_choice' ? '☑' : '?'}</div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2"><h4 className="font-semibold text-gray-800">{interaction.title}</h4><span className={`text-[10px] px-2 py-0.5 rounded-full ${isPending ? 'bg-white/70 text-gray-700' : canChange ? 'bg-amber-100 text-amber-700' : 'bg-gray-200 text-gray-500'}`}>{isSubmitting ? '提交中' : isPending ? '待处理' : canChange ? '可修改' : '已处理'}</span></div>
-          {interaction.description && <p className="mt-1 text-sm text-gray-600 whitespace-pre-wrap">{interaction.description}</p>}
+          <div className="flex items-center gap-2"><h4 className="font-semibold text-gray-800 break-words [overflow-wrap:anywhere]">{interaction.title}</h4><span className={`text-[10px] px-2 py-0.5 rounded-full ${isPending ? 'bg-white/70 text-gray-700' : canChange ? 'bg-amber-100 text-amber-700' : 'bg-gray-200 text-gray-500'}`}>{isSubmitting ? '提交中' : isPending ? '待处理' : canChange ? '可修改' : '已处理'}</span></div>
+          {interaction.description && <p className="mt-1 text-sm text-gray-600 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{interaction.description}</p>}
           {taskPlan && <TaskPlanPreview taskPlan={taskPlan} />}
           {(isPending || canChange) ? (isMulti ? (
             <div className="mt-3 space-y-2">
@@ -124,8 +124,8 @@ function TaskPlanPreview({ taskPlan }: { taskPlan: any }) {
           <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-semibold text-white">待确认任务计划</span>
           <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-amber-700">确认后创建 {items.length} 个子任务</span>
         </div>
-        <div className="mt-2 font-semibold text-gray-900">父任务：{taskPlan.title}</div>
-        {taskPlan.description && <div className="mt-1 text-xs leading-relaxed text-gray-600 whitespace-pre-wrap">{taskPlan.description}</div>}
+        <div className="mt-2 font-semibold text-gray-900 break-words [overflow-wrap:anywhere]">父任务：{taskPlan.title}</div>
+        {taskPlan.description && <div className="mt-1 text-xs leading-relaxed text-gray-600 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{taskPlan.description}</div>}
         <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-gray-500"><span>优先级：{taskPlan.priority || 'medium'}</span><span>状态：等待用户确认</span></div>
       </div>
       <div className="p-3">
@@ -145,11 +145,11 @@ function TaskPlanPreview({ taskPlan }: { taskPlan: any }) {
                         <span className="rounded-full bg-gray-50 px-2 py-0.5 text-[10px] text-gray-500">确认后创建</span>
                       </div>
                     </div>
-                    {item.description && <div className="mt-1 text-xs leading-relaxed text-gray-500 whitespace-pre-wrap">{item.description}</div>}
+                    {item.description && <div className="mt-1 text-xs leading-relaxed text-gray-500 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{item.description}</div>}
                     <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
                       {deps.length > 0 && <span className="rounded bg-amber-50 px-1.5 py-0.5 text-amber-700">依赖步骤：{deps.map((dep) => dep + 1).join('、')}</span>}
-                      {item.expectedOutput && <span className="rounded bg-green-50 px-1.5 py-0.5 text-green-700">产出：{item.expectedOutput}</span>}
-                      {item.acceptanceCriteria && <span className="rounded bg-purple-50 px-1.5 py-0.5 text-purple-700">验收：{item.acceptanceCriteria}</span>}
+                      {item.expectedOutput && <span className="rounded bg-green-50 px-1.5 py-0.5 text-green-700 break-words [overflow-wrap:anywhere]">产出：{item.expectedOutput}</span>}
+                      {item.acceptanceCriteria && <span className="rounded bg-purple-50 px-1.5 py-0.5 text-purple-700 break-words [overflow-wrap:anywhere]">验收：{item.acceptanceCriteria}</span>}
                     </div>
                   </div>
                 </div>
@@ -163,5 +163,5 @@ function TaskPlanPreview({ taskPlan }: { taskPlan: any }) {
 }
 
 function InteractionResult({ interaction }: { interaction: any }) {
-  return <div className="mt-3 rounded-xl bg-white px-3 py-2 text-sm text-gray-600 space-y-1"><div>结果：{Array.isArray(interaction.result?.labels) ? interaction.result.labels.join('、') : interaction.result?.value || interaction.status}</div>{interaction.result?.inputs && Object.keys(interaction.result.inputs).length > 0 && <div className="text-xs text-gray-500">{Object.entries(interaction.result.inputs).map(([key, text]: any) => { const label = interaction.options?.find((opt: any) => opt.value === key)?.label || key; return <div key={key}>{label}：{text}</div> })}</div>}</div>
+  return <div className="mt-3 rounded-xl bg-white px-3 py-2 text-sm text-gray-600 space-y-1 break-words [overflow-wrap:anywhere]"><div>结果：{Array.isArray(interaction.result?.labels) ? interaction.result.labels.join('、') : interaction.result?.value || interaction.status}</div>{interaction.result?.inputs && Object.keys(interaction.result.inputs).length > 0 && <div className="text-xs text-gray-500">{Object.entries(interaction.result.inputs).map(([key, text]: any) => { const label = interaction.options?.find((opt: any) => opt.value === key)?.label || key; return <div key={key}>{label}：{text}</div> })}</div>}</div>
 }

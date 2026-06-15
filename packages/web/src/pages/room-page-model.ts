@@ -4,7 +4,7 @@ export interface Message {
   actorName: string
   actorRole: 'human' | 'ai'
   content: string
-  kind?: 'text' | 'interaction_request' | 'system' | 'agent_receipt'
+  kind?: 'text' | 'interaction_request' | 'system' | 'agent_receipt' | 'agent_stream'
   payload?: any
   createdAt: number
 }

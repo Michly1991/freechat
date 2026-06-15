@@ -23,8 +23,10 @@ export const config = {
   agent: {
     runtime: process.env.AGENT_RUNTIME || 'claude-code',
     timeoutMs: parseInt(process.env.AGENT_TIMEOUT_MS || '120000'),
-    chatTimeoutMs: parseInt(process.env.AGENT_CHAT_TIMEOUT_MS || process.env.AGENT_TIMEOUT_MS || '120000'),
+    chatTimeoutMs: parseInt(process.env.AGENT_CHAT_TIMEOUT_MS || process.env.AGENT_TIMEOUT_MS || '180000'),
+    deciderTimeoutMs: parseInt(process.env.AGENT_DECIDER_TIMEOUT_MS || '15000'),
     taskTimeoutMs: parseInt(process.env.AGENT_TASK_TIMEOUT_MS || '600000'),
+    idleTimeoutMs: parseInt(process.env.AGENT_IDLE_TIMEOUT_MS || '120000'),
     hardTimeoutMs: parseInt(process.env.AGENT_HARD_TIMEOUT_MS || '900000'),
     killGraceMs: parseInt(process.env.AGENT_KILL_GRACE_MS || '5000'),
     historyLimit: parseInt(process.env.AGENT_HISTORY_LIMIT || '100'),

@@ -14,8 +14,8 @@ export async function registerMessageRoutes(app: FastifyInstance) {
       return reply.code(403).send({ success: false, error: { message: 'You are not a member of this room' } })
     }
 
-    const messages = await messageService.getMessages(roomId, Number(limit) || 100, before)
-    return { success: true, data: { messages } }
+    const page = await messageService.getMessagesPage(roomId, Number(limit) || 100, before)
+    return { success: true, data: page }
   })
 
   app.post('/api/rooms/:roomId/messages', async (request, reply) => {

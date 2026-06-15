@@ -3,20 +3,29 @@ import { addClientLog } from '../../lib/clientLog'
 import { mergeMessages, writeCachedMessages } from '../room-page-model'
 
 export function createRoomRuntimeActions(deps: any) {
-  const { roomId, navigate, feedback, user, activePanel, wsRef, reconnectTimerRef, reconnectAttemptsRef, manuallyClosedRef, wsConnectIdRef, isChatNearBottom, getCurrentToken, setRoom, setMembers, setFiles, setTabs, setRoomAgents, setTasks, setMessages, setWsStatus, setSendError, setPendingInteractions, setLastReadAt, setRoomNewMessageCount } = deps
+  const { roomId, navigate, feedback, user, activePanel, wsRef, reconnectTimerRef, reconnectAttemptsRef, manuallyClosedRef, wsConnectIdRef, isChatNearBottom, getCurrentToken, setRoom, setMembers, setFiles, setTabs, setActiveTabId, setRoomAgents, setTasks, setMessages, setWsStatus, setSendError, setPendingInteractions, setLastReadAt, setRoomNewMessageCount, setHasMoreMessages } = deps
 
   const loadFiles = async () => { if (!roomId) return; try { const fd = await api.getFiles(roomId); setFiles(fd.files || []) } catch (err: any) { feedback.error(err?.message || '加载文件失败'); addClientLog('error', 'ui', 'load files failed', { message: err?.message }) } }
-  const loadTabs = async () => { if (!roomId) return; try { const td = await api.getTabs(roomId); setTabs(td.tabs || []) } catch (err: any) { feedback.error(err?.message || '加载标签失败'); addClientLog('error', 'ui', 'load tabs failed', { message: err?.message }) } }
+  const applyTabs = (td: { tabs?: any[]; defaultTabId?: string | null }) => {
+    const nextTabs = td.tabs || []
+    setTabs(nextTabs)
+    setActiveTabId?.((current: string | null) => {
+      if (current && nextTabs.some((tab: any) => tab.id === current)) return current
+      if (td.defaultTabId && nextTabs.some((tab: any) => tab.id === td.defaultTabId)) return td.defaultTabId
+      return nextTabs[0]?.id || null
+    })
+  }
+  const loadTabs = async () => { if (!roomId) return; try { applyTabs(await api.getTabs(roomId)) } catch (err: any) { feedback.error(err?.message || '加载页面失败'); addClientLog('error', 'ui', 'load pages failed', { message: err?.message }) } }
 
   const loadRoom = async () => {
     try {
       const data = await api.getRoom(roomId!)
       setRoom(data.room); setMembers(data.members)
       try { const fd = await api.getFiles(roomId!); setFiles(fd.files || []) } catch (err: any) { addClientLog('error', 'ui', 'load files failed', { message: err?.message }) }
-      try { const td = await api.getTabs(roomId!); setTabs(td.tabs || []) } catch (err: any) { addClientLog('error', 'ui', 'load tabs failed', { message: err?.message }) }
+      try { applyTabs(await api.getTabs(roomId!)) } catch (err: any) { addClientLog('error', 'ui', 'load tabs failed', { message: err?.message }) }
       try { const ra = await api.getRoomAgents(roomId!); setRoomAgents(ra.agents || []) } catch (err: any) { addClientLog('error', 'ui', 'load room agents failed', { message: err?.message }) }
       try { const td = await api.getRoomTasks(roomId!); setTasks(td.tasks || []) } catch (err: any) { addClientLog('error', 'ui', 'load tasks failed', { message: err?.message }) }
-      try { const md = await api.getRoomMessages(roomId!, 100); setMessages((prev: any[]) => { const next = mergeMessages(prev, md.messages || []); if (roomId) writeCachedMessages(roomId, next); return next }) } catch (err: any) { addClientLog('error', 'ui', 'load messages failed', { message: err?.message }) }
+      try { const md = await api.getRoomMessages(roomId!, 10); setHasMoreMessages?.(md.hasMore !== false); setMessages((prev: any[]) => { const next = mergeMessages(prev, md.messages || []); if (roomId) writeCachedMessages(roomId, next); return next }) } catch (err: any) { addClientLog('error', 'ui', 'load messages failed', { message: err?.message }) }
     } catch (err: any) { addClientLog('error', 'ui', 'load room failed, navigate home', { message: err?.message }); navigate('/') }
   }
 
@@ -39,7 +48,7 @@ export function createRoomRuntimeActions(deps: any) {
     const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(currentToken)}`
     addClientLog('info', 'ws', 'connecting', { url: `${protocol}//${window.location.host}/ws`, token: 'present', roomId, connectId })
     const ws = new WebSocket(wsUrl); wsRef.current = ws
-    ws.onopen = () => { if (wsConnectIdRef.current !== connectId) return; reconnectAttemptsRef.current = 0; addClientLog('info', 'ws', 'open', { connectId }); setWsStatus('open'); setSendError(''); addClientLog('info', 'ws', 'send room.join/chat.history/task.list', { roomId }); ws.send(JSON.stringify({ action: 'room.join', payload: { room_id: roomId } })); ws.send(JSON.stringify({ action: 'chat.history', payload: { room_id: roomId, limit: 100 } })); ws.send(JSON.stringify({ action: 'task.list', payload: { room_id: roomId } })) }
+    ws.onopen = () => { if (wsConnectIdRef.current !== connectId) return; reconnectAttemptsRef.current = 0; addClientLog('info', 'ws', 'open', { connectId }); setWsStatus('open'); setSendError(''); addClientLog('info', 'ws', 'send room.join/chat.history', { roomId }); ws.send(JSON.stringify({ action: 'room.join', payload: { room_id: roomId } })); ws.send(JSON.stringify({ action: 'chat.history', payload: { room_id: roomId, limit: 10 } })) }
     ws.onmessage = (event) => handleWsMessage(event, connectId)
     ws.onerror = () => { if (wsConnectIdRef.current !== connectId) return; addClientLog('error', 'ws', 'error event', { connectId }); setWsStatus('error'); setSendError('连接异常，正在尝试重连...') }
     ws.onclose = (event) => { if (wsConnectIdRef.current !== connectId) return; if (wsRef.current === ws) wsRef.current = null; addClientLog('warn', 'ws', 'close', { code: event.code, reason: event.reason, wasClean: event.wasClean, connectId }); if (manuallyClosedRef.current) return; setWsStatus('closed'); if (event.code === 4001) { setSendError(event.reason || '登录已过期，请重新登录'); return } setSendError(event.reason ? `连接已断开：${event.reason}，正在重连...` : '连接已断开，正在重连...'); scheduleReconnect() }
@@ -52,13 +61,32 @@ export function createRoomRuntimeActions(deps: any) {
     if (msg.action === 'chat.message') {
       const isIncoming = msg.payload?.actorId !== user?.id, nearBottom = isChatNearBottom()
       if (isIncoming && activePanel === 'chat') nearBottom ? api.markConversationRead('project', roomId!).then(() => { const now = Date.now(); setLastReadAt(now); sessionStorage.setItem(`freechat:room:${roomId}:lastReadAt`, String(now)) }).catch(() => {}) : setRoomNewMessageCount((count: number) => count + 1)
-      setMessages((prev: any[]) => { const next = mergeMessages(prev, [msg.payload]); if (roomId) writeCachedMessages(roomId, next); return next })
+      setMessages((prev: any[]) => { const withoutCompletedStream = msg.payload?.actorRole === 'ai' ? prev.filter((m) => !(m.kind === 'agent_stream' && m.actorId === msg.payload.actorId && m.payload?.status === 'completed')) : prev; const next = mergeMessages(withoutCompletedStream, [msg.payload]); if (roomId) writeCachedMessages(roomId, next); return next })
+    } else if (msg.action === 'agent.stream.started') {
+      const streamMsg = { ...msg.payload, payload: { status: 'streaming', activities: msg.payload.activities || [] } }
+      setMessages((prev: any[]) => mergeMessages(prev, [streamMsg]))
+    } else if (msg.action === 'agent.stream.activity') {
+      setMessages((prev: any[]) => prev.map((m) => {
+        if (m.id !== msg.payload.id) return m
+        const activity = { text: msg.payload.text, tool: msg.payload.tool, kind: msg.payload.kind, timestamp: msg.payload.timestamp }
+        const activities = [...(m.payload?.activities || [])]
+        const mergeIndex = activity.kind ? activities.findIndex((item: any) => item.kind === activity.kind) : -1
+        if (mergeIndex >= 0) activities[mergeIndex] = { ...activities[mergeIndex], ...activity }
+        else activities.push(activity)
+        return { ...m, payload: { ...(m.payload || {}), status: 'streaming', activities } }
+      }))
+    } else if (msg.action === 'agent.stream.delta') {
+      setMessages((prev: any[]) => prev.map((m) => (m.id === msg.payload.id ? { ...m, content: msg.payload.content || m.content, payload: { ...(m.payload || {}), status: 'streaming' } } : m)))
+    } else if (msg.action === 'agent.stream.completed') {
+      setMessages((prev: any[]) => msg.payload.silent ? prev.filter((m) => m.id !== msg.payload.id) : prev.map((m) => m.id === msg.payload.id ? { ...m, content: msg.payload.content || m.content, payload: { ...(m.payload || {}), status: 'completed', finalMessageId: msg.payload.finalMessageId } } : m))
+    } else if (msg.action === 'agent.stream.failed') {
+      setMessages((prev: any[]) => prev.map((m) => m.id === msg.payload.id ? { ...m, payload: { ...(m.payload || {}), status: 'failed', error: msg.payload.error, activities: [...(m.payload?.activities || []), { text: `处理失败：${msg.payload.error}`, timestamp: Date.now() }] } } : m))
     } else if (msg.action === 'interaction.created') {
       if (msg.payload?.interaction?.status === 'pending') setPendingInteractions((prev: any[]) => [msg.payload.interaction, ...prev.filter((item) => item.id !== msg.payload.interaction.id)])
     } else if (msg.action === 'interaction.updated') {
       setMessages((prev: any[]) => prev.map((m) => (m.payload?.interactionId === msg.payload.interaction.id ? { ...m, payload: { ...(m.payload || {}), interaction: msg.payload.interaction } } : m)))
       setPendingInteractions((prev: any[]) => msg.payload.interaction.status === 'pending' ? [msg.payload.interaction, ...prev.filter((item) => item.id !== msg.payload.interaction.id)] : prev.filter((item) => item.id !== msg.payload.interaction.id))
-    } else if (msg.action === 'chat.history_result') setMessages((prev: any[]) => { const next = mergeMessages(prev, msg.payload.messages || []); if (roomId) writeCachedMessages(roomId, next); return next })
+    } else if (msg.action === 'chat.history_result') { setHasMoreMessages?.(msg.payload.hasMore !== false); setMessages((prev: any[]) => { const next = mergeMessages(prev, msg.payload.messages || []); if (roomId) writeCachedMessages(roomId, next); return next }) }
     else if (msg.action === 'chat.edited') setMessages((prev: any[]) => { const next = mergeMessages(prev.map((m) => (m.id === msg.payload.id ? { ...m, ...msg.payload } : m))); if (roomId) writeCachedMessages(roomId, next); return next })
     else if (msg.action === 'chat.deleted') setMessages((prev: any[]) => { const next = prev.filter((m) => m.id !== msg.payload.message_id); if (roomId) writeCachedMessages(roomId, next); return next })
     else if (msg.action === 'room.members_update') { setMembers(msg.payload.members || []); if (Array.isArray(msg.payload.agents)) setRoomAgents(msg.payload.agents) }

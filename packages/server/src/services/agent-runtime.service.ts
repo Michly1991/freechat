@@ -4,6 +4,14 @@ import type { Agent } from '@freechat/shared'
 import db from '../storage/db.js'
 import { config } from '../config.js'
 import { aiConfigService } from './ai-config.service.js'
+import { roomAnalyticsService, type TokenUsage } from './room-analytics.service.js'
+
+export interface AgentRuntimeEvent {
+  type: 'activity' | 'delta'
+  text: string
+  kind?: string
+  tool?: string
+}
 
 export class AgentRuntimeService {
 /**
@@ -17,14 +25,15 @@ async spawnClaudeCode(
   agentId: string,
   message: string,
   getAgent: (agentId: string) => Promise<Agent>,
-  prepareAgentWorkspace: (roomId: string, agent: Agent) => Promise<string>,
+  prepareAgentWorkspace: (roomId: string, agent: Agent, actorUserId?: string) => Promise<string>,
   buildAgentSystemPrompt: (agent: Agent) => string,
-  options: { timeoutMs?: number } = {}
+  options: { timeoutMs?: number; actorUserId?: string; onEvent?: (event: AgentRuntimeEvent) => void } = {}
 ): Promise<{ response: string; silent: boolean }> {
-  const timeoutMs = options.timeoutMs || config.agent.timeoutMs
+  const hardTimeoutMs = options.timeoutMs || config.agent.timeoutMs
+  const idleTimeoutMs = config.agent.idleTimeoutMs
   const agent = await getAgent(agentId)
-  const workspaceDir = await prepareAgentWorkspace(roomId, agent)
-  const runId = this.createAgentRun(roomId, agentId, message)
+  const workspaceDir = await prepareAgentWorkspace(roomId, agent, options.actorUserId)
+  const runId = this.createAgentRun(roomId, agentId, message, options.actorUserId)
 
   // Check for existing session
   const existingSession = db.prepare(`
@@ -73,10 +82,11 @@ async spawnClaudeCode(
       if (response.ok) {
         const data = await response.json() as any
         const responseText = data.content?.[0]?.text || ''
+        const usage = roomAnalyticsService.extractUsage(data) || undefined
         
         // Check for [SILENT] marker
         if (responseText === '[SILENT]' || responseText.includes('[SILENT]')) {
-          this.finishAgentRun(runId, 'succeeded', '', undefined, existingSession?.session_id)
+          this.finishAgentRun(runId, 'succeeded', '', undefined, existingSession?.session_id, usage, 'provider-api', provider.defaultModel)
           return { response: '', silent: true }
         }
 
@@ -89,7 +99,7 @@ async spawnClaudeCode(
         await this.saveMessageToHistory(newSessionId, 'assistant', responseText)
         this.cleanupAgentHistory(newSessionId)
         this.cleanupOldAgentSessions(roomId, agentId)
-        this.finishAgentRun(runId, 'succeeded', responseText, undefined, newSessionId)
+        this.finishAgentRun(runId, 'succeeded', responseText, undefined, newSessionId, usage, 'provider-api', provider.defaultModel)
 
         return { response: responseText, silent: false }
       } else {
@@ -103,7 +113,8 @@ async spawnClaudeCode(
     // Fall through to Claude Code CLI
   }
 
-  // Default: Use Claude Code CLI with this agent's private workspace as cwd
+  // Default: Use Claude Code CLI with this agent's private workspace as cwd.
+  // stream-json keeps long Claude Code runs alive as long as events continue.
   const args: string[] = [
     '-p',
     message,
@@ -112,7 +123,9 @@ async spawnClaudeCode(
     '--allowedTools',
     'Bash(./freechat *)',
     '--output-format',
-    'json'
+    'stream-json',
+    '--include-partial-messages',
+    '--verbose'
   ]
 
   // Resume existing session if available
@@ -120,7 +133,7 @@ async spawnClaudeCode(
     args.push('--resume', existingSession.session_id)
   }
 
-  const runClaude = (runArgs: string[]): Promise<{ response: string; silent: boolean; sessionId?: string }> => new Promise((resolve, reject) => {
+  const runClaude = (runArgs: string[]): Promise<{ response: string; silent: boolean; sessionId?: string; usage?: TokenUsage }> => new Promise((resolve, reject) => {
     const proc = spawn('claude', runArgs, {
       cwd: workspaceDir,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -129,12 +142,19 @@ async spawnClaudeCode(
 
     let stdout = ''
     let stderr = ''
+    let lineBuffer = ''
+    let response = ''
+    let sessionId: string | undefined
+    let usage: TokenUsage = {}
     let settled = false
     let timedOut = false
+    let hardTimer: NodeJS.Timeout | undefined
+    let idleTimer: NodeJS.Timeout | undefined
     let killTimer: NodeJS.Timeout | undefined
 
     const cleanup = () => {
-      if (watchdog) clearTimeout(watchdog)
+      if (hardTimer) clearTimeout(hardTimer)
+      if (idleTimer) clearTimeout(idleTimer)
       if (killTimer) clearTimeout(killTimer)
     }
 
@@ -145,14 +165,14 @@ async spawnClaudeCode(
       reject(err)
     }
 
-    const succeed = (value: { response: string; silent: boolean; sessionId?: string }) => {
+    const succeed = (value: { response: string; silent: boolean; sessionId?: string; usage?: TokenUsage }) => {
       if (settled) return
       settled = true
       cleanup()
       resolve(value)
     }
 
-    const watchdog = setTimeout(() => {
+    const killForTimeout = (code: string, messageText: string) => {
       timedOut = true
       const combined = `${stdout.trim()}\n${stderr.trim()}`.trim()
       try {
@@ -165,25 +185,97 @@ async spawnClaudeCode(
         } catch {}
       }, config.agent.killGraceMs)
 
-      fail({
-        code: 'AGENT_TIMEOUT',
-        message: `Claude Code timed out after ${timeoutMs}ms. Partial output: ${combined.slice(-2000)}`
-      })
-    }, timeoutMs)
+      fail({ code, message: `${messageText}. Partial output: ${combined.slice(-2000)}` })
+    }
+
+    const armIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => {
+        killForTimeout('AGENT_IDLE_TIMEOUT', `Claude Code produced no stream events for ${idleTimeoutMs}ms`)
+      }, idleTimeoutMs)
+    }
+
+    hardTimer = setTimeout(() => {
+      killForTimeout('AGENT_TIMEOUT', `Claude Code hard timed out after ${hardTimeoutMs}ms`)
+    }, hardTimeoutMs)
+    armIdleTimer()
+
+    const emit = (event: AgentRuntimeEvent) => {
+      try { options.onEvent?.(event) } catch {}
+    }
+
+    const contentText = (content: any): string => {
+      if (typeof content === 'string') return content
+      if (Array.isArray(content)) return content.map((item) => item?.text || '').join('')
+      return ''
+    }
+
+    const handleEvent = (item: any) => {
+      if (!item || typeof item !== 'object') return
+      armIdleTimer()
+      if (item.session_id) sessionId = item.session_id
+      const eventUsage = roomAnalyticsService.extractUsage(item)
+      if (eventUsage) usage = roomAnalyticsService.addUsage(usage, eventUsage)
+
+      if (item.type === 'result') {
+        response = item.result || response
+        if (item.session_id) sessionId = item.session_id
+        return
+      }
+
+      if (item.type === 'assistant' && item.message?.content) {
+        const text = contentText(item.message.content)
+        if (text) response = text
+        return
+      }
+
+      if (item.type === 'stream_event') {
+        const event = item.event || {}
+        const deltaText = event.delta?.text || ''
+        if (deltaText) {
+          response += deltaText
+          emit({ type: 'delta', kind: 'partial', text: response })
+        }
+        if (event.type === 'message_start') emit({ type: 'activity', kind: 'runtime', text: 'Claude Code 已开始生成回复' })
+        return
+      }
+
+      if (item.type === 'system' && item.subtype === 'status' && item.status) {
+        emit({ type: 'activity', kind: 'runtime_status', text: `Claude Code 状态：${item.status}` })
+      }
+    }
+
+    const processLines = (chunk: string) => {
+      lineBuffer += chunk
+      const lines = lineBuffer.split(/\r?\n/)
+      lineBuffer = lines.pop() || ''
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        try {
+          handleEvent(JSON.parse(trimmed))
+        } catch {
+          // Keep raw output for diagnostics; stream-json should be JSONL.
+        }
+      }
+    }
 
     proc.stdout.on('data', (data: Buffer) => {
-      stdout += data.toString()
+      const text = data.toString()
+      stdout += text
       if (stdout.length > 1_000_000) stdout = stdout.slice(-1_000_000)
+      processLines(text)
     })
     proc.stderr.on('data', (data: Buffer) => {
       stderr += data.toString()
       if (stderr.length > 1_000_000) stderr = stderr.slice(-1_000_000)
+      armIdleTimer()
     })
 
     proc.on('close', (code, signal) => {
       if (timedOut || settled) return
-      const raw = stdout.trim()
-      const combined = `${raw}\n${stderr}`.trim()
+      processLines('\n')
+      const combined = `${stdout.trim()}\n${stderr}`.trim()
 
       if (code !== 0) {
         fail({
@@ -193,23 +285,13 @@ async spawnClaudeCode(
         return
       }
 
-      let response = raw
-      let sessionId: string | undefined
-      try {
-        const parsed = JSON.parse(raw)
-        response = parsed.result || ''
-        sessionId = parsed.session_id
-      } catch {
-        const sessionMatch = raw.match(/session[_-]?id[:\s]+([^\s]+)/i)
-        sessionId = sessionMatch?.[1]
-      }
-
-      if (response === '[SILENT]' || response.includes('[SILENT]')) {
-        succeed({ response: '', silent: true, sessionId })
+      const finalResponse = response || stdout.trim()
+      if (finalResponse === '[SILENT]' || finalResponse.includes('[SILENT]')) {
+        succeed({ response: '', silent: true, sessionId, usage })
         return
       }
 
-      succeed({ response: response || '', silent: false, sessionId })
+      succeed({ response: finalResponse || '', silent: false, sessionId, usage })
     })
 
     proc.on('error', (err) => {
@@ -224,7 +306,7 @@ async spawnClaudeCode(
       this.cleanupAgentHistory(result.sessionId)
     }
     this.cleanupOldAgentSessions(roomId, agentId)
-    this.finishAgentRun(runId, 'succeeded', result.response, undefined, result.sessionId)
+    this.finishAgentRun(runId, 'succeeded', result.response, undefined, result.sessionId, result.usage, 'claude-code')
     return { response: result.response, silent: result.silent }
   } catch (err: any) {
     if (existingSession && String(err.message || '').includes('No conversation found')) {
@@ -235,29 +317,34 @@ async spawnClaudeCode(
         this.cleanupAgentHistory(result.sessionId)
       }
       this.cleanupOldAgentSessions(roomId, agentId)
-      this.finishAgentRun(runId, 'succeeded', result.response, undefined, result.sessionId)
+      this.finishAgentRun(runId, 'succeeded', result.response, undefined, result.sessionId, result.usage, 'claude-code')
       return { response: result.response, silent: result.silent }
     }
-    this.finishAgentRun(runId, err?.code === 'AGENT_TIMEOUT' ? 'timeout' : 'failed', undefined, err?.message || String(err), existingSession?.session_id)
+    this.finishAgentRun(runId, err?.code === 'AGENT_TIMEOUT' || err?.code === 'AGENT_IDLE_TIMEOUT' ? 'timeout' : 'failed', undefined, err?.message || String(err), existingSession?.session_id)
     throw err
   }
 }
 
-private createAgentRun(roomId: string, agentId: string, input: string): string {
+private createAgentRun(roomId: string, agentId: string, input: string, actorUserId?: string): string {
   const id = `arun_${uuidv4()}`
   db.prepare(`
-    INSERT INTO agent_runs (id, room_id, agent_id, status, input, started_at)
-    VALUES (?, ?, ?, 'running', ?, ?)
-  `).run(id, roomId, agentId, input, Date.now())
+    INSERT INTO agent_runs (id, room_id, agent_id, status, input, actor_user_id, started_at)
+    VALUES (?, ?, ?, 'running', ?, ?, ?)
+  `).run(id, roomId, agentId, input, actorUserId || null, Date.now())
   return id
 }
 
-private finishAgentRun(runId: string, status: 'succeeded' | 'failed' | 'timeout' | 'cancelled', output?: string, error?: string, sessionId?: string): void {
+private finishAgentRun(runId: string, status: 'succeeded' | 'failed' | 'timeout' | 'cancelled', output?: string, error?: string, sessionId?: string, usage: TokenUsage = {}, runtime?: string, model?: string): void {
+  const now = Date.now()
+  const row = db.prepare('SELECT started_at FROM agent_runs WHERE id = ?').get(runId) as { started_at: number } | undefined
+  const durationMs = row ? Math.max(0, now - Number(row.started_at || now)) : null
+  const totalTokens = roomAnalyticsService.totalTokens(usage)
   db.prepare(`
     UPDATE agent_runs
-    SET status = ?, output = ?, error = ?, session_id = ?, finished_at = ?
+    SET status = ?, output = ?, error = ?, session_id = ?, runtime = COALESCE(?, runtime), model = COALESCE(?, model),
+        duration_ms = ?, input_tokens = ?, output_tokens = ?, cache_creation_input_tokens = ?, cache_read_input_tokens = ?, total_tokens = ?, finished_at = ?
     WHERE id = ?
-  `).run(status, output || null, error || null, sessionId || null, Date.now(), runId)
+  `).run(status, output || null, error || null, sessionId || null, runtime || null, model || null, durationMs, usage.inputTokens || 0, usage.outputTokens || 0, usage.cacheCreationInputTokens || 0, usage.cacheReadInputTokens || 0, totalTokens, now, runId)
 }
 
 /**

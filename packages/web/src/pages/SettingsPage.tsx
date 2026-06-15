@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { api } from '../lib/api'
+import PersonalAnalyticsPanel from '../features/analytics/PersonalAnalyticsPanel'
 
 export default function SettingsPage() {
   const { user, updateUser, logout } = useAuthStore()
@@ -78,7 +79,9 @@ export default function SettingsPage() {
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-4 py-8 space-y-8">
+      <main className="max-w-4xl mx-auto px-4 py-8 space-y-8">
+        <PersonalAnalyticsPanel />
+
         <section className="bg-white rounded-xl p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-800 mb-4">基本信息</h2>
           <form onSubmit={handleSaveProfile} className="space-y-4">

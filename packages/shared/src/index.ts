@@ -39,6 +39,8 @@ export interface AgentRuntimeConfig {
   }
   defaultRoomAssistant?: boolean
   roomId?: string
+  builtInKey?: string
+  locked?: boolean
 }
 
 export interface Agent {
@@ -57,6 +59,55 @@ export interface Agent {
   roomRole?: RoomAgentRole
   autoEnabled?: boolean
   roomPriority?: number
+  isTemplate?: boolean
+  templateVersion?: number
+  sourceTemplateId?: string
+  sourceTemplateVersion?: number
+  isModified?: boolean
+  ownerId?: string
+  isBuiltIn?: boolean
+  builtInKey?: string
+  canEdit?: boolean
+  canDelete?: boolean
+}
+
+export interface AgentSkill {
+  id: string
+  agentId: string
+  name: string
+  description?: string
+  content: string
+  enabled: boolean
+  sortOrder: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface AgentScript {
+  id: string
+  agentId: string
+  name: string
+  description?: string
+  language: string
+  content: string
+  enabled: boolean
+  runPolicy: 'manual_only' | 'agent_allowed' | 'disabled'
+  sortOrder: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface SceneTemplate {
+  id: string
+  ownerId?: string
+  builtInKey?: string
+  name: string
+  description?: string
+  icon?: string
+  version: number
+  status: 'active' | 'inactive'
+  isBuiltIn?: boolean
+  canEdit?: boolean
 }
 
 export const DEFAULT_AGENT_TOOLS: AgentToolPermissions = {
@@ -107,7 +158,7 @@ export interface Message {
   actorName: string
   actorRole: 'human' | 'ai'
   content: string
-  kind?: 'text' | 'interaction_request' | 'system' | 'agent_receipt'
+  kind?: 'text' | 'interaction_request' | 'system' | 'agent_receipt' | 'agent_stream'
   payload?: Record<string, any>
   mentions?: Mention[]
   replyTo?: string
@@ -276,7 +327,7 @@ export interface ConversationSummary {
 }
 
 // === Agent Run Types ===
-export type AgentRunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled'
+export type AgentRunStatus = 'running' | 'succeeded' | 'failed' | 'timeout' | 'cancelled'
 
 export interface AgentRun {
   id: string
@@ -311,6 +362,10 @@ export type WSEventAction =
   | 'task.list_result'
   | 'task.changed'
   | 'agent.status_update'
+  | 'agent.stream.started'
+  | 'agent.stream.activity'
+  | 'agent.stream.completed'
+  | 'agent.stream.failed'
   | 'files.updated'
   | 'tabs.updated'
 

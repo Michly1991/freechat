@@ -70,11 +70,26 @@ export const api = {
 
   // Rooms
   getRooms: () => request<{ rooms: any[] }>('/rooms'),
-  createRoom: (body: { name: string; description?: string; memberIds?: string[]; agents?: Array<{ agentId: string; roomRole?: 'assistant' | 'specialist'; autoEnabled?: boolean; priority?: number }> }) =>
+  createRoom: (body: { name: string; description?: string; sceneId?: string; memberIds?: string[]; agents?: Array<{ agentId: string; roomRole?: 'assistant' | 'specialist'; autoEnabled?: boolean; priority?: number }> }) =>
     request<{ room: any }>('/rooms', { method: 'POST', body: JSON.stringify(body) }),
   getRoom: (id: string) => request<{ room: any; members: any[] }>(`/rooms/${id}`),
-  getRoomMessages: (id: string, limit = 100) => request<{ messages: any[] }>(`/rooms/${id}/messages?limit=${limit}`),
+  getRoomMessages: (id: string, limit = 100, before?: string) => request<{ messages: any[]; hasMore?: boolean }>(`/rooms/${id}/messages?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ''}`),
   getRoomTasks: (id: string, status?: string) => request<{ tasks: any[] }>(`/rooms/${id}/tasks${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+  createTask: (roomId: string, body: any) =>
+    request<{ task: any }>(`/rooms/${roomId}/tasks`, { method: 'POST', body: JSON.stringify(body) }),
+  updateTask: (roomId: string, taskId: string, body: any) =>
+    request<{ task: any }>(`/rooms/${roomId}/tasks/${taskId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteTask: (roomId: string, taskId: string) => request(`/rooms/${roomId}/tasks/${taskId}`, { method: 'DELETE' }),
+  retryTask: (roomId: string, taskId: string, reason?: string) =>
+    request<{ task: any; wakeItems: any[] }>(`/rooms/${roomId}/tasks/${taskId}/retry`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  createSubtask: (roomId: string, taskId: string, body: any) =>
+    request<{ subtask: any; task: any }>(`/rooms/${roomId}/tasks/${taskId}/subtasks`, { method: 'POST', body: JSON.stringify(body) }),
+  updateSubtask: (roomId: string, taskId: string, itemId: string, body: any) =>
+    request<{ subtask: any; task: any; released: any[] }>(`/rooms/${roomId}/tasks/${taskId}/subtasks/${itemId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteSubtask: (roomId: string, taskId: string, itemId: string) =>
+    request<{ task: any }>(`/rooms/${roomId}/tasks/${taskId}/subtasks/${itemId}`, { method: 'DELETE' }),
+  retrySubtask: (roomId: string, taskId: string, itemId: string, reason?: string) =>
+    request<{ subtask: any; task: any; shouldWake: boolean }>(`/rooms/${roomId}/tasks/${taskId}/subtasks/${itemId}/retry`, { method: 'POST', body: JSON.stringify({ reason }) }),
   sendRoomMessage: (id: string, body: { content: string; mentions?: any[]; reply_to?: string }) =>
     request<{ message: any }>(`/rooms/${id}/messages`, { method: 'POST', body: JSON.stringify(body) }),
   updateRoom: (id: string, body: { name?: string; description?: string }) =>
@@ -94,6 +109,24 @@ export const api = {
       body: JSON.stringify({ invite_code }),
     }),
   leaveRoom: (id: string) => request(`/rooms/${id}/leave`, { method: 'POST' }),
+  getRoomAnalytics: (id: string, params?: { from?: number; to?: number }) => {
+    const qs = params ? new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString() : ''
+    return request<any>(`/rooms/${id}/analytics${qs ? `?${qs}` : ''}`)
+  },
+  getRoomAnalyticsRuns: (id: string, params?: { agentId?: string; from?: number; to?: number; page?: number; pageSize?: number }) => {
+    const qs = params ? new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString() : ''
+    return request<any>(`/rooms/${id}/analytics/runs${qs ? `?${qs}` : ''}`)
+  },
+  getRoomAnalyticsRunDetail: (id: string, runId: string) => request<any>(`/rooms/${id}/analytics/runs/${runId}`),
+  getPersonalAnalytics: (params?: { from?: number; to?: number; scope?: 'member' | 'owned' | 'triggered' }) => {
+    const qs = params ? new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString() : ''
+    return request<any>(`/me/analytics${qs ? `?${qs}` : ''}`)
+  },
+  getPersonalAnalyticsRuns: (params?: { agentKey?: string; roomId?: string; from?: number; to?: number; scope?: 'member' | 'owned' | 'triggered'; page?: number; pageSize?: number }) => {
+    const qs = params ? new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString() : ''
+    return request<any>(`/me/analytics/runs${qs ? `?${qs}` : ''}`)
+  },
+  getPersonalAnalyticsRunDetail: (runId: string) => request<any>(`/me/analytics/runs/${runId}`),
 
   // Files
   getFiles: (roomId: string) => request<{ files: any[] }>(`/rooms/${roomId}/files`),
@@ -135,26 +168,62 @@ export const api = {
     }),
 
   // Tabs
-  getTabs: (roomId: string) => request<{ tabs: any[] }>(`/rooms/${roomId}/tabs`),
-  createTab: (roomId: string, body: { title: string; content?: string; icon?: string }) =>
+  getTabs: (roomId: string) => request<{ tabs: any[]; defaultTabId?: string | null }>(`/rooms/${roomId}/tabs`),
+  createTab: (roomId: string, body: { title: string; content?: string; icon?: string; makeDefault?: boolean }) =>
     request(`/rooms/${roomId}/tabs`, { method: 'POST', body: JSON.stringify(body) }),
   updateTab: (roomId: string, tabId: string, body: { title?: string; content?: string; icon?: string }) =>
     request(`/rooms/${roomId}/tabs/${tabId}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteTab: (roomId: string, tabId: string) =>
     request(`/rooms/${roomId}/tabs/${tabId}`, { method: 'DELETE' }),
+  setDefaultTab: (roomId: string, tabId: string) =>
+    request(`/rooms/${roomId}/tabs/${tabId}/default`, { method: 'POST' }),
+  reorderTabs: (roomId: string, tabIds: string[]) =>
+    request(`/rooms/${roomId}/tabs/reorder`, { method: 'POST', body: JSON.stringify({ tabIds }) }),
 
   // Agents
+  getScenes: () => request<{ scenes: any[] }>('/scenes'),
+  createScene: (body: { name: string; description?: string; icon?: string; agents?: any[] }) =>
+    request<{ scene: any }>('/scenes', { method: 'POST', body: JSON.stringify(body) }),
+  updateScene: (id: string, body: { name?: string; description?: string; icon?: string; agents?: any[] }) =>
+    request<{ scene: any }>(`/scenes/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  getScenePermissions: (id: string) => request<{ canManage: boolean; members: any[]; requests: any[] }>(`/scenes/${id}/permissions`),
+  grantScenePermission: (id: string, userId: string, role = 'editor') =>
+    request<{ members: any[] }>(`/scenes/${id}/permissions`, { method: 'POST', body: JSON.stringify({ userId, role }) }),
+  revokeScenePermission: (id: string, userId: string) =>
+    request<{ members: any[] }>(`/scenes/${id}/permissions/${userId}`, { method: 'DELETE' }),
+  requestScenePermission: (id: string, message?: string) =>
+    request<{ request: any }>(`/scenes/${id}/permission-requests`, { method: 'POST', body: JSON.stringify({ message, role: 'editor' }) }),
+  resolveScenePermissionRequest: (id: string, requestId: string, decision: 'approve' | 'reject') =>
+    request<{ request: any }>(`/scenes/${id}/permission-requests/${requestId}/resolve`, { method: 'POST', body: JSON.stringify({ decision }) }),
   getAgents: () => request<{ agents: any[] }>('/agents'),
   createAgent: (body: { name: string; roleType: string; deployment: string; description?: string; specialties?: string[]; config?: Record<string, any> }) =>
     request<{ agent: any; apiKey: string }>('/agents', { method: 'POST', body: JSON.stringify(body) }),
   updateAgent: (id: string, body: Record<string, any>) =>
     request(`/agents/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteAgent: (id: string) => request(`/agents/${id}`, { method: 'DELETE' }),
+  getAgentDetail: (id: string) => request<{ agent: any; skills: any[]; scripts: any[] }>(`/agents/${id}/detail`),
+  getAgentPermissions: (id: string) => request<{ canManage: boolean; members: any[]; requests: any[] }>(`/agents/${id}/permissions`),
+  grantAgentPermission: (id: string, userId: string, role = 'editor') =>
+    request<{ members: any[] }>(`/agents/${id}/permissions`, { method: 'POST', body: JSON.stringify({ userId, role }) }),
+  revokeAgentPermission: (id: string, userId: string) =>
+    request<{ members: any[] }>(`/agents/${id}/permissions/${userId}`, { method: 'DELETE' }),
+  requestAgentPermission: (id: string, message?: string) =>
+    request<{ request: any }>(`/agents/${id}/permission-requests`, { method: 'POST', body: JSON.stringify({ message, role: 'editor' }) }),
+  resolveAgentPermissionRequest: (id: string, requestId: string, decision: 'approve' | 'reject') =>
+    request<{ request: any }>(`/agents/${id}/permission-requests/${requestId}/resolve`, { method: 'POST', body: JSON.stringify({ decision }) }),
+  createAgentSkill: (id: string, body: any) => request<{ skill: any }>(`/agents/${id}/skills`, { method: 'POST', body: JSON.stringify(body) }),
+  updateAgentSkill: (id: string, skillId: string, body: any) => request<{ skill: any }>(`/agents/${id}/skills/${skillId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteAgentSkill: (id: string, skillId: string) => request(`/agents/${id}/skills/${skillId}`, { method: 'DELETE' }),
+  createAgentScript: (id: string, body: any) => request<{ script: any }>(`/agents/${id}/scripts`, { method: 'POST', body: JSON.stringify(body) }),
+  updateAgentScript: (id: string, scriptId: string, body: any) => request<{ script: any }>(`/agents/${id}/scripts/${scriptId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteAgentScript: (id: string, scriptId: string) => request(`/agents/${id}/scripts/${scriptId}`, { method: 'DELETE' }),
   getRoomAgents: (roomId: string) => request<{ agents: any[] }>(`/rooms/${roomId}/agents`),
   addRoomAgent: (roomId: string, agentId: string, options?: { roomRole?: 'assistant' | 'specialist'; autoEnabled?: boolean; priority?: number }) =>
     request(`/rooms/${roomId}/agents`, { method: 'POST', body: JSON.stringify({ agentId, ...(options || {}) }) }),
   removeRoomAgent: (roomId: string, agentId: string) =>
     request(`/rooms/${roomId}/agents/${agentId}`, { method: 'DELETE' }),
+  restartRoomAgent: (roomId: string, agentId: string, clearSession = true) =>
+    request<{ agent: any; pendingSubtasks: any[] }>(`/rooms/${roomId}/agents/${agentId}/restart`, { method: 'POST', body: JSON.stringify({ clearSession }) }),
   invokeAgent: (roomId: string, agentId: string, message: string) =>
     request(`/rooms/${roomId}/agents/${agentId}/invoke`, { method: 'POST', body: JSON.stringify({ message }) }),
   searchMarket: (q?: string) => request<{ agents: any[] }>(`/agent-market/search${q ? `?q=${encodeURIComponent(q)}` : ''}`),
@@ -205,6 +274,10 @@ export const api = {
     request<{ interaction: any }>(`/rooms/${roomId}/interactions/${id}`),
   respondInteraction: (roomId: string, id: string, value: string | string[], inputs?: Record<string, string>) =>
     request<{ interaction: any }>(`/rooms/${roomId}/interactions/${id}/respond`, { method: 'PATCH', body: JSON.stringify(Array.isArray(value) ? { values: value, inputs } : { value, inputs }) }),
+  consumeInteraction: (roomId: string, id: string) =>
+    request<{ interaction: any }>(`/rooms/${roomId}/interactions/${id}/consume`, { method: 'POST' }),
+  cancelInteraction: (roomId: string, id: string) =>
+    request<{ interaction: any }>(`/rooms/${roomId}/interactions/${id}/cancel`, { method: 'POST' }),
 
   // Users
   getUser: (userId: string) => request<any>(`/users/${userId}`),

@@ -219,3 +219,50 @@ Agent 工具只能操作当前房间的任务。服务端在 `task.update`、`ta
 - stale `agent_runs.running` 会按超时窗口回收，避免前端一直显示 Agent working。
 - 房间助理可通过确认卡请求创建新专家 Agent；用户确认后才创建并加入当前房间。
 - 通讯录 Agent 页面支持编辑已有 Agent 的名称、类型、职责、专长、系统提示词和工具权限。
+
+### Agent 自我识别与禁止 @ 自己
+
+每个 Agent 启动时必须明确知道“当前 Agent 就是自己”，避免把同名 Agent 当成另一个协作者。服务端在系统提示词、Agent 工作区 `AGENT.md`、以及 `.freechat/MEMBERS.md` 中同时注入当前 Agent 名称和 ID：用户 @ 当前 Agent 名称或提到当前 Agent ID 时，就是在直接要求该 Agent 本人处理。
+
+`MEMBERS.md` 在单 Agent 工作区内分为 `Current Agent` 与 `Other Agents`：当前 Agent 只用于自我识别，不应作为任务转发或聊天通知对象；真正可分派对象只看 `Other Agents`。如果 `Other Agents` 为空，助理必须直接执行或以第一人称汇报，不能说“已通知/转发/提醒 @自己”或“某某会处理”。
+
+运行时唤醒明确 @ 当前 Agent 时，会额外在输入前加入自我识别说明。Agent 工具层也会拒绝明显的“通知/转发/提醒 @自己”类 `chat.send`，返回 `AGENT_SELF_MENTION_FORBIDDEN`，要求 Agent 直接处理并重新汇报，避免错误消息继续污染会话历史。
+
+### 项目目录与页面发布规则
+
+Agent 运行目录下的 `res/` 是私有草稿/中间产物目录，用户默认不可见。正式项目文件必须通过 Agent CLI 写入项目文件区，并使用业务路径，不再使用项目路径 `res/...` 作为正式交付目录。例如小说项目使用：
+
+- `星源纪/README.md`
+- `星源纪/正文/第一卷/第一章.md`
+- `星源纪/剧情/主线剧情.md`
+- `星源纪/角色/角色表.md`
+- `星源纪/世界观/世界观设定.md`
+- `星源纪/体系/技能体系.md`
+- `星源纪/成长/主角成长轨迹.md`
+- `星源纪/归档/...`
+
+HTML 页面分两步：`./freechat file write-local ui/page.html res/page.html --show` 只把 HTML 作为项目文件保存并加入“文件”视图；真正显示在“页面/标签”区域必须执行 `./freechat tab create-file "页面标题" ui/page.html --default`，或直接用 `./freechat tab create-local "页面标题" res/page.html --default` 从 Agent 私有草稿发布为动态 Tab。主交付页面应设为默认页，也可用 `./freechat tab set-default <tabId|标题>` 调整。
+
+工具层禁止 Agent 将正式项目文件写到项目路径 `res/...`，并在写入 `.html` 文件后返回创建页面 Tab 的提示，避免 Agent 把“文件可见”和“页面可见”混淆。
+
+
+### 页面 Tab 内目录跳转协议
+
+动态页面渲染在 iframe 中，普通 `href` 只能在当前 iframe 内跳转，不能切换 FreeChat 外层页面 Tab。跨页面目录/章节导航必须使用 FreeChat 页面跳转协议：
+
+```html
+<a data-freechat-tab-id="tab_xxx" data-freechat-anchor="chapter-1">第一章</a>
+<a data-freechat-tab-title="《星源纪》第二章" data-freechat-anchor="chapter-2">第二章</a>
+```
+
+前端会把点击转换为 `freechat.tab.open`，切换到对应 Tab，并在目标页面加载后发送 `freechat.page.scrollTo` 滚动到 `id`、`name` 或 `data-anchor` 匹配的元素。Agent 生成阅读页、目录页、看板页时应优先使用该协议，不要要求用户手动切换 Tab。
+
+
+### 小说阅读页数据源约定
+
+Agent 仍允许在用户明确要求布局、样式、交互变化时修改阅读页 HTML；但 HTML 只作为稳定阅读器壳，不能硬编码卷/章/集目录或正文全文。小说内容更新默认只修改：
+
+- `星源纪/manifest.json`：卷、章、集目录与每集 Markdown 路径。
+- `星源纪/正文/<卷>/<章>/第NNN集-标题.md`：每集正文。
+
+删除章节/集数时，先从 manifest 移除或标记，再把正文移动到 `_归档/<日期>/...`，不要直接丢失内容。阅读页刷新后通过 `window.freechat.readFile(path)` 从项目文件读取 manifest 和 Markdown，自动同步目录和正文。
