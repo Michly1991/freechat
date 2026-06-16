@@ -12,6 +12,7 @@ import { DesktopTabs, MobileNav } from './home/HomeTabs'
 import { MessagesSection } from './home/MessagesSection'
 import { SettingsSection } from './home/SettingsSection'
 import { isBrowserNotificationEnabled, showBrowserNotification } from '../features/notifications/browser-notifications'
+import { isStrongNotification, playNotificationSound, soundKindForNotification } from '../features/notifications/notification-sound'
 import type { ContactKind, HomeTab, SelectedAgent } from './home/types'
 
 export default function HomePage() {
@@ -70,7 +71,8 @@ export default function HomePage() {
       if (!notification) return
       setNotifications((prev) => [notification, ...prev.filter((item) => item.id !== notification.id)].slice(0, 50))
       setNotificationUnreadCount((count) => count + 1)
-      showBrowserNotification(notification)
+      if (isStrongNotification(notification)) showBrowserNotification(notification)
+      void playNotificationSound(soundKindForNotification(notification), `${notification.type}:${notification.roomId || 'global'}`)
       loadConversations()
     }
     return () => ws.close()

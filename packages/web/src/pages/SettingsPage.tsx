@@ -5,6 +5,7 @@ import { useAuthStore } from '../stores/authStore'
 import { api } from '../lib/api'
 import PersonalAnalyticsPanel from '../features/analytics/PersonalAnalyticsPanel'
 import { disableBrowserNotifications, enableBrowserNotifications, isBrowserNotificationEnabled } from '../features/notifications/browser-notifications'
+import { getNotificationSoundPrefs, playNotificationSound, setNotificationSoundPrefs, unlockNotificationSound } from '../features/notifications/notification-sound'
 
 type SettingsTab = 'account' | 'analytics' | 'notifications' | 'system'
 
@@ -35,6 +36,7 @@ export default function SettingsPage() {
   const [msg, setMsg] = useState('')
   const [pwdMsg, setPwdMsg] = useState('')
   const [browserNotify, setBrowserNotify] = useState(isBrowserNotificationEnabled())
+  const [soundPrefs, setSoundPrefs] = useState(getNotificationSoundPrefs())
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -63,6 +65,15 @@ export default function SettingsPage() {
   const toggleBrowserNotify = async () => {
     if (browserNotify) { disableBrowserNotifications(); setBrowserNotify(false); return }
     setBrowserNotify(await enableBrowserNotifications())
+  }
+
+  const updateSoundPref = async (next: Partial<typeof soundPrefs>) => {
+    await unlockNotificationSound()
+    setSoundPrefs(setNotificationSoundPrefs(next))
+  }
+  const testSound = async () => {
+    await unlockNotificationSound()
+    await playNotificationSound('mention', 'settings-test', true)
   }
 
   const handleLogout = () => { logout(); navigate('/login') }
@@ -120,10 +131,25 @@ export default function SettingsPage() {
         {activeTab === 'notifications' && (
           <section className="bg-white rounded-xl p-5 sm:p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-gray-800 mb-2">通知设置</h2>
-            <p className="text-sm text-gray-500 mb-4">第一版支持浏览器通知。通知类型偏好后续会继续细分。</p>
-            <div className="flex items-center justify-between rounded-lg border border-gray-100 p-4">
-              <div><p className="font-medium text-gray-800">浏览器通知</p><p className="text-xs text-gray-400 mt-1">页面不在前台时，对 @我、任务分派等强提醒弹出系统通知。</p></div>
-              <button onClick={toggleBrowserNotify} className={`px-4 py-2 rounded-lg text-sm ${browserNotify ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>{browserNotify ? '已开启' : '开启'}</button>
+            <p className="text-sm text-gray-500 mb-4">强提醒包含 @我、任务分派和 Agent 完成。普通消息默认只计未读，可自行开启轻音效。</p>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-4 rounded-lg border border-gray-100 p-4">
+                <div><p className="font-medium text-gray-800">浏览器通知</p><p className="text-xs text-gray-400 mt-1">页面不在前台时，对强提醒弹出系统通知。</p></div>
+                <button onClick={toggleBrowserNotify} className={`px-4 py-2 rounded-lg text-sm shrink-0 ${browserNotify ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>{browserNotify ? '已开启' : '开启'}</button>
+              </div>
+              <div className="flex items-center justify-between gap-4 rounded-lg border border-gray-100 p-4">
+                <div><p className="font-medium text-gray-800">通知音效</p><p className="text-xs text-gray-400 mt-1">总开关。关闭后所有 FreeChat 提醒音静音。</p></div>
+                <button onClick={() => updateSoundPref({ soundEnabled: !soundPrefs.soundEnabled })} className={`px-4 py-2 rounded-lg text-sm shrink-0 ${soundPrefs.soundEnabled ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>{soundPrefs.soundEnabled ? '已开启' : '开启'}</button>
+              </div>
+              <div className="flex items-center justify-between gap-4 rounded-lg border border-gray-100 p-4">
+                <div><p className="font-medium text-gray-800">强提醒音</p><p className="text-xs text-gray-400 mt-1">@我、任务分派、Agent 完成时播放更明显的提示音。</p></div>
+                <button onClick={() => updateSoundPref({ strongSoundEnabled: !soundPrefs.strongSoundEnabled })} className={`px-4 py-2 rounded-lg text-sm shrink-0 ${soundPrefs.strongSoundEnabled ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>{soundPrefs.strongSoundEnabled ? '已开启' : '关闭'}</button>
+              </div>
+              <div className="flex items-center justify-between gap-4 rounded-lg border border-gray-100 p-4">
+                <div><p className="font-medium text-gray-800">普通消息音</p><p className="text-xs text-gray-400 mt-1">当前房间外的新聊天消息播放轻提示音；默认关闭，避免刷屏。</p></div>
+                <button onClick={() => updateSoundPref({ messageSoundEnabled: !soundPrefs.messageSoundEnabled })} className={`px-4 py-2 rounded-lg text-sm shrink-0 ${soundPrefs.messageSoundEnabled ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>{soundPrefs.messageSoundEnabled ? '已开启' : '关闭'}</button>
+              </div>
+              <button onClick={testSound} className="text-sm bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200">测试音效</button>
             </div>
           </section>
         )}

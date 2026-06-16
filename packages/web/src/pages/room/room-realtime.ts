@@ -1,5 +1,6 @@
 import { api } from '../../lib/api'
 import { addClientLog } from '../../lib/clientLog'
+import { playNotificationSound } from '../../features/notifications/notification-sound'
 import { mergeMessages, writeCachedMessages } from '../room-page-model'
 
 export function createRoomRuntimeActions(deps: any) {
@@ -60,6 +61,13 @@ export function createRoomRuntimeActions(deps: any) {
     addClientLog('info', 'ws', 'message received', { action: msg.action, type: msg.type })
     if (msg.action === 'chat.message') {
       const isIncoming = msg.payload?.actorId !== user?.id, nearBottom = isChatNearBottom()
+      const kind = msg.payload?.kind || 'text'
+      const mentionsMe = Array.isArray(msg.payload?.mentions) && msg.payload.mentions.some((m: any) => (m.role === 'human' || m.type === 'user') && m.id === user?.id)
+      const visibleCurrentChat = document.visibilityState === 'visible' && activePanel === 'chat' && nearBottom
+      if (isIncoming && kind !== 'agent_receipt' && kind !== 'agent_stream') {
+        if (mentionsMe) void playNotificationSound('mention', `mention:${roomId}`)
+        else if (!visibleCurrentChat) void playNotificationSound('message', `message:${roomId}`)
+      }
       if (isIncoming && activePanel === 'chat') nearBottom ? api.markConversationRead('project', roomId!).then(() => { const now = Date.now(); setLastReadAt(now); sessionStorage.setItem(`freechat:room:${roomId}:lastReadAt`, String(now)) }).catch(() => {}) : setRoomNewMessageCount((count: number) => count + 1)
       setMessages((prev: any[]) => { const withoutCompletedStream = msg.payload?.actorRole === 'ai' ? prev.filter((m) => !(m.kind === 'agent_stream' && m.actorId === msg.payload.actorId && m.payload?.status === 'completed')) : prev; const next = mergeMessages(withoutCompletedStream, [msg.payload]); if (roomId) writeCachedMessages(roomId, next); return next })
     } else if (msg.action === 'agent.stream.started') {
