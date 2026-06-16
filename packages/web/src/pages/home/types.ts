@@ -9,12 +9,20 @@ export type SelectedAgent = { agentId: string; autoEnabled: boolean }
 export type HeaderProps = {
   user: any
   showQuickActions: boolean
+  showNotifications: boolean
+  notifications: any[]
+  notificationUnreadCount: number
+  browserNotificationsEnabled: boolean
   setShowQuickActions: Dispatch<SetStateAction<boolean>>
+  setShowNotifications: Dispatch<SetStateAction<boolean>>
+  setBrowserNotificationsEnabled: Dispatch<SetStateAction<boolean>>
   onShowJoin: () => void
   onShowCreate: () => void
   onShowAddFriend: () => void
   onSettings: () => void
   onLogout: () => void
+  onMarkAllNotificationsRead: () => void
+  onOpenNotification: (notification: any) => void
 }
 
 export type DesktopTabsProps = {

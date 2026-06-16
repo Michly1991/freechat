@@ -1,4 +1,4 @@
-import { BellOff, FolderKanban, Pin } from 'lucide-react'
+import { AtSign, BellOff, FolderKanban, Pin } from 'lucide-react'
 import { SwipeActionItem } from '../../components/SwipeActionItem'
 import type { MessagesSectionProps } from './types'
 
@@ -41,6 +41,7 @@ export function MessagesSection({
                     <span className="font-medium text-gray-800 truncate">{conv.title}</span>
                     <span className={`text-[10px] px-1.5 py-0.5 rounded ${conv.type === 'dm' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'}`}>{conv.type === 'dm' ? '私聊' : '项目'}</span>
                     {conv.pinned && <span className="text-[10px] text-yellow-600 inline-flex items-center gap-0.5"><Pin className="w-3 h-3" />置顶</span>}
+                    {conv.mentionUnreadCount > 0 && <span className="text-[10px] text-red-500 inline-flex items-center gap-0.5"><AtSign className="w-3 h-3" />提到我</span>}
                     {conv.muted && <span className="text-[10px] text-gray-400 inline-flex items-center gap-0.5"><BellOff className="w-3 h-3" />免打扰</span>}
                   </div>
                   <p className="text-sm text-gray-400 truncate mt-1">

@@ -1,4 +1,6 @@
 import { spawn } from 'child_process'
+import { mkdir, writeFile } from 'fs/promises'
+import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import type { Agent } from '@freechat/shared'
 import db from '../storage/db.js'
@@ -37,11 +39,13 @@ async spawnClaudeCode(
 
   // Check for existing session
   const existingSession = db.prepare(`
-    SELECT session_id FROM agent_sessions
+    SELECT session_id, message_count, created_at, last_active_at FROM agent_sessions
     WHERE room_id = ? AND agent_id = ?
     ORDER BY last_active_at DESC
     LIMIT 1
-  `).get(roomId, agentId) as { session_id: string } | undefined
+  `).get(roomId, agentId) as { session_id: string; message_count: number; created_at: number; last_active_at: number } | undefined
+  const sessionDecision = this.shouldRotateSession(existingSession)
+  if (sessionDecision.rotate && existingSession) await this.writeSessionSummary(roomId, agentId, workspaceDir, sessionDecision.reason)
 
   // Optional provider API mode. Default server agent runtime is Claude Code CLI.
   if (config.agent.runtime === 'provider-api') try {
@@ -56,7 +60,7 @@ async spawnClaudeCode(
       const messages: any[] = []
       
       // Add recent conversation history if session exists
-      if (existingSession) {
+      if (existingSession && !sessionDecision.rotate) {
         const history = await this.getSessionHistory(existingSession.session_id, 10)
         messages.push(...history)
       }
@@ -86,12 +90,12 @@ async spawnClaudeCode(
         
         // Check for [SILENT] marker
         if (responseText === '[SILENT]' || responseText.includes('[SILENT]')) {
-          this.finishAgentRun(runId, 'succeeded', '', undefined, existingSession?.session_id, usage, 'provider-api', provider.defaultModel)
+          this.finishAgentRun(runId, 'succeeded', '', undefined, sessionDecision.rotate ? undefined : existingSession?.session_id, usage, 'provider-api', provider.defaultModel)
           return { response: '', silent: true }
         }
 
         // Generate or reuse session ID
-        const newSessionId = existingSession?.session_id || uuidv4()
+        const newSessionId = (!sessionDecision.rotate && existingSession?.session_id) || uuidv4()
         this.updateSession(roomId, agentId, newSessionId)
         
         // Save to conversation history
@@ -129,7 +133,7 @@ async spawnClaudeCode(
   ]
 
   // Resume existing session if available
-  if (existingSession) {
+  if (existingSession && !sessionDecision.rotate) {
     args.push('--resume', existingSession.session_id)
   }
 
@@ -309,7 +313,7 @@ async spawnClaudeCode(
     this.finishAgentRun(runId, 'succeeded', result.response, undefined, result.sessionId, result.usage, 'claude-code')
     return { response: result.response, silent: result.silent }
   } catch (err: any) {
-    if (existingSession && String(err.message || '').includes('No conversation found')) {
+    if (existingSession && !sessionDecision.rotate && String(err.message || '').includes('No conversation found')) {
       const freshArgs = args.filter((arg, index) => arg !== '--resume' && args[index - 1] !== '--resume')
       const result = await runClaude(freshArgs)
       if (result.sessionId) {
@@ -320,8 +324,43 @@ async spawnClaudeCode(
       this.finishAgentRun(runId, 'succeeded', result.response, undefined, result.sessionId, result.usage, 'claude-code')
       return { response: result.response, silent: result.silent }
     }
-    this.finishAgentRun(runId, err?.code === 'AGENT_TIMEOUT' || err?.code === 'AGENT_IDLE_TIMEOUT' ? 'timeout' : 'failed', undefined, err?.message || String(err), existingSession?.session_id)
+    this.finishAgentRun(runId, err?.code === 'AGENT_TIMEOUT' || err?.code === 'AGENT_IDLE_TIMEOUT' ? 'timeout' : 'failed', undefined, err?.message || String(err), sessionDecision.rotate ? undefined : existingSession?.session_id)
     throw err
+  }
+}
+
+
+private shouldRotateSession(session?: { session_id: string; message_count: number; created_at: number; last_active_at: number }): { rotate: boolean; reason?: string } {
+  if (!session) return { rotate: false }
+  const maxRuns = Math.max(1, config.agent.sessionMaxRuns)
+  if ((session.message_count || 0) >= maxRuns) return { rotate: true, reason: `message_count ${session.message_count} >= ${maxRuns}` }
+  const maxAgeMs = Math.max(1, config.agent.sessionMaxAgeHours) * 60 * 60 * 1000
+  const age = Date.now() - Number(session.created_at || Date.now())
+  if (age >= maxAgeMs) return { rotate: true, reason: `session age ${Math.round(age / 3600000)}h >= ${config.agent.sessionMaxAgeHours}h` }
+  return { rotate: false }
+}
+
+private async writeSessionSummary(roomId: string, agentId: string, workspaceDir: string, reason = 'rotation'): Promise<void> {
+  try {
+    const rows = db.prepare(`
+      SELECT status, input, output, error, started_at, finished_at
+      FROM agent_runs
+      WHERE room_id = ? AND agent_id = ?
+      ORDER BY started_at DESC
+      LIMIT 12
+    `).all(roomId, agentId) as any[]
+    const lines = rows.map((row) => [
+      `- ${new Date(row.started_at).toISOString()} · ${row.status}`,
+      `  - 输入：${String(row.input || '').replace(/\s+/g, ' ').slice(0, 180)}`,
+      row.output ? `  - 输出摘要：${String(row.output).replace(/\s+/g, ' ').slice(0, 220)}` : '',
+      row.error ? `  - 错误：${String(row.error).replace(/\s+/g, ' ').slice(0, 220)}` : '',
+    ].filter(Boolean).join('\n')).join('\n')
+    const content = [`# Agent 会话摘要`, '', `更新时间：${new Date().toISOString()}`, `轮换原因：${reason}`, '', '此文件用于替代过长的 Claude Code resume 历史。新会话应优先读取当前结构化上下文、任务状态、TAB_FILES.md 和本摘要，不要依赖旧长会话。', '', '## 最近运行', '', lines || '- 暂无运行记录。', ''].join('\n')
+    const dir = join(workspaceDir, '.freechat')
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, 'SESSION_SUMMARY.md'), content, 'utf8')
+  } catch (err) {
+    console.error('Failed to write agent session summary:', err)
   }
 }
 

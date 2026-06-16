@@ -38,6 +38,14 @@ function countProjectUnread(roomId: string, userId: string, lastReadAt: number):
   return row?.count || 0
 }
 
+function countProjectMentionUnread(roomId: string, userId: string, lastReadAt: number): number {
+  const row = db.prepare(`
+    SELECT COUNT(*) as count FROM notifications
+    WHERE user_id = ? AND room_id = ? AND type = 'mention' AND created_at > ? AND read_at IS NULL
+  `).get(userId, roomId, lastReadAt || 0) as any
+  return row?.count || 0
+}
+
 function countDmUnread(dmId: string, userId: string, lastReadAt: number): number {
   const row = db.prepare(`
     SELECT COUNT(*) as count FROM dm_messages
@@ -76,6 +84,7 @@ export async function registerConversationRoutes(app: FastifyInstance) {
         lastMessage: last ? { actorName: last.actor_name, content: last.content, createdAt: last.created_at } : null,
         lastActiveAt,
         unreadCount: countProjectUnread(room.id, user.id, pref.last_read_at),
+        mentionUnreadCount: countProjectMentionUnread(room.id, user.id, pref.last_read_at),
         pinned: !!pref.pinned,
         muted: !!pref.muted,
         hidden: !!pref.hidden,

@@ -71,3 +71,9 @@ at .../agents/<agentId>/freechat:2 const fs = require('fs')
 **Fix**: generate `./freechat` as a bash wrapper and put real CommonJS CLI in `.freechat/freechat.cjs`. Refreshed current workspace wrapper and published previously private novel chapter files to project file area.
 
 **Verification**: `./freechat tool list` works in Agent workspace; `file write-local` published `res/星源纪/正文/第一卷/第一章.md` and `第二章.md`; `pnpm check` passed.
+## 2026-06-16 - TS source import and file-size budget during FreeChat migration
+
+- Attempted to run a Node ESM one-liner importing TS files that themselves import `.js` extension source paths; without tsx/build output it failed with `ERR_MODULE_NOT_FOUND`. Use `pnpm --filter @freechat/server exec tsx ...` or compile first for source-level scripts.
+- Adding helper logic directly to `agent-tools.ts` exceeded the file-size budget. Move reusable validation/helpers into `agent-tools.helpers.ts` instead of increasing the baseline when feasible.
+
+---

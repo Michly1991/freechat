@@ -489,3 +489,44 @@ DELETE /api/rooms/:roomId/agents/:id    // 移除
 - 交互卡、任务确认卡、实时 Agent 流式状态不参与默认折叠，避免影响确认和执行状态可见性。
 - 每条有文本内容的非实时流消息提供复制入口；复制的是完整原文，不受折叠状态影响。
 - 复制按钮在桌面显示文字，移动端保留图标，降低气泡信息噪音。
+
+## 运行时目录统一到 `.freechat/`（2026-06-16）
+
+FreeChat 仓库根目录下的 `.freechat/` 是默认运行时数据根目录，不提交 Git。
+
+默认结构：
+
+```text
+.freechat/
+├── data/
+│   ├── freechat.db
+│   └── uploads/
+├── workspace-data/
+│   └── <roomId>/
+│       ├── files/       # 房间正式项目文件
+│       ├── agents/      # Agent 私有工作区
+│       ├── meta/        # Tab 等元信息
+│       └── .freechat/   # 房间系统上下文
+├── logs/
+└── tmp/
+```
+
+配置默认值：
+
+- `DATABASE_PATH=.freechat/data/freechat.db`
+- `UPLOAD_DIR=.freechat/data/uploads`
+- `WORKSPACE_ROOT=.freechat/workspace-data`
+
+路径解析基于仓库根目录，而不是后端进程启动目录，避免从不同 cwd 启动服务时读写到不同位置。
+
+### Agent / Skill 工作目录认知
+
+Agent 和内置 Skill 必须使用统一目录认知：
+
+- 当前 Agent 的 cwd 是私有工作区：`.freechat/workspace-data/<roomId>/agents/<agentId>/`。
+- 用户正式项目文件在：`.freechat/workspace-data/<roomId>/files/`。
+- Agent/Skill 不应直接读写 `files/`，必须通过 `./freechat file read/write/write-local/show/hide`。
+- Agent 自己的临时资料、草稿、脚本、私有 Skill 放在 cwd 下的 `res/`、`scripts/`、`skills/`。
+- 模板、提示词和 Skill 文档不能硬编码旧目录 `packages/server/workspace-data` 或裸 `workspace-data` 作为默认根目录。
+
+迁移策略：当前旧数据已复制到 `.freechat/`，旧的 `packages/server/data` 与 `packages/server/workspace-data` 暂时保留作回滚备份，不作为新默认路径。

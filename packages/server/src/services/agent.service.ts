@@ -16,6 +16,7 @@ import { mergeAgentConfig, rowToAgent, type AgentRow } from './agent-mapper.js'
 import { agentCapabilityService } from './agent-capability.service.js'
 import { renderRoleCapabilitiesForPrompt } from './agent-role-capabilities.js'
 import { templatePermissionService } from './template-permission.service.js'
+import { tabFilesMapService } from './tab-files-map.service.js'
 
 export interface AgentConfig {
   name: string
@@ -446,6 +447,9 @@ export class AgentService {
       ...(cfg.behavior || {})
     }
     const roleCapabilities = renderRoleCapabilitiesForPrompt(agent.roleType)
+    const dreamMemory = Array.isArray(cfg.dreamMemory) && cfg.dreamMemory.length
+      ? `【梦境复盘得到的避错规则】\n${cfg.dreamMemory.map((item: any) => `- ${item.text}`).join('\n')}`
+      : ''
 
     return [
       '你是 FreeChat 项目中的业务 Agent。',
@@ -549,6 +553,7 @@ export class AgentService {
     const rootCtx = await this.buildRoomContextFiles(roomId)
     await writeFile(join(rootMetaDir, 'ROOM.md'), rootCtx.roomMd, 'utf8')
     await writeFile(join(rootMetaDir, 'MEMBERS.md'), rootCtx.membersMd, 'utf8')
+    await tabFilesMapService.writeRoomMap(roomId)
 
     for (const agent of agents) {
       const metaDir = join(config.workspace.root, roomId, 'agents', agent.id, '.freechat')
@@ -556,6 +561,7 @@ export class AgentService {
       const ctx = await this.buildRoomContextFiles(roomId, agent)
       await writeFile(join(metaDir, 'ROOM.md'), ctx.roomMd, 'utf8')
       await writeFile(join(metaDir, 'MEMBERS.md'), ctx.membersMd, 'utf8')
+      await tabFilesMapService.writeAgentMap(roomId, agent.id)
     }
   }
 
@@ -605,6 +611,7 @@ export class AgentService {
     await writeFile(join(metaDir, 'MEMBERS.md'), contextFiles.membersMd, 'utf8')
 
     await writeFile(join(metaDir, 'API.md'), renderAgentApiDoc(), 'utf8')
+    await tabFilesMapService.writeAgentMap(roomId, agent.id)
 
     return workspaceDir
   }

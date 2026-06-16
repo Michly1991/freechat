@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { useAuthStore } from '../stores/authStore'
 import { useFeedback } from '../components/FeedbackProvider'
 import RoomAnalyticsPanel from '../features/analytics/RoomAnalyticsPanel'
+import AgentDreamPanel from '../features/analytics/AgentDreamPanel'
 
 export default function RoomSettingsPage() {
   const { roomId } = useParams<{ roomId: string }>()
@@ -140,6 +141,7 @@ export default function RoomSettingsPage() {
 
         {/* Analytics */}
         {roomId && <RoomAnalyticsPanel roomId={roomId} />}
+        {roomId && <AgentDreamPanel roomId={roomId} />}
 
         {/* Invite */}
         <section className="bg-white rounded-lg border border-gray-200 p-5">

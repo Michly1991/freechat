@@ -20,10 +20,13 @@ import { registerSceneRoutes } from './routes/scenes.js'
 import { registerAgentToolRoutes } from './routes/agent-tools.js'
 import { registerRoomAnalyticsRoutes } from './routes/room-analytics.js'
 import { registerPersonalAnalyticsRoutes } from './routes/personal-analytics.js'
+import { registerAgentDreamRoutes } from './routes/agent-dreams.js'
+import { registerNotificationRoutes } from './routes/notifications.js'
 import { authenticate } from './auth/middleware.js'
 import { initDatabase } from './storage/db.js'
 import { initWebSocket } from './ws/gateway.js'
 import { config } from './config.js'
+import { agentDreamSchedulerService } from './services/agent-dream-scheduler.service.js'
 
 async function buildApp() {
   const app = Fastify({
@@ -91,6 +94,8 @@ async function buildApp() {
   await registerSceneRoutes(app)
   await registerRoomAnalyticsRoutes(app)
   await registerPersonalAnalyticsRoutes(app)
+  await registerAgentDreamRoutes(app)
+  await registerNotificationRoutes(app)
   await registerAgentToolRoutes(app)
 
   // Error handler
@@ -120,6 +125,9 @@ export async function startServer() {
 
   // Initialize WebSocket
   initWebSocket(app.server)
+
+  // Start nightly Agent dream review
+  agentDreamSchedulerService.start()
 
   return app
 }

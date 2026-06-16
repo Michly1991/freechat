@@ -127,6 +127,8 @@ export const api = {
     return request<any>(`/me/analytics/runs${qs ? `?${qs}` : ''}`)
   },
   getPersonalAnalyticsRunDetail: (runId: string) => request<any>(`/me/analytics/runs/${runId}`),
+  getAgentDreams: (roomId?: string) => request<any>(`/agent-dreams${roomId ? `?roomId=${encodeURIComponent(roomId)}` : ''}`),
+  runAgentDreams: (body: { roomId?: string; agentId?: string; date?: string; dryRun?: boolean } = {}) => request<any>('/agent-dreams/run', { method: 'POST', body: JSON.stringify(body) }),
 
   // Files
   getFiles: (roomId: string) => request<{ files: any[] }>(`/rooms/${roomId}/files`),
@@ -253,6 +255,12 @@ export const api = {
 
   // Conversations
   getConversations: () => request<{ conversations: any[] }>('/conversations'),
+  getNotifications: (params?: { limit?: number; unreadOnly?: boolean }) => {
+    const qs = params ? new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString() : ''
+    return request<{ notifications: any[]; unreadCount: number }>(`/notifications${qs ? `?${qs}` : ''}`)
+  },
+  markNotificationsRead: (body: { ids?: string[]; all?: boolean }) =>
+    request<{ notifications: any[]; unreadCount: number }>('/notifications/read', { method: 'POST', body: JSON.stringify(body) }),
   markConversationRead: (type: 'dm' | 'project', id: string) =>
     request('/conversations/read', { method: 'POST', body: JSON.stringify({ type, id }) }),
   updateConversationPrefs: (type: 'dm' | 'project', id: string, body: { pinned?: boolean; muted?: boolean; hidden?: boolean }) =>

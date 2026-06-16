@@ -25,6 +25,19 @@
 
 会话偏好 `conversation_prefs` 增加 `hidden` 字段。默认消息列表过滤 hidden 会话；隐藏私聊后可通过通讯录重新打开，项目隐藏后可通过项目入口/重新加入等后续入口恢复。
 
+### 通知系统第一版
+
+通知系统第一版覆盖强提醒，避免文件变更等低价值事件刷屏：
+
+- `notifications` 表按用户存储通知，字段包括 `user_id / room_id / message_id / task_id / type / title / body / actor / read_at / created_at`。
+- 通知类型第一批：`mention`、`task_assigned`、`task_updated`、`agent_done`、`file_changed`；当前默认触发 `mention`、人类任务分派、任务/子任务进入 `review/done`。
+- 项目消息里 @ 人类成员会创建 `mention` 通知；@ Agent 只触发 Agent 调用，不创建人类通知。
+- 人类任务/子任务被分派时创建 `task_assigned`；Agent 任务完成或提交审核时通知任务创建者。
+- WebSocket 新增 `notification.created`，用于在线用户实时刷新铃铛和触发浏览器 Notification API。
+- REST API：`GET /api/notifications` 获取列表与未读数，`POST /api/notifications/read` 支持按 ID 或全部标记已读。
+- 首页 Header 增加通知铃铛和通知面板；会话列表对未读 @ 显示“提到我”标记。
+- 浏览器通知由用户显式开启，只在页面不在前台时弹出；第一版不做 PWA 推送和复杂通知偏好。
+
 ### 任务 Tab 移动端与协议兼容
 
 任务 Tab 在移动端使用单列纵向看板，避免横向滚动：每个状态区块独立显示任务数量，任务卡片提供大尺寸推进按钮；桌面端仍保持四列 Kanban。创建任务时需要明确反馈：空标题 Toast、创建中按钮状态、连接不可用时提示失败。

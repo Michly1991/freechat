@@ -82,3 +82,31 @@ Agent 写项目文件与文件 Tab 可见性分离：
 ## 移动端
 
 文件 Tab 在移动端默认显示文件列表；打开文件后切换到编辑界面，并提供“← 文件列表”返回按钮。
+
+## Agent Tab 文件目录地图（2026-06-16）
+
+为避免 Agent/助理把正式交付物写错到私有工作区或系统目录，系统会为每个房间生成：
+
+```text
+.freechat/workspace-data/<roomId>/.freechat/TAB_FILES.md
+.freechat/workspace-data/<roomId>/agents/<agentId>/.freechat/TAB_FILES.md
+```
+
+`TAB_FILES.md` 是 Agent 必读的 Tab / 文件目录地图，包含：
+
+- 当前 Agent 私有工作区位置。
+- 当前房间项目文件根目录。
+- 每个 Tab 的 `visibleFiles` / `visibleDirs`。
+- 推荐项目路径：`docs/`、`ui/`、`正文/`、`剧情/`、`角色/`、`设定/`、`素材/`、`reports/`。
+- HTML 页面展示和项目文件留档的区别。
+- 禁止写入的项目路径：`res/`、`scripts/`、`skills/`、`agents/`、`.freechat/`、`meta/` 等。
+
+Agent CLI 提供：
+
+```bash
+./freechat tab files
+```
+
+该命令会刷新并输出当前房间的目录地图。Agent 在写任何项目文件、页面、交付物前，必须先阅读 `.freechat/TAB_FILES.md` 或执行 `./freechat tab files`。
+
+后端 `file.write` / `file.write-local` / `file.mkdir` / `tab-config.add-file` 会拒绝明显错误的项目路径，防止把正式交付物写到 Agent 私有目录或系统目录。

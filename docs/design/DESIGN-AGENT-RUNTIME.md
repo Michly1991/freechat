@@ -453,3 +453,31 @@ agent_runs (
 - 当房间已经有默认助理时，再添加内置默认助理模板应被后端忽略，避免 @ 候选出现两个“助理”。
 - `getRoomAgents` 会对历史脏数据做兜底过滤：若已有主默认助理，则隐藏同名的内置默认助理模板/specialist。
 - 前端 @ 候选和成员面板也会基于 `visibleRoomAgents` 做同名助理去重兜底，优先展示 `autoEnabled` 的房间默认助理。
+
+## Agent 工作目录规范更新（2026-06-16）
+
+FreeChat 运行时目录统一到仓库根 `.freechat/` 后，Agent 运行环境遵循：
+
+- Agent cwd：`.freechat/workspace-data/<roomId>/agents/<agentId>/`
+- 房间项目文件：`.freechat/workspace-data/<roomId>/files/`
+- 房间上下文：Agent cwd 下的 `.freechat/`，以及房间目录下的 `.freechat/`
+
+Agent 提示词、`AGENT.md`、`CLAUDE.md`、`.freechat/API.md` 和内置 Skill 均应强调：项目文件只能通过 `./freechat` CLI/API 读写；不要直接访问 `../../files` 或任何 `.freechat/workspace-data/<roomId>/files` 实体路径。
+
+## Agent 上下文瘦身与会话轮换（2026-06-16）
+
+Claude Code 自身会做上下文管理，但 FreeChat 不依赖模型侧兜底。Agent runtime 会主动控制长会话：
+
+- `AGENT_SESSION_MAX_RUNS`：默认 30，单个 Agent session 超过运行次数后不再 `--resume`。
+- `AGENT_SESSION_MAX_AGE_HOURS`：默认 24，超过年龄后不再 `--resume`。
+- `AGENT_HISTORY_LIMIT`：provider-api 历史默认 80。
+- `AGENT_CHAT_RECENT_DEFAULT_LIMIT`：Agent `chat recent` 默认 30，显式 limit 最大 200。
+
+当 Claude Code session 被轮换时，系统会在 Agent 工作区写入：
+
+```text
+.freechat/SESSION_SUMMARY.md
+```
+
+摘要包含最近运行的输入、输出摘要、错误和轮换原因。新会话应优先读取结构化上下文（`ROOM.md`、`MEMBERS.md`、`TAB_FILES.md`、`SESSION_SUMMARY.md`、dreamMemory）而不是依赖无限增长的旧 Claude session。
+

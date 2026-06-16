@@ -8,6 +8,7 @@ import { agentService } from '../services/agent.service.js'
 import { taskService } from '../services/task.service.js'
 import { taskItemService } from '../services/task-item.service.js'
 import { taskRetryService } from '../services/task-retry.service.js'
+import { notificationService } from '../services/notification.service.js'
 import { sceneTemplateService } from '../services/scene-template.service.js'
 
 export async function registerRoomRoutes(app: FastifyInstance) {
@@ -135,6 +136,7 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     const isMember = await roomService.isMember(id, user.id)
     if (!isMember) return reply.code(403).send({ success: false, error: { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' } })
     const task = await taskService.createTask(id, body.title, body.description, body.priority, body.assigneeId || body.assignee_id, body.assigneeName || body.assignee_name, body.assigneeType || body.assignee_type, user.id)
+    notificationService.notifyTaskAssigned({ roomId: id, taskId: task.id, title: task.title, assigneeId: task.assigneeId, assigneeType: task.assigneeType, actorId: user.id, actorName: user.nickname || user.username })
     getGateway()?.broadcast(id, { msgId: uuidv4(), roomId: id, type: 'broadcast', action: 'task.changed', payload: { action: 'add', task }, timestamp: Date.now() })
     return reply.code(201).send({ success: true, data: { task } })
   })
@@ -147,8 +149,11 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     const isMember = await roomService.isMember(id, user.id)
     if (!isMember) return reply.code(403).send({ success: false, error: { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' } })
     await taskService.assertTaskInRoom(taskId, id)
+    const beforeTask = await taskService.getTask(taskId)
     const updates = body.updates || body
     const task = await taskService.updateTask(taskId, updates)
+    if (task.assigneeId && task.assigneeId !== beforeTask.assigneeId) notificationService.notifyTaskAssigned({ roomId: id, taskId: task.id, title: task.title, assigneeId: task.assigneeId, assigneeType: task.assigneeType, actorId: user.id, actorName: user.nickname || user.username })
+    if (task.status !== beforeTask.status) notificationService.notifyTaskDone({ roomId: id, taskId: task.id, title: task.title, createdBy: task.createdBy, actorId: user.id, actorName: user.nickname || user.username, status: task.status })
     getGateway()?.broadcast(id, { msgId: uuidv4(), roomId: id, type: 'broadcast', action: 'task.changed', payload: { action: 'update', task }, timestamp: Date.now() })
     return reply.send({ success: true, data: { task } })
   })
@@ -187,6 +192,7 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     if (!isMember) return reply.code(403).send({ success: false, error: { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' } })
     await taskService.assertTaskInRoom(taskId, id)
     const subtask = await taskItemService.create(taskId, { title: body.title, description: body.description, status: body.status, assigneeId: body.assigneeId || body.assignee_id, assigneeName: body.assigneeName || body.assignee_name, assigneeType: body.assigneeType || body.assignee_type, blockedReason: body.blockedReason || body.blocked_reason, createdBy: user.id })
+    notificationService.notifyTaskAssigned({ roomId: id, taskId, title: subtask.title, assigneeId: subtask.assigneeId, assigneeType: subtask.assigneeType, actorId: user.id, actorName: user.nickname || user.username, isSubtask: true })
     const task = await taskService.getTask(taskId)
     getGateway()?.broadcast(id, { msgId: uuidv4(), roomId: id, type: 'broadcast', action: 'task.changed', payload: { action: 'update', task }, timestamp: Date.now() })
     return reply.code(201).send({ success: true, data: { subtask, task } })
@@ -203,9 +209,11 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     const before = taskItemService.get(itemId)
     if (before.taskId !== taskId) return reply.code(400).send({ success: false, error: { code: 'TASK_ITEM_MISMATCH', message: 'Subtask does not belong to this task' } })
     const subtask = await taskItemService.update(itemId, body.updates || body)
+    if (subtask.assigneeId && subtask.assigneeId !== before.assigneeId) notificationService.notifyTaskAssigned({ roomId: id, taskId, title: subtask.title, assigneeId: subtask.assigneeId, assigneeType: subtask.assigneeType, actorId: user.id, actorName: user.nickname || user.username, isSubtask: true })
     const released = []
     if (subtask.status === 'done') for (const dep of taskItemService.readyDependents(subtask.id)) released.push(await taskItemService.releaseDependent(dep.id))
     const task = await taskService.getTask(taskId)
+    if (subtask.status !== before.status) notificationService.notifyTaskDone({ roomId: id, taskId, title: subtask.title, createdBy: task.createdBy, actorId: user.id, actorName: user.nickname || user.username, status: subtask.status })
     getGateway()?.broadcast(id, { msgId: uuidv4(), roomId: id, type: 'broadcast', action: 'task.changed', payload: { action: 'update', task }, timestamp: Date.now() })
     return reply.send({ success: true, data: { subtask, task, released } })
   })

@@ -27,6 +27,14 @@ export interface AgentBehaviorConfig {
   silentAllowed: boolean
 }
 
+export interface AgentDreamMemoryItem {
+  type: string
+  text: string
+  source?: string
+  count?: number
+  lastTriggeredAt?: number
+}
+
 export interface AgentRuntimeConfig {
   systemPrompt?: string
   behavior?: Partial<AgentBehaviorConfig>
@@ -41,6 +49,7 @@ export interface AgentRuntimeConfig {
   roomId?: string
   builtInKey?: string
   locked?: boolean
+  dreamMemory?: AgentDreamMemoryItem[]
 }
 
 export interface Agent {
@@ -306,6 +315,25 @@ export interface InteractionRequest {
   resolvedAt?: number
 }
 
+// === Notification Types ===
+export type NotificationType = 'mention' | 'task_assigned' | 'task_updated' | 'agent_done' | 'file_changed'
+
+export interface AppNotification {
+  id: string
+  userId: string
+  roomId?: string
+  messageId?: string
+  taskId?: string
+  type: NotificationType
+  title: string
+  body?: string
+  actorId?: string
+  actorName?: string
+  readAt?: number
+  createdAt: number
+  targetPath?: string
+}
+
 // === Conversation Types ===
 export type ConversationType = 'dm' | 'project'
 
@@ -366,6 +394,8 @@ export type WSEventAction =
   | 'agent.stream.activity'
   | 'agent.stream.completed'
   | 'agent.stream.failed'
+  | 'notification.created'
+  | 'notification.read'
   | 'files.updated'
   | 'tabs.updated'
 

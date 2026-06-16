@@ -5,6 +5,7 @@ import { verifyToken } from '../auth/jwt.js'
 import { messageService } from '../services/message.service.js'
 import { roomService } from '../services/room.service.js'
 import { agentStreamService } from '../services/agent-stream.service.js'
+import { notificationService } from '../services/notification.service.js'
 import { AgentInvocationHandler } from './agent-invocation.js'
 import type { ClientConnection, InvokeReason } from './gateway-types.js'
 
@@ -245,6 +246,15 @@ export class WebSocketGateway {
       timestamp: Date.now()
     })
 
+    notificationService.notifyMentions({
+      roomId: client.currentRoomId,
+      messageId: msg.id,
+      actorId: client.userId,
+      actorName: client.nickname,
+      content: payload.content,
+      mentions: payload.mentions,
+    })
+
     const mentions = payload.mentions || []
     const agentMentions = mentions.filter((m: any) => m?.role === 'ai' && m?.id)
     if (client.role === 'human' && agentMentions.length > 0) {
@@ -364,6 +374,15 @@ export class WebSocketGateway {
     this.broadcastToRoom(roomId, message)
   }
 
+  sendToUser(userId: string, message: any) {
+    const data = JSON.stringify(message)
+    for (const client of this.clients.values()) {
+      if (client.userId === userId && client.ws.readyState === WebSocket.OPEN) {
+        client.ws.send(data)
+      }
+    }
+  }
+
   async sendRoomMessage(roomId: string, user: any, payload: any) {
     const msg = await messageService.createMessage(
       roomId,
@@ -382,6 +401,15 @@ export class WebSocketGateway {
       action: 'chat.message',
       payload: msg,
       timestamp: Date.now()
+    })
+
+    notificationService.notifyMentions({
+      roomId,
+      messageId: msg.id,
+      actorId: user.id,
+      actorName: user.nickname || user.username,
+      content: payload.content,
+      mentions: payload.mentions,
     })
 
     const mentions = payload.mentions || []

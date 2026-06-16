@@ -117,3 +117,14 @@ export async function invokeAssignedAgent(roomId: string, assigneeId: string | u
   })()
 }
 
+
+
+export function assertProjectFilePathAllowed(rel: string): void {
+  const forbidden = /^(res|scripts|skills|agents|\.freechat|meta|workspace-data|data)(\/|$)/i
+  if (forbidden.test(rel)) {
+    throw {
+      code: 'PROJECT_PATH_FORBIDDEN',
+      message: `项目正式交付文件不能写到 ${rel}。这些是 Agent 私有/系统目录名。请先执行 ./freechat tab files 查看目录地图，再改写到 docs/、ui/、正文/、剧情/、角色/、设定/、素材/、reports/ 等项目路径。`
+    }
+  }
+}

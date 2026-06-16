@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { messageService } from '../services/message.service.js'
 import { roomService } from '../services/room.service.js'
 import { getGateway } from '../ws/gateway.js'
+import { notificationService } from '../services/notification.service.js'
 
 export async function registerMessageRoutes(app: FastifyInstance) {
   app.get('/api/rooms/:roomId/messages', async (request, reply) => {
@@ -53,6 +54,14 @@ export async function registerMessageRoutes(app: FastifyInstance) {
         action: 'chat.message',
         payload: msg,
         timestamp: Date.now()
+      })
+      notificationService.notifyMentions({
+        roomId,
+        messageId: msg.id,
+        actorId: user.id,
+        actorName: user.nickname || user.username,
+        content,
+        mentions: body.mentions,
       })
     }
 

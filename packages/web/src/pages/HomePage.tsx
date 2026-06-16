@@ -11,6 +11,7 @@ import { AddFriendModal, CreateRoomModal, JoinRoomModal } from './home/HomeModal
 import { DesktopTabs, MobileNav } from './home/HomeTabs'
 import { MessagesSection } from './home/MessagesSection'
 import { SettingsSection } from './home/SettingsSection'
+import { isBrowserNotificationEnabled, showBrowserNotification } from '../features/notifications/browser-notifications'
 import type { ContactKind, HomeTab, SelectedAgent } from './home/types'
 
 export default function HomePage() {
@@ -35,6 +36,10 @@ export default function HomePage() {
   const [showJoin, setShowJoin] = useState(false)
   const [showAddFriend, setShowAddFriend] = useState(false)
   const [showQuickActions, setShowQuickActions] = useState(false)
+  const [showNotifications, setShowNotifications] = useState(false)
+  const [notifications, setNotifications] = useState<any[]>([])
+  const [notificationUnreadCount, setNotificationUnreadCount] = useState(0)
+  const [browserNotificationsEnabled, setBrowserNotificationsEnabled] = useState(isBrowserNotificationEnabled())
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
   const [inviteCode, setInviteCode] = useState('')
@@ -47,6 +52,28 @@ export default function HomePage() {
 
   useEffect(() => {
     loadHome()
+  }, [])
+
+  useEffect(() => {
+    loadNotifications()
+  }, [])
+
+  useEffect(() => {
+    const token = localStorage.getItem('auth-storage') ? JSON.parse(localStorage.getItem('auth-storage')!).state.token : null
+    if (!token) return
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`)
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data)
+      if (msg.action !== 'notification.created') return
+      const notification = msg.payload?.notification
+      if (!notification) return
+      setNotifications((prev) => [notification, ...prev.filter((item) => item.id !== notification.id)].slice(0, 50))
+      setNotificationUnreadCount((count) => count + 1)
+      showBrowserNotification(notification)
+      loadConversations()
+    }
+    return () => ws.close()
   }, [])
 
   const loadHome = async () => {
@@ -77,6 +104,26 @@ export default function HomePage() {
 
   const loadFriendRequests = async () => {
     try { const data = await api.getFriendRequests(); setFriendRequests({ received: data.received || [], sent: data.sent || [] }) } catch (err) { console.error(err) }
+  }
+
+  const loadNotifications = async () => {
+    try { const data = await api.getNotifications({ limit: 50 }); setNotifications(data.notifications || []); setNotificationUnreadCount(data.unreadCount || 0) } catch (err) { console.error(err) }
+  }
+
+  const markAllNotificationsRead = async () => {
+    try { const data = await api.markNotificationsRead({ all: true }); setNotifications(data.notifications || []); setNotificationUnreadCount(data.unreadCount || 0) } catch (err: any) { feedback.error(err.message || '操作失败') }
+  }
+
+  const openNotification = async (notification: any) => {
+    try {
+      if (!notification.readAt) {
+        const data = await api.markNotificationsRead({ ids: [notification.id] })
+        setNotifications(data.notifications || [])
+        setNotificationUnreadCount(data.unreadCount || 0)
+      }
+      setShowNotifications(false)
+      if (notification.targetPath) navigate(notification.targetPath)
+    } catch (err: any) { feedback.error(err.message || '操作失败') }
   }
 
   const searchUsers = async () => {
@@ -265,7 +312,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <HomeHeader user={user} showQuickActions={showQuickActions} setShowQuickActions={setShowQuickActions} onShowJoin={openQuickJoin} onShowCreate={openQuickCreate} onShowAddFriend={openQuickAddFriend} onSettings={() => navigate('/settings')} onLogout={handleLogout} />
+      <HomeHeader user={user} showQuickActions={showQuickActions} showNotifications={showNotifications} notifications={notifications} notificationUnreadCount={notificationUnreadCount} browserNotificationsEnabled={browserNotificationsEnabled} setShowQuickActions={setShowQuickActions} setShowNotifications={setShowNotifications} setBrowserNotificationsEnabled={setBrowserNotificationsEnabled} onShowJoin={openQuickJoin} onShowCreate={openQuickCreate} onShowAddFriend={openQuickAddFriend} onSettings={() => navigate('/settings')} onLogout={handleLogout} onMarkAllNotificationsRead={markAllNotificationsRead} onOpenNotification={openNotification} />
       <main className="max-w-5xl mx-auto px-0 sm:px-4 py-0 sm:py-8 pb-20 sm:pb-8">
         <DesktopTabs activeHomeTab={activeHomeTab} setActiveHomeTab={setActiveHomeTab} />
         {activeHomeTab === 'messages' && (

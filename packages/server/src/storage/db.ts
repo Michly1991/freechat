@@ -2,6 +2,8 @@ import Database from 'better-sqlite3'
 import { config } from '../config.js'
 import { mkdirSync } from 'fs'
 import { dirname } from 'path'
+import { ensureAgentDreamSchema } from './agent-dream-schema.js'
+import { ensureNotificationSchema } from './notification-schema.js'
 
 // Ensure database directory exists
 mkdirSync(dirname(config.database.path), { recursive: true })
@@ -19,13 +21,8 @@ type Migration = {
 }
 
 const migrations: Migration[] = [
-  {
-    version: '001_schema_baseline',
-    description: 'Mark current idempotent schema initializer as baseline',
-    up: () => {}
-  }
+  { version: '001_schema_baseline', description: 'Mark current idempotent schema initializer as baseline', up: () => {} }
 ]
-
 function runMigrations() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -48,7 +45,6 @@ function runMigrations() {
     tx()
   }
 }
-
 
 function ensureColumn(table: string, cols: any[], name: string, ddl: string) {
   if (!cols.some((col) => col.name === name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`)
@@ -164,6 +160,8 @@ export function initDatabase() {
   const messageCols = db.prepare('PRAGMA table_info(messages)').all() as any[]
   if (!messageCols.some((col) => col.name === 'kind')) db.exec("ALTER TABLE messages ADD COLUMN kind TEXT DEFAULT 'text'")
   if (!messageCols.some((col) => col.name === 'payload')) db.exec('ALTER TABLE messages ADD COLUMN payload TEXT')
+
+  ensureNotificationSchema()
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS interaction_requests (
@@ -601,6 +599,7 @@ export function initDatabase() {
   `)
 
   ensureAgentAnalyticsSchema()
+  ensureAgentDreamSchema(db)
 
   // Agent stream activity records for restoring in-progress and completed Agent work traces
   db.exec(`

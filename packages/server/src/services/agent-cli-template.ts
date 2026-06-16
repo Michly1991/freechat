@@ -26,12 +26,14 @@ function usage() {
     'FreeChat Agent CLI',
     '',
     'Principle:',
+    '  - Before writing files/pages, run ./freechat tab files and follow the Tab/file directory map.',
     '  - Project-visible files must go through ./freechat file ...',
     '  - Files are not visible in the File Tab unless added to tab config.',
     '  - User-visible UI pages must go through ./freechat tab ...',
     '',
     'Common workflows:',
     '  ./freechat chat send "我开始处理这个任务"',
+    '  ./freechat tab files',
     '  ./freechat file write docs/progress.md "进度内容" --show',
     '  ./freechat file write-local ui/dashboard.html res/dashboard.html --show',
     '  ./freechat tab create-local "数据看板" res/dashboard.html',
@@ -41,7 +43,7 @@ function usage() {
     '  ./freechat tool list',
     '  ./freechat tool schema <toolName>',
     '  ./freechat tool call <toolName> \'<jsonArgs>\'',
-    '  ./freechat chat recent [limit]',
+    '  ./freechat chat recent [limit]  (default 30)',
     '  ./freechat chat send <content>',
     '  ./freechat task list [status]',
     '  ./freechat task create <title> [description] [--assignee <agentNameOrId>]',
@@ -64,6 +66,7 @@ function usage() {
     '  ./freechat file delete <path>',
     '  ./freechat file show <path> [tabKey]',
     '  ./freechat file hide <path> [tabKey]',
+    '  ./freechat tab files',
     '  ./freechat tab-config list [tabKey]',
     '  ./freechat tab-config add-file <path> [tabKey]',
     '  ./freechat tab-config remove-file <path> [tabKey]',
@@ -333,6 +336,8 @@ if (domain === 'tool' && cmd === 'list') {
 } else if (domain === 'tab-config' && cmd === 'remove-file') {
   if (!rest[0]) die('path is required');
   call('tab-config.remove-file', { path: rest[0], tabKey: rest[1] || 'files' });
+} else if (domain === 'tab' && cmd === 'files') {
+  call('tab.files');
 } else if (domain === 'tab' && cmd === 'list') {
   call('tab.list');
 } else if (domain === 'tab' && cmd === 'create') {
@@ -471,7 +476,7 @@ if (domain === 'tool' && cmd === 'list') {
   call('dm.open', { userId: rest[0] });
 } else if (domain === 'dm' && ['messages', 'list'].includes(cmd)) {
   if (!rest[0]) die('conversationId is required');
-  call('dm.messages', { conversationId: rest[0], limit: rest[1] || 100 });
+  call('dm.messages', { conversationId: rest[0], limit: rest[1] || 30 });
 } else if (domain === 'dm' && cmd === 'send') {
   if (!rest[0]) die('conversationId is required');
   const content = rest.slice(1).join(' ').trim();

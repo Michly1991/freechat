@@ -6,6 +6,7 @@ import { interactionService } from '../services/interaction.service.js'
 import { membersService } from '../services/members.service.js'
 import { agentService } from '../services/agent.service.js'
 import { areFriends } from './friends.js'
+import { config } from '../config.js'
 
 interface AppUiToolContext {
   action: string
@@ -86,7 +87,7 @@ export async function handleAppUiTool(ctx: AppUiToolContext): Promise<{ handled:
       return { handled: true, response: { success: true, data: { name, input: 'JSON object args; run ./freechat help for common command forms', transport: { action: name, args: {} } } } }
     }
     case 'chat.list': {
-      const limit = Math.max(1, Math.min(Number(args.limit || 100) || 100, 200))
+      const limit = Math.max(1, Math.min(Number(args.limit || config.agent.chatRecentDefaultLimit) || config.agent.chatRecentDefaultLimit, 200))
       const messages = await messageService.getMessages(roomId, limit, args.before)
       return { handled: true, response: { success: true, data: { messages } } }
     }
