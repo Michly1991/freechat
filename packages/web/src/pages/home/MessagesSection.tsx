@@ -41,6 +41,7 @@ export function MessagesSection({
                     <span className="font-medium text-gray-800 truncate">{conv.title}</span>
                     <span className={`text-[10px] px-1.5 py-0.5 rounded ${conv.type === 'dm' ? 'bg-blue-50 text-blue-600' : 'bg-purple-50 text-purple-600'}`}>{conv.type === 'dm' ? '私聊' : '项目'}</span>
                     {conv.pinned && <span className="text-[10px] text-yellow-600 inline-flex items-center gap-0.5"><Pin className="w-3 h-3" />置顶</span>}
+                    {conv.agentWorkingCount > 0 && <span className="text-[10px] text-yellow-600 inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400 agent-breathing shadow-[0_0_0_4px_rgba(250,204,21,0.22)]" />{conv.agentWorkingCount > 1 ? `${conv.agentWorkingCount} 个 Agent 处理中` : 'Agent 处理中'}</span>}
                     {conv.mentionUnreadCount > 0 && <span className="text-[10px] text-red-500 inline-flex items-center gap-0.5"><AtSign className="w-3 h-3" />提到我</span>}
                     {conv.muted && <span className="text-[10px] text-gray-400 inline-flex items-center gap-0.5"><BellOff className="w-3 h-3" />免打扰</span>}
                   </div>
@@ -49,6 +50,7 @@ export function MessagesSection({
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-2 shrink-0">
+                  {conv.agentWorkingCount > 0 && <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 agent-breathing shadow-[0_0_0_4px_rgba(250,204,21,0.22)]" title="Agent 处理中" />}
                   {conv.unreadCount > 0 && <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${conv.muted ? 'bg-gray-200 text-gray-500' : 'bg-red-500 text-white'}`}>{conv.unreadCount > 99 ? '99+' : conv.unreadCount}</span>}
                   <div className="hidden sm:flex gap-2 text-xs text-gray-400">
                     <button onClick={(e) => toggleConversationPref(conv, 'pinned', e)}>{conv.pinned ? '取消置顶' : '置顶'}</button>

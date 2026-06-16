@@ -66,6 +66,10 @@ export default function HomePage() {
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`)
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data)
+      if (msg.action === 'agent.status_update') {
+        loadConversations()
+        return
+      }
       if (msg.action !== 'notification.created') return
       const notification = msg.payload?.notification
       if (!notification) return
@@ -77,6 +81,12 @@ export default function HomePage() {
     }
     return () => ws.close()
   }, [])
+
+  useEffect(() => {
+    if (activeHomeTab !== 'messages') return
+    const timer = window.setInterval(() => loadConversations(), 10_000)
+    return () => window.clearInterval(timer)
+  }, [activeHomeTab])
 
   const loadHome = async () => {
     setLoading(true)

@@ -6,6 +6,7 @@ import { messageService } from '../services/message.service.js'
 import { roomService } from '../services/room.service.js'
 import { agentStreamService } from '../services/agent-stream.service.js'
 import { notificationService } from '../services/notification.service.js'
+import db from '../storage/db.js'
 import { AgentInvocationHandler } from './agent-invocation.js'
 import type { ClientConnection, InvokeReason } from './gateway-types.js'
 
@@ -16,7 +17,10 @@ export class WebSocketGateway {
   private agentInvocation: AgentInvocationHandler
 
   constructor(server: Server) {
-    this.agentInvocation = new AgentInvocationHandler((roomId, message, excludeClientId) => this.broadcastToRoom(roomId, message, excludeClientId))
+    this.agentInvocation = new AgentInvocationHandler((roomId, message, excludeClientId) => {
+      this.broadcastToRoom(roomId, message, excludeClientId)
+      if (message?.action === 'agent.status_update') this.sendToRoomMembers(roomId, message)
+    })
     this.wss = new WebSocketServer({ server, path: '/ws' })
     this.wss.on('connection', (ws, req) => this.handleConnection(ws, req))
     console.log('✓ WebSocket gateway initialized')
@@ -372,6 +376,7 @@ export class WebSocketGateway {
   // Public method for services/routes to broadcast messages
   broadcast(roomId: string, message: any) {
     this.broadcastToRoom(roomId, message)
+    if (message?.action === 'agent.status_update') this.sendToRoomMembers(roomId, message)
   }
 
   sendToUser(userId: string, message: any) {
@@ -380,6 +385,16 @@ export class WebSocketGateway {
       if (client.userId === userId && client.ws.readyState === WebSocket.OPEN) {
         client.ws.send(data)
       }
+    }
+  }
+
+  private sendToRoomMembers(roomId: string, message: any) {
+    const members = db.prepare('SELECT user_id FROM room_members WHERE room_id = ?').all(roomId) as any[]
+    const memberIds = new Set(members.map((m) => m.user_id))
+    const data = JSON.stringify(message)
+    for (const client of this.clients.values()) {
+      if (client.currentRoomId === roomId) continue
+      if (memberIds.has(client.userId) && client.ws.readyState === WebSocket.OPEN) client.ws.send(data)
     }
   }
 

@@ -46,6 +46,16 @@ function countProjectMentionUnread(roomId: string, userId: string, lastReadAt: n
   return row?.count || 0
 }
 
+function countProjectWorkingAgents(roomId: string): number {
+  const row = db.prepare(`
+    SELECT COUNT(*) as count
+    FROM room_agents ra
+    INNER JOIN agents a ON a.id = ra.agent_id
+    WHERE ra.room_id = ? AND a.status = 'working'
+  `).get(roomId) as any
+  return row?.count || 0
+}
+
 function countDmUnread(dmId: string, userId: string, lastReadAt: number): number {
   const row = db.prepare(`
     SELECT COUNT(*) as count FROM dm_messages
@@ -85,6 +95,7 @@ export async function registerConversationRoutes(app: FastifyInstance) {
         lastActiveAt,
         unreadCount: countProjectUnread(room.id, user.id, pref.last_read_at),
         mentionUnreadCount: countProjectMentionUnread(room.id, user.id, pref.last_read_at),
+        agentWorkingCount: countProjectWorkingAgents(room.id),
         pinned: !!pref.pinned,
         muted: !!pref.muted,
         hidden: !!pref.hidden,
