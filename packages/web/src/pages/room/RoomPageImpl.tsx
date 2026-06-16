@@ -9,6 +9,7 @@ import { AgentRecoveryBanner } from './components/AgentRecoveryBanner'
 import { InteractionCard } from './components/InteractionCard'
 import { RoomMainPanel } from './components/RoomMainPanel'
 import { DesktopMembersPanel, MobileMembersDrawer, ProfileModal } from './components/RoomMembers'
+import { RoomSettingsSidePanel } from './components/RoomSettingsSidePanel'
 import { DesktopPanelTabs, FileDialog, MobileBottomNav, RoomHeader } from './components/RoomShellChrome'
 import { createRoomAgentActions } from './room-agent-actions'
 import { createRoomFileActions, createRoomTabActions, createRoomTaskActions } from './room-actions'
@@ -54,6 +55,7 @@ export function RoomPageImpl() {
   const [tabError, setTabError] = useState('')
   const [showMembers, setShowMembers] = useState(true)
   const [showMobileMembers, setShowMobileMembers] = useState(false)
+  const [showRoomSettings, setShowRoomSettings] = useState(false)
   const [selectedProfile, setSelectedProfile] = useState<any | null>(null)
   const [wsStatus, setWsStatus] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting')
   const [sendError, setSendError] = useState('')
@@ -311,16 +313,16 @@ export function RoomPageImpl() {
     <div className="h-screen flex flex-col bg-gray-50 relative">
       <RoomHeader
         room={room}
-        roomId={roomId}
         members={members}
         roomAgents={visibleRoomAgents}
         workingAgents={workingAgents}
         defaultAssistant={defaultAssistant}
         openMemberProfile={openMemberProfile}
         setShowMobileMembers={setShowMobileMembers}
+        openSettings={() => setShowRoomSettings(true)}
         navigate={navigate}
       />
-      <DesktopPanelTabs activePanel={activePanel} setActivePanel={setActivePanel} />
+      <DesktopPanelTabs activePanel={activePanel} setActivePanel={setActivePanel} agentWorking={workingAgents.length > 0} />
       <AgentRecoveryBanner errorAgents={errorAgents} restartAllAgents={restartAllErrorAgents} />
       {activePanel === 'chat' && pendingInteractions.length > 0 && (
         <div className="mx-3 mb-2 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -372,7 +374,18 @@ export function RoomPageImpl() {
         setSelectedProfile={setSelectedProfile}
         restartAgent={restartAgent}
       />
-      <MobileBottomNav activePanel={activePanel} setActivePanel={setActivePanel} roomNewMessageCount={roomNewMessageCount} />
+      <MobileBottomNav activePanel={activePanel} setActivePanel={setActivePanel} roomNewMessageCount={roomNewMessageCount} agentWorking={workingAgents.length > 0} />
+      <RoomSettingsSidePanel
+        open={showRoomSettings}
+        onClose={() => setShowRoomSettings(false)}
+        roomId={roomId}
+        room={room}
+        roomAgents={visibleRoomAgents}
+        user={user}
+        feedback={feedback}
+        restartAgent={restartAgent}
+        onRoomChanged={loadRoom}
+      />
       <FileDialog
         fileDialogType={fileDialogType}
         fileDialogPath={fileDialogPath}
