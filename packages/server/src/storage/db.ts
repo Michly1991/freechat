@@ -3,14 +3,13 @@ import { config } from '../config.js'
 import { mkdirSync } from 'fs'
 import { dirname } from 'path'
 import { ensureAgentDreamSchema } from './agent-dream-schema.js'
+import { ensureAgentGrowthSchema } from './agent-growth-schema.js'
 import { ensureNotificationSchema } from './notification-schema.js'
 
-// Ensure database directory exists
 mkdirSync(dirname(config.database.path), { recursive: true })
 
 const db = new Database(config.database.path)
 
-// Enable WAL mode for better concurrency
 db.pragma('journal_mode = WAL')
 db.pragma('foreign_keys = ON')
 
@@ -600,6 +599,7 @@ export function initDatabase() {
 
   ensureAgentAnalyticsSchema()
   ensureAgentDreamSchema(db)
+  ensureAgentGrowthSchema(db)
 
   // Agent stream activity records for restoring in-progress and completed Agent work traces
   db.exec(`

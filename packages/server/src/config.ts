@@ -28,6 +28,11 @@ export const config = {
     runMinute: parseInt(process.env.AGENT_DREAM_RUN_MINUTE || '30'),
     autoApplySafeFixes: process.env.AGENT_DREAM_AUTO_APPLY_SAFE_FIXES !== 'false'
   },
+  agentGrowth: {
+    enabled: process.env.AGENT_GROWTH_ENABLED !== 'false',
+    runHour: parseInt(process.env.AGENT_GROWTH_RUN_HOUR || '4'),
+    runMinute: parseInt(process.env.AGENT_GROWTH_RUN_MINUTE || '10')
+  },
   agent: {
     runtime: process.env.AGENT_RUNTIME || 'claude-code',
     timeoutMs: parseInt(process.env.AGENT_TIMEOUT_MS || '120000'),

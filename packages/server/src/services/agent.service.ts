@@ -17,6 +17,7 @@ import { agentCapabilityService } from './agent-capability.service.js'
 import { renderRoleCapabilitiesForPrompt } from './agent-role-capabilities.js'
 import { templatePermissionService } from './template-permission.service.js'
 import { tabFilesMapService } from './tab-files-map.service.js'
+import { agentGrowthService } from './agent-growth.service.js'
 
 export interface AgentConfig {
   name: string
@@ -450,6 +451,11 @@ export class AgentService {
     const dreamMemory = Array.isArray(cfg.dreamMemory) && cfg.dreamMemory.length
       ? `【梦境复盘得到的避错规则】\n${cfg.dreamMemory.map((item: any) => `- ${item.text}`).join('\n')}`
       : ''
+    const roomId = (cfg as any).roomId
+    const growthMemories = roomId ? agentGrowthService.getEffectiveMemories(roomId, agent.id, 12) : []
+    const growthMemory = growthMemories.length
+      ? `【用户习惯与项目记忆】\n${growthMemories.map((item: any) => `- ${item.text}`).join('\n')}`
+      : ''
 
     return [
       '你是 FreeChat 项目中的业务 Agent。',
@@ -462,6 +468,7 @@ export class AgentService {
       agent.description ? `【业务职责/定制定位】${agent.description}` : '',
       agent.specialties?.length ? `【专长】${agent.specialties.join('、')}` : '',
       cfg.systemPrompt ? `【业务自定义提示词（在助理基础职责之上叠加）】\n${cfg.systemPrompt}` : '',
+      growthMemory,
       '',
       `【响应模式】${behavior.replyMode}`,
       behavior.silentAllowed ? '不需要回应时必须只输出 [SILENT]。' : '',

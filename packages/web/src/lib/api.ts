@@ -129,6 +129,11 @@ export const api = {
   getPersonalAnalyticsRunDetail: (runId: string) => request<any>(`/me/analytics/runs/${runId}`),
   getAgentDreams: (roomId?: string) => request<any>(`/agent-dreams${roomId ? `?roomId=${encodeURIComponent(roomId)}` : ''}`),
   runAgentDreams: (body: { roomId?: string; agentId?: string; date?: string; dryRun?: boolean } = {}) => request<any>('/agent-dreams/run', { method: 'POST', body: JSON.stringify(body) }),
+  getAgentGrowth: (roomId: string) => request<any>(`/rooms/${roomId}/agent-growth`),
+  runAgentGrowth: (roomId: string, body: { date?: string } = {}) => request<any>(`/rooms/${roomId}/agent-growth/run`, { method: 'POST', body: JSON.stringify(body) }),
+  acceptAgentGrowthProposal: (id: string) => request<any>(`/agent-growth/proposals/${id}/accept`, { method: 'POST' }),
+  rejectAgentGrowthProposal: (id: string) => request<any>(`/agent-growth/proposals/${id}/reject`, { method: 'POST' }),
+  deleteAgentGrowthMemory: (id: string) => request<any>(`/agent-growth/memories/${id}`, { method: 'DELETE' }),
 
   // Files
   getFiles: (roomId: string) => request<{ files: any[] }>(`/rooms/${roomId}/files`),
