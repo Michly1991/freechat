@@ -1,9 +1,10 @@
+import { PersonalSettingsTabs } from '../../features/settings/PersonalSettingsTabs'
 import type { SettingsSectionProps } from './types'
 
-export function SettingsSection({ user, onSettings, onLogout }: SettingsSectionProps) {
+export function SettingsSection({ user, onLogout }: SettingsSectionProps) {
   return (
-    <section className="bg-white sm:rounded-xl sm:border border-gray-200 p-4 sm:p-5 space-y-4">
-      <div className="flex items-center gap-3">
+    <section className="space-y-5">
+      <div className="bg-white sm:rounded-xl sm:border border-gray-200 p-4 sm:p-5 flex items-center gap-3">
         {user?.avatar ? (
           <img src={user.avatar} className="w-14 h-14 rounded-full object-cover" />
         ) : (
@@ -16,8 +17,7 @@ export function SettingsSection({ user, onSettings, onLogout }: SettingsSectionP
           <p className="text-sm text-gray-400">@{user?.username}</p>
         </div>
       </div>
-      <button onClick={onSettings} className="w-full text-left px-4 py-3 rounded-lg border border-gray-100 hover:bg-gray-50">个人设置</button>
-      <button onClick={onLogout} className="w-full text-left px-4 py-3 rounded-lg border border-red-100 text-red-600 hover:bg-red-50">退出登录</button>
+      <PersonalSettingsTabs onLogout={onLogout} />
     </section>
   )
 }

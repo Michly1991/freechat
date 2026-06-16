@@ -314,7 +314,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <HomeHeader user={user} showQuickActions={showQuickActions} showNotifications={showNotifications} notifications={notifications} notificationUnreadCount={notificationUnreadCount} browserNotificationsEnabled={browserNotificationsEnabled} setShowQuickActions={setShowQuickActions} setShowNotifications={setShowNotifications} setBrowserNotificationsEnabled={setBrowserNotificationsEnabled} onShowJoin={openQuickJoin} onShowCreate={openQuickCreate} onShowAddFriend={openQuickAddFriend} onSettings={() => navigate('/settings')} onLogout={handleLogout} onMarkAllNotificationsRead={markAllNotificationsRead} onOpenNotification={openNotification} />
+      <HomeHeader user={user} showQuickActions={showQuickActions} showNotifications={showNotifications} notifications={notifications} notificationUnreadCount={notificationUnreadCount} browserNotificationsEnabled={browserNotificationsEnabled} setShowQuickActions={setShowQuickActions} setShowNotifications={setShowNotifications} setBrowserNotificationsEnabled={setBrowserNotificationsEnabled} onShowJoin={openQuickJoin} onShowCreate={openQuickCreate} onShowAddFriend={openQuickAddFriend} onSettings={() => setActiveHomeTab('settings')} onLogout={handleLogout} onMarkAllNotificationsRead={markAllNotificationsRead} onOpenNotification={openNotification} />
       <main className="max-w-5xl mx-auto px-0 sm:px-4 py-0 sm:py-8 pb-20 sm:pb-8">
         <DesktopTabs activeHomeTab={activeHomeTab} setActiveHomeTab={setActiveHomeTab} />
         {activeHomeTab === 'messages' && (
@@ -323,7 +323,7 @@ export default function HomePage() {
         {activeHomeTab === 'contacts' && (
           <ContactsSection contactKind={contactKind} setContactKind={setContactKind} searchQ={searchQ} setSearchQ={setSearchQ} searchResults={searchResults} friends={friends} agents={agents} scenes={scenes} reloadScenes={loadScenes} friendRequests={friendRequests} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} searchUsers={searchUsers} sendFriendRequest={sendFriendRequest} acceptFriendRequest={acceptFriendRequest} rejectFriendRequest={rejectFriendRequest} openDm={openDm} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />
         )}
-        {activeHomeTab === 'settings' && <SettingsSection user={user} onSettings={() => navigate('/settings')} onLogout={handleLogout} />}
+        {activeHomeTab === 'settings' && <SettingsSection user={user} onLogout={handleLogout} />}
       </main>
       <MobileNav activeHomeTab={activeHomeTab} setActiveHomeTab={setActiveHomeTab} />
       <JoinRoomModal show={showJoin} inviteCode={inviteCode} joining={joining} setInviteCode={setInviteCode} setShowJoin={setShowJoin} handleJoinRoom={handleJoinRoom} />

@@ -74,7 +74,6 @@ export type ContactsSectionProps = {
 
 export type SettingsSectionProps = {
   user: any
-  onSettings: () => void
   onLogout: () => void
 }
 
