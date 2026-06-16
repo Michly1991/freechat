@@ -1,5 +1,5 @@
 import { clearClientLogs } from '../../../lib/clientLog'
-import { Clipboard, Folder, ListTodo, MessageCircle, PanelsTopLeft, Settings, Trash2, Users, Wrench, X } from 'lucide-react'
+import { Activity, Clipboard, Folder, ListTodo, MessageCircle, PanelsTopLeft, Settings, Trash2, Users, Wrench, X } from 'lucide-react'
 import type { Panel } from '../../room-page-model'
 import { getAgentStatusDotClass, getAgentStatusLabel } from '../room-ui-utils'
 
@@ -8,6 +8,7 @@ export const roomPanels: { key: Panel; label: string; icon: string }[] = [
   { key: 'files', label: '文件', icon: 'folder' },
   { key: 'tabs', label: '页面', icon: 'panels' },
   { key: 'tasks', label: '任务', icon: 'check' },
+  { key: 'agentRuns', label: '执行', icon: 'activity' },
 ]
 
 export function RoomHeader({ room, roomId, members, roomAgents, workingAgents, defaultAssistant, openMemberProfile, setShowDiagnostics, setShowMobileMembers, navigate }: any) {
@@ -19,6 +20,7 @@ function PanelIcon({ panel, mobile = false }: { panel: any; mobile?: boolean }) 
   if (panel.icon === 'message') return <MessageCircle className={cls} />
   if (panel.icon === 'folder') return <Folder className={cls} />
   if (panel.icon === 'panels') return <PanelsTopLeft className={cls} />
+  if (panel.icon === 'activity') return <Activity className={cls} />
   return <ListTodo className={cls} />
 }
 

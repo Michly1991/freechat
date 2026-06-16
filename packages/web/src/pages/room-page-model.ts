@@ -26,7 +26,7 @@ export interface Tab {
   updatedAt?: number
 }
 
-export type Panel = 'chat' | 'files' | 'tabs' | 'tasks'
+export type Panel = 'chat' | 'files' | 'tabs' | 'tasks' | 'agentRuns'
 
 const LOCAL_MESSAGE_CACHE_LIMIT = 100
 const getMessageCacheKey = (roomId: string) => `freechat:room:${roomId}:messages`

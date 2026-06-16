@@ -3,6 +3,7 @@ import { RoomFilesPanel } from './RoomFilesPanel'
 import { RoomTabsPanel } from './RoomTabsPanel'
 import { RoomAgentManagementPanel } from './RoomAgentManagementPanel'
 import { RoomTasksPanel } from './RoomTasksPanel'
+import { AgentRunsPanel } from './AgentRunsPanel'
 
 export function RoomMainPanel(props: any) {
   const {
@@ -21,7 +22,7 @@ export function RoomMainPanel(props: any) {
     creatingTask, createTask, expandedTaskIds, toggleTaskExpanded, newSubtaskTitles,
     setNewSubtaskTitles, showArchivedTasks, setShowArchivedTasks, updateTaskStatus,
     retryTaskFailedItems, deleteTask, createSubtask, updateSubtaskStatus, retrySubtask,
-    deleteSubtask, renderAssigneeBadge, setActiveTabId,
+    deleteSubtask, renderAssigneeBadge, setActiveTabId, restartAgent,
   } = props
   const isAgentManagementTab = activeTabId && tabs.find((tab: any) => tab.id === activeTabId && (tab.title || '').includes('Agent管理'))
 
@@ -37,6 +38,9 @@ export function RoomMainPanel(props: any) {
   }
   if (activePanel === 'tasks') {
     return <RoomTasksPanel tasks={tasks} sendError={sendError} wsNoticeDismissed={wsNoticeDismissed} setWsNoticeDismissed={setWsNoticeDismissed} newTaskTitle={newTaskTitle} setNewTaskTitle={setNewTaskTitle} creatingTask={creatingTask} createTask={createTask} expandedTaskIds={expandedTaskIds} toggleTaskExpanded={toggleTaskExpanded} newSubtaskTitles={newSubtaskTitles} setNewSubtaskTitles={setNewSubtaskTitles} showArchivedTasks={showArchivedTasks} setShowArchivedTasks={setShowArchivedTasks} updateTaskStatus={updateTaskStatus} retryTaskFailedItems={retryTaskFailedItems} deleteTask={deleteTask} createSubtask={createSubtask} updateSubtaskStatus={updateSubtaskStatus} retrySubtask={retrySubtask} deleteSubtask={deleteSubtask} renderAssigneeBadge={renderAssigneeBadge} />
+  }
+  if (activePanel === 'agentRuns') {
+    return <AgentRunsPanel roomId={roomId} roomAgents={roomAgents} restartAgent={restartAgent} feedback={feedback} />
   }
   return null
 }
