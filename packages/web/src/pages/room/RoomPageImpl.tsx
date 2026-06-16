@@ -9,13 +9,12 @@ import { AgentRecoveryBanner } from './components/AgentRecoveryBanner'
 import { InteractionCard } from './components/InteractionCard'
 import { RoomMainPanel } from './components/RoomMainPanel'
 import { DesktopMembersPanel, MobileMembersDrawer, ProfileModal } from './components/RoomMembers'
-import { DesktopPanelTabs, DiagnosticsDialog, FileDialog, MobileBottomNav, RoomHeader } from './components/RoomShellChrome'
+import { DesktopPanelTabs, FileDialog, MobileBottomNav, RoomHeader } from './components/RoomShellChrome'
 import { createRoomAgentActions } from './room-agent-actions'
 import { createRoomFileActions, createRoomTabActions, createRoomTaskActions } from './room-actions'
 import { createRoomRuntimeActions } from './room-realtime'
 import { createMessagePaginationActions, INITIAL_MESSAGE_LIMIT } from './room-message-pagination'
 import { getAgentOnlineStatus, getMemberDisplayName } from './room-ui-utils'
-import { useRoomDiagnostics } from './room-diagnostics-controller'
 import { createRoomProfileController } from './room-profile-controller'
 import { mergeMessages, readCachedMessages, writeCachedMessages, type FileNode, type Message, type Panel, type Tab } from '../room-page-model'
 
@@ -83,7 +82,6 @@ export function RoomPageImpl() {
       return ''
     }
   }
-  const diagnostics = useRoomDiagnostics({ roomId, user, token, wsStatus, getCurrentToken })
   useEffect(() => {
     if (!roomId) return
     initialScrollDoneRef.current = false
@@ -319,7 +317,6 @@ export function RoomPageImpl() {
         workingAgents={workingAgents}
         defaultAssistant={defaultAssistant}
         openMemberProfile={openMemberProfile}
-        setShowDiagnostics={diagnostics.setShowDiagnostics}
         setShowMobileMembers={setShowMobileMembers}
         navigate={navigate}
       />
@@ -382,16 +379,6 @@ export function RoomPageImpl() {
         setFileDialogPath={setFileDialogPath}
         setFileDialogType={setFileDialogType}
         submitFileDialog={submitFileDialog}
-      />
-      <DiagnosticsDialog
-        showDiagnostics={diagnostics.showDiagnostics}
-        setShowDiagnostics={diagnostics.setShowDiagnostics}
-        wsStatus={wsStatus}
-        hasToken={!!getCurrentToken()}
-        roomId={roomId}
-        clientLogs={diagnostics.clientLogs}
-        diagnosticsText={diagnostics.diagnosticsText}
-        copyDiagnostics={diagnostics.copyDiagnostics}
       />
     </div>
   )
