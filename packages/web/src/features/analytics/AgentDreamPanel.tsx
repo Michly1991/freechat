@@ -5,8 +5,7 @@ export default function AgentDreamPanel({ roomId }: { roomId: string }) {
   const [dreams, setDreams] = useState<any[]>([])
   const [growth, setGrowth] = useState<any>({ reviews: [], proposals: [], memories: [] })
   const [loading, setLoading] = useState(false)
-  const [runningDream, setRunningDream] = useState(false)
-  const [runningGrowth, setRunningGrowth] = useState(false)
+  const [optimizing, setOptimizing] = useState(false)
   const [error, setError] = useState('')
 
   const load = async () => {
@@ -23,15 +22,18 @@ export default function AgentDreamPanel({ roomId }: { roomId: string }) {
     }
   }
 
-  const runDream = async () => {
-    try { setRunningDream(true); setError(''); await api.runAgentDreams({ roomId }); await load() }
-    catch (err: any) { setError(err?.message || '运行梦境失败') }
-    finally { setRunningDream(false) }
-  }
-  const runGrowth = async () => {
-    try { setRunningGrowth(true); setError(''); await api.runAgentGrowth(roomId); await load() }
-    catch (err: any) { setError(err?.message || '运行成长失败') }
-    finally { setRunningGrowth(false) }
+  const optimizeAgent = async () => {
+    try {
+      setOptimizing(true)
+      setError('')
+      await api.runAgentDreams({ roomId })
+      await api.runAgentGrowth(roomId)
+      await load()
+    } catch (err: any) {
+      setError(err?.message || '优化 Agent 失败')
+    } finally {
+      setOptimizing(false)
+    }
   }
   const accept = async (id: string) => { try { await api.acceptAgentGrowthProposal(id); await load() } catch (err: any) { setError(err?.message || '采纳失败') } }
   const reject = async (id: string) => { try { await api.rejectAgentGrowthProposal(id); await load() } catch (err: any) { setError(err?.message || '忽略失败') } }
@@ -47,12 +49,11 @@ export default function AgentDreamPanel({ roomId }: { roomId: string }) {
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div>
         <h2 className="text-lg font-semibold text-gray-800">梦境成长</h2>
-        <p className="text-sm text-gray-500 mt-1">梦境负责避错，成长负责学习用户习惯。成长建议默认等待你确认后才写入 Agent 记忆。</p>
+        <p className="text-sm text-gray-500 mt-1">点击“优化 Agent”会同时执行避错复盘和习惯学习；成长建议默认等待你确认后才写入 Agent 记忆。</p>
       </div>
       <div className="flex flex-wrap gap-2">
         <button onClick={load} disabled={loading} className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs text-gray-600 disabled:opacity-60">刷新</button>
-        <button onClick={runDream} disabled={runningDream} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60">{runningDream ? '复盘中...' : '梦境复盘'}</button>
-        <button onClick={runGrowth} disabled={runningGrowth} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60">{runningGrowth ? '生成中...' : '成长建议'}</button>
+        <button onClick={optimizeAgent} disabled={optimizing} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60">{optimizing ? '优化中...' : '优化 Agent'}</button>
       </div>
     </div>
     {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</div>}
