@@ -121,14 +121,15 @@ class AgentGrowthService {
   private runRoomReview(roomId: string, date: string, start: number, end: number) {
     const now = Date.now()
     const seeds = this.collectProposalSeeds(roomId, start, end)
-    const reviewId = `growth_${uuidv4()}`
+    const existingReview = db.prepare('SELECT id FROM agent_growth_reviews WHERE room_id = ? AND review_date = ?').get(roomId, date) as any
+    const reviewId = existingReview?.id || `growth_${uuidv4()}`
     const summary = seeds.length ? `成长复盘发现 ${seeds.length} 条候选用户/项目习惯，等待用户确认。` : '成长复盘未发现新的可确认习惯。'
     const tx = db.transaction(() => {
       db.prepare(`
         INSERT INTO agent_growth_reviews (id, room_id, review_date, status, summary, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(room_id, review_date) DO UPDATE SET
-          id = excluded.id, status = excluded.status, summary = excluded.summary, created_at = excluded.created_at
+          status = excluded.status, summary = excluded.summary, created_at = excluded.created_at
       `).run(reviewId, roomId, date, seeds.length ? 'proposed' : 'empty', summary, now)
       for (const seed of seeds) {
         if (this.hasSimilarProposalOrMemory(roomId, seed)) continue
