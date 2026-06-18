@@ -210,6 +210,8 @@ export const api = {
     request<{ scene: any }>('/scenes', { method: 'POST', body: JSON.stringify(body) }),
   updateScene: (id: string, body: { name?: string; description?: string; icon?: string; agents?: any[] }) =>
     request<{ scene: any }>(`/scenes/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  upsertSceneBillingRule: (id: string, body: any) =>
+    request<{ scene: any }>(`/scenes/${id}/billing-rule`, { method: 'PUT', body: JSON.stringify(body) }),
   getScenePermissions: (id: string) => request<{ canManage: boolean; members: any[]; requests: any[] }>(`/scenes/${id}/permissions`),
   grantScenePermission: (id: string, userId: string, role = 'editor') =>
     request<{ members: any[] }>(`/scenes/${id}/permissions`, { method: 'POST', body: JSON.stringify({ userId, role }) }),

@@ -49,10 +49,8 @@ async function assertModelProfileOwner(profileId: string, user: any) {
 
 export async function registerBillingRuleRoutes(app: FastifyInstance) {
   app.get('/api/model-profiles/:id/billing-rules', async (request, reply) => {
-    const user = (request as any).user
     const { id } = request.params as any
     try {
-      await assertModelProfileOwner(id, user)
       const rules = billingRuleRepository.listModelRules(id).map(rowToModelRule)
       return reply.send({ success: true, data: { rules } })
     } catch (err: any) {

@@ -1,4 +1,5 @@
 import { modelProfileRepository } from '../domains/model-provider/model-profile.repository.js'
+import db from '../storage/db.js'
 import { encryptSecret } from './secret-crypto.js'
 
 function last4(value?: string | null): string | null {
@@ -19,26 +20,43 @@ function parseModels(value: any): string | null {
   return null
 }
 
-function publicProfile(row: any) {
+function hostOf(url?: string | null): string | null {
+  if (!url) return null
+  try { return new URL(url).host } catch { return String(url).replace(/^https?:\/\//, '').split('/')[0] || null }
+}
+
+function priceSummary(profileId: string): string {
+  const rows = db.prepare('SELECT * FROM model_billing_rules WHERE model_profile_id = ? AND enabled = 1 ORDER BY model ASC').all(profileId) as any[]
+  if (!rows.length) return '暂无定价'
+  return rows.slice(0, 2).map((r) => `${r.model}: 输入${r.input_credit_per_million || 0}/百万，输出${r.output_credit_per_million || 0}/百万${r.min_credits_per_run ? `，最低${r.min_credits_per_run}/次` : ''}`).join('；') + (rows.length > 2 ? ` 等${rows.length}个模型` : '')
+}
+
+function publicProfile(row: any, viewer?: { id: string; role?: string }) {
+  const canEdit = !!viewer && (row.owner_id === viewer.id || viewer.role === 'admin')
+  const owner = db.prepare('SELECT nickname, username FROM users WHERE id = ?').get(row.owner_id) as any
   return {
     id: row.id,
     ownerId: row.owner_id,
     name: row.name,
     providerType: row.provider_type,
-    baseUrl: row.base_url,
-    apiKeyLast4: row.api_key_last4,
+    ownerName: owner?.nickname || owner?.username || row.owner_id,
+    canEdit,
+    baseUrl: canEdit ? row.base_url : undefined,
+    baseUrlHost: hostOf(row.base_url),
+    apiKeyLast4: canEdit ? row.api_key_last4 : undefined,
     defaultModel: row.default_model,
     models: row.models ? JSON.parse(row.models) : [],
     visibility: row.visibility,
     enabled: !!row.enabled,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    priceSummary: priceSummary(row.id),
   }
 }
 
 export class ModelProfileService {
   listVisible(userId: string, userRole?: string) {
-    return modelProfileRepository.listVisible(userId, userRole).map(publicProfile)
+    return modelProfileRepository.listVisible(userId, userRole).map((row) => publicProfile(row, { id: userId, role: userRole }))
   }
 
   create(ownerId: string, input: any) {
@@ -54,7 +72,7 @@ export class ModelProfileService {
       models: parseModels(input?.models),
       visibility,
     })
-    return publicProfile(row)
+    return publicProfile(row, { id: ownerId })
   }
 
   update(user: { id: string; role?: string }, id: string, input: any) {
@@ -73,7 +91,7 @@ export class ModelProfileService {
       visibility: ['private', 'shared', 'platform'].includes(input?.visibility) ? input.visibility : row.visibility,
       enabled: input?.enabled !== undefined ? (input.enabled ? 1 : 0) : row.enabled,
     }
-    return publicProfile(modelProfileRepository.update(id, next))
+    return publicProfile(modelProfileRepository.update(id, next), user)
   }
 }
 

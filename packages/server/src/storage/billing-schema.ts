@@ -76,6 +76,19 @@ export function ensureBillingSchema(db: Database.Database) {
   `)
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_billing_rules_template ON agent_billing_rules(agent_template_id)`)
   db.exec(`
+    CREATE TABLE IF NOT EXISTS scene_billing_rules (
+      id TEXT PRIMARY KEY,
+      scene_template_id TEXT NOT NULL UNIQUE,
+      billing_mode TEXT NOT NULL DEFAULT 'free',
+      fixed_credits_per_use INTEGER DEFAULT 0,
+      revenue_share_rate REAL DEFAULT 0,
+      enabled INTEGER DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (scene_template_id) REFERENCES scene_templates(id) ON DELETE CASCADE
+    )
+  `)
+  db.exec(`
     CREATE TABLE IF NOT EXISTS metered_usage_events (
       id TEXT PRIMARY KEY,
       run_id TEXT NOT NULL UNIQUE,

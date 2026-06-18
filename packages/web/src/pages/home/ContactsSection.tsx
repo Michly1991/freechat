@@ -5,6 +5,7 @@ import { AGENT_TOOL_KEYS } from '../home-agent-form'
 import type { ContactsSectionProps } from './types'
 import { AgentConfigEditor } from '../room/components/AgentConfigEditor'
 import { TemplatePermissionPanel } from '../room/components/TemplatePermissionPanel'
+import { ModelMarketSection } from './ModelMarketSection'
 
 export function ContactsSection(props: ContactsSectionProps) {
   const {
@@ -40,10 +41,13 @@ export function ContactsSection(props: ContactsSectionProps) {
       <div className="flex items-center justify-between gap-3 mb-3">
         <h2 className="text-lg font-semibold text-gray-800">通讯录</h2>
       </div>
-      <div className="flex bg-gray-100 rounded-xl p-1 mb-4 w-fit">
-        <button onClick={() => setContactKind('people')} className={`px-4 py-2 rounded-lg text-sm ${contactKind === 'people' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>人员</button>
-        <button onClick={() => setContactKind('agents')} className={`px-4 py-2 rounded-lg text-sm ${contactKind === 'agents' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>AI市场</button>
-        <button onClick={() => setContactKind('scenes')} className={`px-4 py-2 rounded-lg text-sm ${contactKind === 'scenes' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>场景</button>
+      <div className="overflow-x-auto pb-1 mb-4 -mx-1 px-1">
+        <div className="inline-flex bg-gray-100 rounded-xl p-1 min-w-max">
+          <button onClick={() => setContactKind('people')} className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${contactKind === 'people' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>人员</button>
+          <button onClick={() => setContactKind('agents')} className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${contactKind === 'agents' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>AI市场</button>
+          <button onClick={() => setContactKind('models')} className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${contactKind === 'models' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>模型市场</button>
+          <button onClick={() => setContactKind('scenes')} className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${contactKind === 'scenes' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>场景市场</button>
+        </div>
       </div>
 
       {contactKind === 'people' && (
@@ -77,6 +81,7 @@ export function ContactsSection(props: ContactsSectionProps) {
         />
       )}
 
+      {contactKind === 'models' && <ModelMarketSection />}
       {contactKind === 'scenes' && <SceneContacts scenes={scenes} agents={agents} reloadScenes={reloadScenes} />}
     </section>
   )
@@ -254,6 +259,7 @@ function SceneContacts({ scenes, agents, reloadScenes }: { scenes: any[]; agents
   const [form, setForm] = useState<{ name: string; description: string; agents: any[] }>({ name: '', description: '', agents: [] })
   const [selectedGlobalAgentId, setSelectedGlobalAgentId] = useState('')
   const [saving, setSaving] = useState(false)
+  const [billingForm, setBillingForm] = useState({ billingMode: 'free', fixedCreditsPerUse: 0 })
 
   const beginNew = () => {
     setEditingId('new')
@@ -265,6 +271,7 @@ function SceneContacts({ scenes, agents, reloadScenes }: { scenes: any[]; agents
     if (scene.canEdit === false) return
     setEditingId(scene.id)
     setForm({ name: scene.name || '', description: scene.description || '', agents: (scene.agents || []).map((agent: any) => ({ ...agent })) })
+    setBillingForm({ billingMode: scene.billingRule?.billingMode || (scene.priceSummary?.startsWith('固定') ? 'fixed' : 'free'), fixedCreditsPerUse: scene.billingRule?.fixedCreditsPerUse || 0 })
     setSelectedGlobalAgentId(scene.agents?.[0]?.agentId || '')
   }
 
@@ -280,7 +287,7 @@ function SceneContacts({ scenes, agents, reloadScenes }: { scenes: any[]; agents
     try {
       setSaving(true)
       if (editingId === 'new') await api.createScene({ name: form.name.trim(), description: form.description, agents: form.agents })
-      else await api.updateScene(editingId, { name: form.name.trim(), description: form.description, agents: form.agents })
+      else { await api.updateScene(editingId, { name: form.name.trim(), description: form.description, agents: form.agents }); await api.upsertSceneBillingRule(editingId, billingForm) }
       setEditingId(null)
       setSelectedGlobalAgentId('')
       reloadScenes()
@@ -291,7 +298,7 @@ function SceneContacts({ scenes, agents, reloadScenes }: { scenes: any[]; agents
 
   return (
     <div className="space-y-3">
-      <ContactCreateHeader title="场景" description="管理全局共享场景模板；场景只维护默认 Agent 关系，创建项目时克隆为项目副本。" buttonLabel="新增场景" onCreate={beginNew} />
+      <ContactCreateHeader title="场景市场" description="管理全局共享场景模板；别人只能看到摘要、包含的 AI 和售价。" buttonLabel="新增场景" onCreate={beginNew} />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {(scenes.length === 0 && editingId !== 'new') ? <p className="text-sm text-gray-400">暂无场景。</p> : (editingId === 'new' ? [{ id: 'new', name: '新场景', description: '', agents: [], canEdit: true }, ...scenes] : scenes).map((scene) => {
           const editing = editingId === scene.id
@@ -311,6 +318,7 @@ function SceneContacts({ scenes, agents, reloadScenes }: { scenes: any[]; agents
                         <label className="text-xs text-gray-500 space-y-1"><span>场景描述</span><textarea value={form.description} disabled={scene.isBuiltIn && editingId !== 'new'} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-800 disabled:bg-gray-100 disabled:text-gray-400" placeholder="场景描述" /></label>
                       </div>
                       {scene.isBuiltIn && editingId !== 'new' && <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">Agent 管理是系统内置项目，不能删除，也不能作为普通场景重复创建；这里仅维护它关联的全局 Agent 配置。</p>}
+                      {editingId !== 'new' && <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 space-y-2"><p className="text-sm font-medium text-gray-700">场景售价</p><div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><select value={billingForm.billingMode} onChange={(e) => setBillingForm({ ...billingForm, billingMode: e.target.value })} className="px-3 py-2 border rounded-lg text-sm"><option value="free">免费</option><option value="fixed">固定收费</option></select><input type="number" value={billingForm.fixedCreditsPerUse} onChange={(e) => setBillingForm({ ...billingForm, fixedCreditsPerUse: Number(e.target.value) })} className="px-3 py-2 border rounded-lg text-sm" placeholder="credits/次" /></div></div>}
                       {editingId !== 'new' && <TemplatePermissionPanel targetType="scene" targetId={scene.id} canEdit={scene.canEdit !== false} feedback={{ error: alert, success: () => {} }} />}
                       <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 space-y-3">
                         <div className="flex items-center justify-between"><div><p className="text-sm font-medium text-gray-700">全局 Agent</p><p className="text-xs text-gray-400">选择场景包含的全局 Agent，并可直接配置模板。</p></div><button onClick={() => { const first = agents.find((item) => !form.agents.some((a) => a.agentId === item.id)); setForm({ ...form, agents: [...form.agents, { agentId: first?.id || '', name: first?.name || '', roleType: first?.roleType, autoEnabled: false, priority: form.agents.length }] }); if (first?.id) setSelectedGlobalAgentId(first.id) }} className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-xs text-blue-600 hover:bg-blue-100">+ 添加</button></div>
@@ -329,7 +337,7 @@ function SceneContacts({ scenes, agents, reloadScenes }: { scenes: any[]; agents
                     </div>
                   ) : (
                     <div>
-                      <div className="flex items-start justify-between gap-2"><div><p className="font-semibold text-gray-800">{scene.name}{scene.isBuiltIn && <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-600">内置</span>}{scene.canEdit === false && <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">只读</span>}</p>{scene.description && <p className="text-xs text-gray-500 mt-1">{scene.description}</p>}</div>{scene.canEdit !== false && <button onClick={() => beginEdit(scene)} className="text-blue-500 hover:text-blue-700 p-1"><Pencil className="w-4 h-4" /></button>}</div>
+                      <div className="flex items-start justify-between gap-2"><div><p className="font-semibold text-gray-800">{scene.name}{scene.isBuiltIn && <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-600">内置</span>}{scene.canEdit === false && <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">只读</span>}</p>{scene.description && <p className="text-xs text-gray-500 mt-1">{scene.description}</p>}<p className="text-xs text-gray-400 mt-1">发布人：{scene.ownerName || scene.ownerId || '未知'}</p><p className="text-xs text-blue-600 mt-1">价格：{scene.priceSummary || '暂无定价'}</p></div>{scene.canEdit !== false && <button onClick={() => beginEdit(scene)} className="text-blue-500 hover:text-blue-700 p-1"><Pencil className="w-4 h-4" /></button>}</div>
                       <div className="mt-3 flex flex-wrap gap-1">{(scene.agents || []).map((agent: any) => <span key={agent.agentId} className="text-[10px] px-2 py-1 rounded-full bg-violet-50 text-violet-600">{agent.name}{agent.autoEnabled ? ' · 自动' : ''}</span>)}</div>
                     </div>
                   )}

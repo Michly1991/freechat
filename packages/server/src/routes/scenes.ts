@@ -66,6 +66,18 @@ export async function registerSceneRoutes(app: FastifyInstance) {
     return reply.send({ success: true, data: { request: requestRow } })
   })
 
+  app.put('/api/scenes/:id/billing-rule', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    try {
+      const scene = sceneTemplateService.upsertBillingRule(user, id, request.body as any)
+      return reply.send({ success: true, data: { scene } })
+    } catch (err: any) {
+      const status = err.code === 'SCENE_NOT_FOUND' ? 404 : (err.code === 'FORBIDDEN' ? 403 : 400)
+      return reply.code(status).send({ success: false, error: { code: err.code || 'INTERNAL_ERROR', message: err.message || String(err) } })
+    }
+  })
+
   app.patch('/api/scenes/:id', async (request, reply) => {
     const { id } = request.params as any
     const body = request.body as any

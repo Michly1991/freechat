@@ -60,6 +60,28 @@ model_provider_user_id = model_profiles.owner_id
 platform provider      = user_platform_model_provider via platform model_profiles
 ```
 
+## Marketplace Billing Surfaces
+
+FreeChat has three marketplace-style products:
+
+1. **AI market**: Agent templates. Others see public summary + price; owner/admin/editor sees full prompt, skills, scripts, permissions, and pricing editor.
+2. **Model market**: model profiles backed by provider `apiKey` + `baseUrl`. Others see provider summary, host, default/supported models, publisher, and price. Only owner/admin sees full baseUrl, key last4, and edit form.
+3. **Scene market**: scene templates. Others see summary, included AI list, publisher, and scene price. Owner/admin/editor can edit scene composition and pricing.
+
+Model market pricing uses `model_billing_rules`. Scene market pricing uses:
+
+```sql
+scene_billing_rules (
+  scene_template_id,
+  billing_mode,
+  fixed_credits_per_use,
+  revenue_share_rate,
+  enabled
+)
+```
+
+Current MVP supports free/fixed scene pricing for display and future charge hooks.
+
 ## Native Assistant Free Agent Fee
 
 FreeChat's built-in/default assistant is a native platform capability, not a paid Agent product.
