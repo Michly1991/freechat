@@ -98,6 +98,10 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           return { success: true, data: { tasks } }
         }
         case 'task.create': {
+          const existing = await taskService.findReusableTask(roomId, args.title)
+          if (existing) {
+            return { success: true, data: { task: existing, reused: true, hint: '已复用房间中同名未关闭任务；如需推进，请使用 task progress/update 或 subtask add。' } }
+          }
           const hasExplicitAssignee = !!(args.assignee || args.assigneeId || args.assigneeName)
           const resolved = hasExplicitAssignee ? await resolveAgentAssignee(roomId, args) : {}
           const assigneeId = resolved.assigneeId || args.assigneeId || (agent.roleType === 'assistant' ? undefined : agent.id)
@@ -115,15 +119,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           )
           broadcast(roomId, 'task.changed', { action: 'add', task })
           if (assigneeType === 'agent') {
-            await invokeAssignedAgent(roomId, assigneeId, agent.id, [
-              '你被分派了一个 FreeChat 任务，请立即处理。',
-              `任务ID: ${task.id}`,
-              `任务标题: ${task.title}`,
-              task.description ? `任务说明: ${task.description}` : '',
-              `分派来源 Agent: ${agent.name}`,
-              '',
-              '请先用 ./freechat task update 标记状态/进展，完成后在聊天中简短汇报。',
-            ].filter(Boolean).join('\n'), actorUserId)
+            await invokeAssignedAgent(roomId, assigneeId, agent.id, ['你被分派了一个 FreeChat 任务，请立即处理。', `任务ID: ${task.id}`, `任务标题: ${task.title}`, task.description ? `任务说明: ${task.description}` : '', `分派来源 Agent: ${agent.name}`, '', '请先用 ./freechat task update 标记状态/进展，完成后在聊天中简短汇报。'].filter(Boolean).join('\n'), actorUserId, { taskId: task.id })
           }
           return { success: true, data: { task } }
         }
@@ -156,7 +152,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           await taskService.assertTaskInRoom(taskId, roomId)
           const { task, wakeItems } = await taskRetryService.retryTaskFailedItems(taskId, agent.id, args.reason)
           broadcast(roomId, 'task.changed', { action: 'update', task })
-          for (const item of wakeItems) await invokeAssignedAgent(roomId, item.assigneeId!, agent.id, buildSubtaskWakePrompt(task, item, '任务被人工重试，请重新处理该子任务。'), actorUserId)
+          for (const item of wakeItems) await invokeAssignedAgent(roomId, item.assigneeId!, agent.id, buildSubtaskWakePrompt(task, item, '任务被人工重试，请重新处理该子任务。'), actorUserId, { taskId: task.id, subtaskId: item.id })
           return { success: true, data: { task, wakeItems } }
         }
         case 'task.subtask_retry':
@@ -167,7 +163,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           await taskService.assertTaskInRoom(before.taskId, roomId)
           const { subtask, task, shouldWake } = await taskRetryService.retrySubtask(itemId, agent.id, args.reason)
           broadcast(roomId, 'task.changed', { action: 'update', task })
-          if (shouldWake) await invokeAssignedAgent(roomId, subtask.assigneeId!, agent.id, buildSubtaskWakePrompt(task, subtask, '任务被人工重试，请重新处理该子任务。'), actorUserId)
+          if (shouldWake) await invokeAssignedAgent(roomId, subtask.assigneeId!, agent.id, buildSubtaskWakePrompt(task, subtask, '任务被人工重试，请重新处理该子任务。'), actorUserId, { taskId: task.id, subtaskId: subtask.id })
           return { success: true, data: { subtask, task } }
         }
         case 'task.subtask_list':
@@ -183,6 +179,11 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           const taskId = args.taskId || args.task_id || args.id
           if (!taskId) throw { code: 'VALIDATION_ERROR', message: 'taskId is required' }
           await taskService.assertTaskInRoom(taskId, roomId)
+          const existing = taskItemService.findReusableItem(taskId, args.title)
+          if (existing) {
+            const task = await taskService.getTask(taskId)
+            return { success: true, data: { subtask: existing, task, reused: true, hint: '已复用父任务下同名未关闭子任务；如需推进，请更新子任务状态/进展。' } }
+          }
           const resolved = await resolveAgentAssignee(roomId, args)
           const assigneeId = resolved.assigneeId || args.assigneeId || agent.id
           const assigneeName = resolved.assigneeName || args.assigneeName || agent.name
@@ -199,17 +200,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           const task = await taskService.getTask(taskId)
           broadcast(roomId, 'task.changed', { action: 'update', task })
           if (assigneeType === 'agent') {
-            await invokeAssignedAgent(roomId, assigneeId, agent.id, [
-              '你被分派了一个 FreeChat 子任务，请立即处理。',
-              `父任务ID: ${task.id}`,
-              `父任务标题: ${task.title}`,
-              `子任务ID: ${subtask.id}`,
-              `子任务标题: ${subtask.title}`,
-              subtask.description ? `子任务说明: ${subtask.description}` : '',
-              `分派来源 Agent: ${agent.name}`,
-              '',
-              '请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。',
-            ].filter(Boolean).join('\n'), actorUserId)
+            await invokeAssignedAgent(roomId, assigneeId, agent.id, ['你被分派了一个 FreeChat 子任务，请立即处理。', `父任务ID: ${task.id}`, `父任务标题: ${task.title}`, `子任务ID: ${subtask.id}`, `子任务标题: ${subtask.title}`, subtask.description ? `子任务说明: ${subtask.description}` : '', `分派来源 Agent: ${agent.name}`, '', '请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。'].filter(Boolean).join('\n'), actorUserId, { taskId: task.id, subtaskId: subtask.id })
           }
           return { success: true, data: { subtask, task } }
         }
@@ -229,7 +220,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           broadcast(roomId, 'task.changed', { action: 'update', task })
           for (const item of released) {
             if (item.assigneeType === 'agent' && item.assigneeId) {
-              await invokeAssignedAgent(roomId, item.assigneeId, agent.id, buildSubtaskWakePrompt(task, item, '前置子任务已完成，你负责的子任务已解除阻塞，请立即处理。'), actorUserId)
+              await invokeAssignedAgent(roomId, item.assigneeId, agent.id, buildSubtaskWakePrompt(task, item, '前置子任务已完成，你负责的子任务已解除阻塞，请立即处理。'), actorUserId, { taskId: task.id, subtaskId: item.id })
             }
           }
           return { success: true, data: { subtask, task, released } }
@@ -243,16 +234,18 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           for (const [index, item] of items.entries()) {
             if (!String(item?.title || '').trim()) throw { code: 'VALIDATION_ERROR', message: `item[${index}].title is required` }
           }
+          const existing = await taskService.findReusableTask(roomId, title)
           const result = await interactionService.create(roomId, { id: agent.id, name: agent.name, role: 'ai' }, {
             type: 'task_plan',
-            title: `任务计划预览：${title}`,
-            description: args.description,
+            title: existing ? `任务计划预览：复用「${title}」` : `任务计划预览：${title}`,
+            description: [existing ? `检测到房间中已有同名未关闭任务，将复用任务 ${existing.id} 并只补充缺失子任务。` : '', args.description].filter(Boolean).join('\n'),
             priority: args.priority === 'danger' ? 'danger' : 'important',
             payload: {
               taskPlan: {
                 title,
                 description: args.description,
                 priority: args.priority || 'medium',
+                reuseTaskId: existing?.id,
                 items: items.map((item: any) => ({
                   title: String(item.title || '').trim(),
                   description: item.description,

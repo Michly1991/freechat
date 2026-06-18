@@ -57,3 +57,32 @@ Claude Code CLI 继续用于：
 - 需要 `./freechat` App Tools 的场景。
 
 后续如果 Claude Code 支持 `stream-json`，可继续优化为运行过程事件流，而不是等待最终 JSON。
+
+## 任务运行中断恢复
+
+`agent_runs` 记录任务来源字段：
+
+```text
+run_source: chat | task | subtask | task_plan | manual | resume
+task_id
+subtask_id
+parent_run_id
+resume_attempt
+```
+
+服务启动或房间查询时，过期 `running` run 会被恢复状态机处理：
+
+- 普通聊天 run 没有 `task_id/subtask_id`，标记为 `failed`，避免重启后重复回复用户。
+- 任务/子任务 run 有 `task_id/subtask_id`，标记为 `interrupted`。
+- 启动恢复器扫描 `interrupted` 且未超过恢复上限的任务 run，创建新的 `resume` run 继续处理。
+
+恢复 prompt 必须要求 Agent：
+
+```bash
+./freechat task list
+./freechat task subtask list <taskId>
+```
+
+Agent 需要读取当前房间已有任务状态后继续推进，不能重新创建父任务。
+
+恢复上限当前为 2 次。超过上限后保留 `interrupted` 记录，等待人工处理或后续显式重试。

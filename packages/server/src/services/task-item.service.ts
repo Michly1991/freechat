@@ -99,6 +99,25 @@ export class TaskItemService {
     return summary
   }
 
+  findReusableItem(taskId: string, title: string): TaskItem | null {
+    const cleanTitle = String(title || '').trim()
+    if (!cleanTitle) return null
+    const row = db.prepare(`
+      SELECT ti.*, (
+        SELECT group_concat(depends_on_item_id)
+        FROM task_item_dependencies d
+        WHERE d.item_id = ti.id
+      ) as dependencies
+      FROM task_items ti
+      WHERE ti.task_id = ?
+        AND lower(trim(ti.title)) = lower(trim(?))
+        AND ti.status NOT IN ('done', 'cancelled')
+      ORDER BY ti.updated_at DESC, ti.created_at DESC
+      LIMIT 1
+    `).get(taskId, cleanTitle) as any
+    return row ? rowToTaskItem(row) : null
+  }
+
   async create(taskId: string, args: { title: string; description?: string; status?: TaskStatus; assigneeId?: string; assigneeName?: string; assigneeType?: 'human' | 'agent'; blockedReason?: string; createdBy: string }): Promise<TaskItem> {
     const title = String(args.title || '').trim()
     if (!title) throw { code: 'VALIDATION_ERROR', message: 'title is required' }

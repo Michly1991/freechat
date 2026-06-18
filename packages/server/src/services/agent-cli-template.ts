@@ -30,6 +30,7 @@ function usage() {
     '  - Project-visible files must go through ./freechat file ...',
     '  - Files are not visible in the File Tab unless added to tab config.',
     '  - User-visible UI pages must go through ./freechat tab ...',
+    '  - Before creating tasks/plans/subtasks, run ./freechat task list and reuse existing unfinished tasks when they match.',
     '',
     'Common workflows:',
     '  ./freechat chat send "我开始处理这个任务"',

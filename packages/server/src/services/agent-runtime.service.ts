@@ -17,6 +17,14 @@ export interface AgentRuntimeEvent {
   tool?: string
 }
 
+export interface AgentRunContext {
+  runSource?: 'chat' | 'task' | 'subtask' | 'task_plan' | 'manual' | 'resume'
+  taskId?: string
+  subtaskId?: string
+  parentRunId?: string
+  resumeAttempt?: number
+}
+
 export interface ActiveAgentProcessInfo {
   roomId: string
   agentId: string
@@ -72,7 +80,7 @@ async spawnClaudeCode(
   getAgent: (agentId: string) => Promise<Agent>,
   prepareAgentWorkspace: (roomId: string, agent: Agent, actorUserId?: string) => Promise<string>,
   buildAgentSystemPrompt: (agent: Agent) => string,
-  options: { timeoutMs?: number; actorUserId?: string; onEvent?: (event: AgentRuntimeEvent) => void } = {}
+  options: { timeoutMs?: number; actorUserId?: string; onEvent?: (event: AgentRuntimeEvent) => void } & AgentRunContext = {}
 ): Promise<{ response: string; silent: boolean }> {
   const hardTimeoutMs = options.timeoutMs || config.agent.timeoutMs
   const idleTimeoutMs = config.agent.idleTimeoutMs
@@ -86,7 +94,7 @@ async spawnClaudeCode(
   }
   const workspaceDir = await prepareAgentWorkspace(roomId, agent, options.actorUserId)
   const roomModel = this.resolveRuntimeModel(roomId, agentId)
-  const runId = this.createAgentRun(roomId, agentId, message, options.actorUserId)
+  const runId = this.createAgentRun(roomId, agentId, message, options.actorUserId, options)
 
   // Check for existing session
   const existingSession = db.prepare(`
@@ -484,12 +492,12 @@ private resolveRuntimeModel(roomId: string, agentId: string): ResolvedRuntimeMod
   }
 }
 
-private createAgentRun(roomId: string, agentId: string, input: string, actorUserId?: string): string {
+private createAgentRun(roomId: string, agentId: string, input: string, actorUserId?: string, context: AgentRunContext = {}): string {
   const id = `arun_${uuidv4()}`
   db.prepare(`
-    INSERT INTO agent_runs (id, room_id, agent_id, status, input, actor_user_id, started_at)
-    VALUES (?, ?, ?, 'running', ?, ?, ?)
-  `).run(id, roomId, agentId, input, actorUserId || null, Date.now())
+    INSERT INTO agent_runs (id, room_id, agent_id, status, input, actor_user_id, run_source, task_id, subtask_id, parent_run_id, resume_attempt, started_at)
+    VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, roomId, agentId, input, actorUserId || null, context.runSource || null, context.taskId || null, context.subtaskId || null, context.parentRunId || null, context.resumeAttempt || 0, Date.now())
   return id
 }
 

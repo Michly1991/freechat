@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid'
 import db from '../../storage/db.js'
+import { aiConfigService } from '../../services/ai-config.service.js'
 import type { MeteredUsageEvent } from './usage.types.js'
 
 function toInt(value: any): number {
@@ -59,8 +60,13 @@ export class UsageRepository {
       LEFT JOIN model_profiles mp ON mp.id = b.model_profile_id AND mp.enabled = 1
       WHERE b.room_id = ? AND b.agent_id = ?
     `).get(run.room_id, run.agent_id) as any
-    const profileId = binding?.model_profile_id || null
-    const model = binding?.model || run.model || binding?.default_model || null
+    const aiConfig = aiConfigService.getConfig()
+    const currentProviderKey = aiConfig.currentProvider
+    const currentProvider = currentProviderKey ? aiConfig.providers?.[currentProviderKey] : null
+    const platformProfileId = currentProviderKey ? `mp_platform_${currentProviderKey}` : null
+    const platformProfile = platformProfileId && !binding ? db.prepare('SELECT owner_id model_provider_user_id, visibility, base_url, default_model FROM model_profiles WHERE id = ? AND enabled = 1').get(platformProfileId) as any : null
+    const profileId = binding?.model_profile_id || platformProfileId || null
+    const model = binding?.model || run.model || binding?.default_model || platformProfile?.default_model || currentProvider?.defaultModel || null
     const id = `mue_${uuidv4()}`
     const inputTokens = toInt(run.input_tokens)
     const outputTokens = toInt(run.output_tokens)
@@ -75,12 +81,12 @@ export class UsageRepository {
       agent_template_id: templateId,
       payer_user_id: room?.created_by || agent?.owner_id || 'system',
       agent_provider_user_id: template?.owner_id || agent?.owner_id || null,
-      model_provider_user_id: binding?.model_provider_user_id || null,
+      model_provider_user_id: binding?.model_provider_user_id || platformProfile?.model_provider_user_id || null,
       model_profile_id: profileId,
       runtime: run.runtime,
       model,
-      model_source: binding?.visibility || (profileId ? 'user' : 'system_default'),
-      base_url_host: hostOf(binding?.base_url),
+      model_source: binding?.visibility || platformProfile?.visibility || (profileId ? 'platform' : 'system_default'),
+      base_url_host: hostOf(binding?.base_url || platformProfile?.base_url),
       input_tokens: inputTokens,
       output_tokens: outputTokens,
       cache_write_tokens: cacheWriteTokens,

@@ -17,7 +17,13 @@ export function ensureAgentAnalyticsSchema(db: Database.Database) {
   ensureColumn(db, 'agent_runs', cols, 'tool_call_count', 'tool_call_count INTEGER DEFAULT 0')
   ensureColumn(db, 'agent_runs', cols, 'tool_duration_ms', 'tool_duration_ms INTEGER DEFAULT 0')
   ensureColumn(db, 'agent_runs', cols, 'actor_user_id', 'actor_user_id TEXT')
+  ensureColumn(db, 'agent_runs', cols, 'run_source', 'run_source TEXT')
+  ensureColumn(db, 'agent_runs', cols, 'task_id', 'task_id TEXT')
+  ensureColumn(db, 'agent_runs', cols, 'subtask_id', 'subtask_id TEXT')
+  ensureColumn(db, 'agent_runs', cols, 'parent_run_id', 'parent_run_id TEXT')
+  ensureColumn(db, 'agent_runs', cols, 'resume_attempt', 'resume_attempt INTEGER DEFAULT 0')
   db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_runs_room_agent_started ON agent_runs(room_id, agent_id, started_at)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_runs_status_source ON agent_runs(status, run_source, started_at)`)
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_tool_calls (
       id TEXT PRIMARY KEY, room_id TEXT NOT NULL, agent_id TEXT NOT NULL, run_id TEXT, stream_id TEXT,

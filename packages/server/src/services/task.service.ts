@@ -79,6 +79,20 @@ export class TaskService {
     } as any
   }
 
+  async findReusableTask(roomId: string, title: string): Promise<Task | null> {
+    const cleanTitle = String(title || '').trim()
+    if (!cleanTitle) return null
+    const row = db.prepare(`
+      SELECT id FROM tasks
+      WHERE room_id = ?
+        AND lower(trim(title)) = lower(trim(?))
+        AND status NOT IN ('done', 'cancelled')
+      ORDER BY updated_at DESC, created_at DESC
+      LIMIT 1
+    `).get(roomId, cleanTitle) as any
+    return row?.id ? this.getTask(row.id) : null
+  }
+
   async getRoomTasks(roomId: string, status?: TaskStatus): Promise<Task[]> {
     let query = 'SELECT * FROM tasks WHERE room_id = ?'
     const params: any[] = [roomId]

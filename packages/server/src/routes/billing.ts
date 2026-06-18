@@ -64,6 +64,7 @@ export async function registerBillingRoutes(app: FastifyInstance) {
     const byAgent = billingQueryRepository.groupedByAgent(user.id, role, range)
     const byModel = billingQueryRepository.groupedByModel(user.id, role, range)
     const daily = billingQueryRepository.daily(user.id, role)
-    return reply.send({ success: true, data: { role, account, summary, byProject, byAgent, byModel, daily } })
+    const unbilledUsage = role === 'payer' ? billingQueryRepository.unbilledUsage(user.id, range) : null
+    return reply.send({ success: true, data: { role, account, summary, byProject, byAgent, byModel, daily, unbilledUsage } })
   })
 }

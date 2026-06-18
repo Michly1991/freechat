@@ -3,6 +3,7 @@ import type { ChargeResult } from '../domains/billing/billing.types.js'
 import type { MeteredUsageEvent } from '../domains/usage-metering/usage.types.js'
 import { usageRepository } from '../domains/usage-metering/usage.repository.js'
 import db from '../storage/db.js'
+import { aiConfigService } from './ai-config.service.js'
 import type { TokenUsage } from './room-analytics.service.js'
 import { creditWalletService } from './credit-wallet.service.js'
 
@@ -121,7 +122,7 @@ export class BillingService {
       ? this.getModelRule(binding.modelProfileId, binding.model)
       : undefined
     const templateId = agent?.source_template_id || agentId
-    const agentRule = templateId ? this.getAgentRule(templateId) : undefined
+    const agentRule = templateId && !this.isNativeFreeAssistant(templateId, agentId) ? this.getAgentRule(templateId) : undefined
     const estimatedMinCredits = toInt(modelRule?.min_credits_per_run) + toInt(agentRule?.fixed_credits_per_run)
     const account = creditWalletService.getAccount(payerUserId)
     const allowed = estimatedMinCredits <= 0 || account.balance >= estimatedMinCredits
@@ -142,7 +143,7 @@ export class BillingService {
       cacheReadInputTokens: event.cacheReadTokens,
     }
     const modelRule = event.modelProfileId && event.model ? this.getModelRule(event.modelProfileId, event.model) : undefined
-    const agentRule = event.agentTemplateId ? this.getAgentRule(event.agentTemplateId) : undefined
+    const agentRule = event.agentTemplateId && !this.isNativeFreeAssistant(event.agentTemplateId, event.agentId) ? this.getAgentRule(event.agentTemplateId) : undefined
     const modelCharge = modelRule ? Math.max(chargeByTokens(usage, modelRule), toInt(modelRule.min_credits_per_run)) : 0
     const agentCharge = this.calculateAgentCharge(usage, modelCharge, agentRule)
     const totalCharge = modelCharge + agentCharge
@@ -172,6 +173,17 @@ export class BillingService {
     `).get(agentTemplateId) as AgentRule | undefined
   }
 
+  private isNativeFreeAssistant(templateId?: string | null, agentId?: string | null): boolean {
+    const ids = [templateId, agentId].filter(Boolean)
+    for (const id of ids) {
+      const row = db.prepare('SELECT role_type, config FROM agents WHERE id = ?').get(id) as any
+      if (!row || row.role_type !== 'assistant') continue
+      const config = String(row.config || '')
+      if (config.includes('"builtInKey":"default_assistant"') || config.includes('"defaultRoomAssistant":true')) return true
+    }
+    return false
+  }
+
   private calculateAgentCharge(usage: TokenUsage, modelCharge: number, rule?: AgentRule): number {
     if (!rule) return 0
     if (rule.billing_mode === 'free') return 0
@@ -184,7 +196,10 @@ export class BillingService {
   private resolveRoomAgentModelBinding(roomId: string, agentId: string): { modelProfileId: string | null; model: string | null } {
     const binding = db.prepare('SELECT model_profile_id, model FROM room_agent_model_bindings WHERE room_id = ? AND agent_id = ?').get(roomId, agentId) as any
     if (binding?.model_profile_id || binding?.model) return { modelProfileId: binding.model_profile_id || null, model: binding.model || null }
-    return { modelProfileId: null, model: null }
+    const aiConfig = aiConfigService.getConfig()
+    const providerKey = aiConfig.currentProvider
+    const provider = providerKey ? aiConfig.providers?.[providerKey] : null
+    return { modelProfileId: providerKey ? `mp_platform_${providerKey}` : null, model: provider?.defaultModel || null }
   }
 }
 

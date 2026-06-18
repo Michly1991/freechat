@@ -83,6 +83,7 @@ export interface Agent {
   sourceTemplateVersion?: number
   isModified?: boolean
   ownerId?: string
+  ownerName?: string
   isBuiltIn?: boolean
   builtInKey?: string
   canEdit?: boolean

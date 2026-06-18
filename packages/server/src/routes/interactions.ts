@@ -28,7 +28,7 @@ async function resolveAgentAssignee(roomId: string, raw: any): Promise<{ assigne
   return { assigneeId: agent.id, assigneeName: agent.name, assigneeType: 'agent' }
 }
 
-async function invokeAssignedAgent(roomId: string, assigneeId: string | undefined, prompt: string, actorUserId?: string) {
+async function invokeAssignedAgent(roomId: string, assigneeId: string | undefined, prompt: string, actorUserId?: string, context: { taskId?: string; subtaskId?: string } = {}) {
   if (!assigneeId) return
   const agents = await agentService.getRoomAgents(roomId)
   const assigned = agents.find((a) => a.id === assigneeId)
@@ -37,7 +37,7 @@ async function invokeAssignedAgent(roomId: string, assigneeId: string | undefine
     try {
       await agentService.updateAgent(assigned.id, { status: 'working' } as any)
       broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'working', onlineStatus: 'working', lastActiveAt: Date.now() })
-      const result = await agentService.spawnClaudeCode(roomId, assigned.id, prompt, { actorUserId })
+      const result = await agentService.spawnClaudeCode(roomId, assigned.id, prompt, { actorUserId, runSource: context.subtaskId ? 'subtask' : 'task', taskId: context.taskId, subtaskId: context.subtaskId })
       await agentService.updateAgent(assigned.id, { status: 'active' } as any)
       broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'active', onlineStatus: 'online', lastActiveAt: Date.now() })
       if (result.silent || !result.response) return
@@ -105,12 +105,18 @@ export async function materializeTaskPlan(roomId: string, interaction: any) {
   if (interaction.consumedAt) return
   const plan = interaction.payload?.taskPlan
   if (!plan?.title) throw { code: 'VALIDATION_ERROR', message: 'invalid task plan payload' }
-  const task = await taskService.createTask(roomId, plan.title, plan.description, plan.priority || 'medium', undefined, undefined, undefined, interaction.createdBy)
-  broadcast(roomId, 'task.changed', { action: 'add', task })
+  const reusable = plan.reuseTaskId ? await taskService.getTask(plan.reuseTaskId) : await taskService.findReusableTask(roomId, plan.title)
+  const task = reusable || await taskService.createTask(roomId, plan.title, plan.description, plan.priority || 'medium', undefined, undefined, undefined, interaction.createdBy)
+  broadcast(roomId, 'task.changed', { action: reusable ? 'update' : 'add', task })
   const createdItems: any[] = []
   const wakeQueue: any[] = []
   const planItems = plan.items || []
   for (const [index, item] of planItems.entries()) {
+    const existingItem = taskItemService.findReusableItem(task.id, item.title)
+    if (existingItem) {
+      createdItems.push(existingItem)
+      continue
+    }
     const resolved = await resolveAgentAssignee(roomId, item.assignee)
     const deps = normalizeDependsOn(item.dependsOn)
     const validDeps = deps.filter((depIndex) => depIndex < index && createdItems[depIndex])
@@ -132,13 +138,14 @@ export async function materializeTaskPlan(roomId: string, interaction: any) {
     if (!blocked && resolved.assigneeId) wakeQueue.push({ assigneeId: resolved.assigneeId, subtask: hydrated })
   }
   for (const item of wakeQueue) {
-    await invokeAssignedAgent(roomId, item.assigneeId, buildSubtaskWakePrompt(task, item.subtask, '用户已确认任务计划，你被分派了其中一个子任务，请立即处理。'), interaction.resolvedBy || interaction.createdBy)
+    await invokeAssignedAgent(roomId, item.assigneeId, buildSubtaskWakePrompt(task, item.subtask, '用户已确认任务计划，你被分派了其中一个子任务，请立即处理。'), interaction.resolvedBy || interaction.createdBy, { taskId: task.id, subtaskId: item.subtask.id })
   }
   const updatedTask = await taskService.getTask(task.id)
   broadcast(roomId, 'task.changed', { action: 'update', task: updatedTask })
   const consumed = interactionService.consume(roomId, interaction.id, interaction.resolvedBy || interaction.createdBy)
   broadcast(roomId, 'interaction.updated', { interaction: consumed })
-  const msg = await messageService.createMessage(roomId, interaction.createdBy, '任务计划', 'ai', `✅ 已根据确认创建任务：${task.title}\n子任务：${createdItems.length} 个`)
+  const createdCount = createdItems.filter((item) => item.createdAt >= interaction.createdAt).length
+  const msg = await messageService.createMessage(roomId, interaction.createdBy, '任务计划', 'ai', `✅ 已根据确认${reusable ? '复用/更新' : '创建'}任务：${task.title}\n子任务：${createdItems.length} 个${reusable ? `（新增 ${createdCount} 个）` : ''}`)
   broadcast(roomId, 'chat.message', msg)
 }
 

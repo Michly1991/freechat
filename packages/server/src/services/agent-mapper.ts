@@ -4,6 +4,7 @@ import { DEFAULT_ASSISTANT_AGENT_CONFIG, DEFAULT_SPECIALIST_AGENT_CONFIG } from 
 export interface AgentRow {
   id: string
   owner_id: string
+  owner_name?: string | null
   name: string
   role_type: string
   deployment: string
@@ -59,6 +60,7 @@ export function rowToAgent(row: AgentRow): Agent {
   return {
     id: row.id,
     ownerId: row.owner_id,
+    ownerName: row.owner_name || undefined,
     name: row.name,
     roleType: row.role_type as 'assistant' | 'specialist',
     deployment: row.deployment as 'server' | 'client',

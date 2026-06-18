@@ -6,6 +6,7 @@ import { rm } from 'fs/promises'
 import { join } from 'path'
 import { config } from '../config.js'
 import type { Room, RoomMember, RoomAgentRole } from '@freechat/shared'
+import { SYSTEM_ADMIN_USER_ID } from './system-admin.service.js'
 
 interface InitialRoomAgent {
   agentId: string
@@ -73,7 +74,7 @@ export class RoomService {
           VALUES (?, ?, ?, 'assistant', 'server', ?, ?, ?, ?, 'active', 0, 1, NULL, NULL, 0, ?, ?)
         `).run(
           assistantAgentId,
-          userId,
+          SYSTEM_ADMIN_USER_ID,
           '助理',
           '默认房间助理，可以参与讨论、总结信息、协调专家 Agent，并在需要时做最终决策。',
           JSON.stringify(['协作', '总结', '任务协调', '决策']),

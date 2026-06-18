@@ -8,7 +8,7 @@ import { config } from '../config.js'
 import { createAgentToolToken } from '../agent-tool-token.js'
 import { renderAgentCliCjs, renderAgentCliWrapper } from './agent-cli-template.js'
 import { renderAgentApiDoc, renderAgentGuide } from './agent-workspace-template.js'
-import { AgentRuntimeService } from './agent-runtime.service.js'
+import { AgentRuntimeService, type AgentRunContext } from './agent-runtime.service.js'
 import { searchMarketplaceAgents } from './agent-marketplace.js'
 import type { Agent, AgentRuntimeConfig, AgentToolPermissions, RoomAgentModelConfig, RoomAgentRole } from '@freechat/shared'
 import { DEFAULT_AGENT_TOOLS } from '@freechat/shared'
@@ -86,7 +86,7 @@ export class AgentService {
       now
     )
 
-    const agent = rowToAgent(db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentRow)
+    const agent = rowToAgent(db.prepare(`SELECT a.*, COALESCE(u.nickname, u.username) owner_name FROM agents a LEFT JOIN users u ON u.id = a.owner_id WHERE a.id = ?`).get(id) as AgentRow)
     return { agent, apiKey }
   }
 
@@ -137,7 +137,7 @@ export class AgentService {
   }
 
   async getAgent(agentId: string): Promise<Agent> {
-    const row = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as AgentRow | undefined
+    const row = db.prepare(`SELECT a.*, COALESCE(u.nickname, u.username) owner_name FROM agents a LEFT JOIN users u ON u.id = a.owner_id WHERE a.id = ?`).get(agentId) as AgentRow | undefined
     if (!row) {
       throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found' }
     }
@@ -146,7 +146,8 @@ export class AgentService {
 
   async getUserAgents(_ownerId: string): Promise<Agent[]> {
     const rows = db.prepare(`
-      SELECT * FROM agents
+      SELECT agents.*, COALESCE(u.nickname, u.username) owner_name FROM agents
+      LEFT JOIN users u ON u.id = agents.owner_id
       WHERE COALESCE(is_template, 1) = 1
         AND (config IS NULL OR config NOT LIKE '%"defaultRoomAssistant":true%')
       ORDER BY
@@ -160,7 +161,8 @@ export class AgentService {
     const requester = db.prepare('SELECT id FROM agents WHERE id = ?').get(requesterAgentId) as any
     if (!requester) throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found' }
     const rows = db.prepare(`
-      SELECT a.* FROM agents a
+      SELECT a.*, COALESCE(u.nickname, u.username) owner_name FROM agents a
+      LEFT JOIN users u ON u.id = a.owner_id
       WHERE a.status != 'inactive'
         AND COALESCE(a.is_template, 1) = 1
         AND (a.config IS NULL OR a.config NOT LIKE '%"defaultRoomAssistant":true%')
@@ -201,7 +203,7 @@ export class AgentService {
   }
 
   async cloneAgentTemplate(templateId: string, ownerId: string, overrides: { name?: string; roomId?: string } = {}): Promise<Agent> {
-    const template = db.prepare('SELECT * FROM agents WHERE id = ? AND status != ?').get(templateId, 'inactive') as AgentRow | undefined
+    const template = db.prepare(`SELECT a.*, COALESCE(u.nickname, u.username) owner_name FROM agents a LEFT JOIN users u ON u.id = a.owner_id WHERE a.id = ? AND a.status != ?`).get(templateId, 'inactive') as AgentRow | undefined
     if (!template) throw { code: 'AGENT_NOT_FOUND', message: 'Agent template not found' }
 
     const id = `agent_${uuidv4()}`
@@ -230,7 +232,7 @@ export class AgentService {
       now
     )
     agentCapabilityService.cloneCapabilities(template.id, id)
-    return rowToAgent(db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentRow)
+    return rowToAgent(db.prepare(`SELECT a.*, COALESCE(u.nickname, u.username) owner_name FROM agents a LEFT JOIN users u ON u.id = a.owner_id WHERE a.id = ?`).get(id) as AgentRow)
   }
 
   isLockedBuiltInAgent(agentId: string): boolean {
@@ -337,7 +339,7 @@ export class AgentService {
    */
   async validateApiKey(apiKey: string): Promise<Agent | null> {
     // Find agents that have an api_key_hash
-    const rows = db.prepare('SELECT * FROM agents WHERE api_key_hash IS NOT NULL').all() as AgentRow[]
+    const rows = db.prepare(`SELECT a.*, COALESCE(u.nickname, u.username) owner_name FROM agents a LEFT JOIN users u ON u.id = a.owner_id WHERE a.api_key_hash IS NOT NULL`).all() as AgentRow[]
     for (const row of rows) {
       const valid = await bcrypt.compare(apiKey, row.api_key_hash!)
       if (valid) {
@@ -419,7 +421,7 @@ export class AgentService {
 
   async getAutoAgent(roomId: string): Promise<Agent | null> {
     const row = db.prepare(`
-      SELECT a.*, ra.room_role, ra.auto_enabled, ra.priority as room_priority,
+      SELECT a.*, COALESCE(u.nickname, u.username) owner_name, ra.room_role, ra.auto_enabled, ra.priority as room_priority,
         CASE WHEN b.room_id IS NULL THEN NULL ELSE json_object(
           'modelProfileId', b.model_profile_id,
           'model', b.model,
@@ -433,6 +435,7 @@ export class AgentService {
       ) as agent_last_active_at
       FROM agents a
       INNER JOIN room_agents ra ON a.id = ra.agent_id
+      LEFT JOIN users u ON u.id = a.owner_id
       LEFT JOIN room_agent_model_bindings b ON b.room_id = ra.room_id AND b.agent_id = ra.agent_id
       WHERE ra.room_id = ? AND ra.auto_enabled = 1 AND a.status != 'inactive'
       ORDER BY ra.priority ASC, ra.added_at ASC
@@ -463,7 +466,9 @@ export class AgentService {
     const tx = db.transaction(() => {
       db.prepare(`
         UPDATE agent_runs
-        SET status = 'failed', error = COALESCE(error, 'Marked stale: run exceeded timeout without completion'), finished_at = COALESCE(finished_at, ?)
+        SET status = CASE WHEN task_id IS NOT NULL OR subtask_id IS NOT NULL THEN 'interrupted' ELSE 'failed' END,
+            error = COALESCE(error, CASE WHEN task_id IS NOT NULL OR subtask_id IS NOT NULL THEN 'Interrupted: run exceeded timeout without completion' ELSE 'Marked stale: run exceeded timeout without completion' END),
+            finished_at = COALESCE(finished_at, ?)
         WHERE status = 'running' AND started_at < ? ${roomId ? 'AND room_id = ?' : ''}
       `).run(...(roomId ? [Date.now(), cutoff, roomId] : [Date.now(), cutoff]))
       for (const row of runningRows) {
@@ -474,10 +479,36 @@ export class AgentService {
     tx()
   }
 
+  async recoverInterruptedTaskRuns(roomId?: string): Promise<void> {
+    const rows = db.prepare(`
+      SELECT id, room_id, agent_id, input, actor_user_id, task_id, subtask_id, resume_attempt
+      FROM agent_runs
+      WHERE status = 'interrupted' AND (task_id IS NOT NULL OR subtask_id IS NOT NULL)
+        AND COALESCE(resume_attempt, 0) < 2 ${roomId ? 'AND room_id = ?' : ''}
+      ORDER BY started_at ASC
+      LIMIT 20
+    `).all(...(roomId ? [roomId] : [])) as any[]
+    for (const row of rows) {
+      const task = row.task_id ? db.prepare("SELECT id, title, status FROM tasks WHERE id = ? AND status NOT IN ('done','cancelled')").get(row.task_id) as any : null
+      if (row.task_id && !task) continue
+      const item = row.subtask_id ? db.prepare("SELECT id, task_id, title, status FROM task_items WHERE id = ? AND status NOT IN ('done','cancelled')").get(row.subtask_id) as any : null
+      if (row.subtask_id && !item) continue
+      const prompt = ['你上次处理任务时运行中断了，请恢复处理，不要重新创建父任务。', task ? `父任务ID: ${task.id}` : '', task ? `父任务标题: ${task.title}` : '', item ? `子任务ID: ${item.id}` : '', item ? `子任务标题: ${item.title}` : '', '', '必须先执行 ./freechat task list 查看当前房间已有任务；如果有子任务ID，还要执行 ./freechat task subtask list <父任务ID>。之后基于已有任务继续推进，用 progress/update 写进展。'].filter(Boolean).join('\n')
+      db.prepare("UPDATE agent_runs SET status = 'resumed', error = COALESCE(error, 'Queued for automatic resume') WHERE id = ?").run(row.id)
+      db.prepare("UPDATE agents SET status = 'working', updated_at = ? WHERE id = ?").run(Date.now(), row.agent_id)
+      void this.spawnClaudeCode(row.room_id, row.agent_id, prompt, { actorUserId: row.actor_user_id || undefined, runSource: 'resume', taskId: row.task_id || item?.task_id, subtaskId: row.subtask_id || undefined, parentRunId: row.id, resumeAttempt: Number(row.resume_attempt || 0) + 1 }).then(() => {
+        db.prepare("UPDATE agents SET status = 'active', updated_at = ? WHERE id = ? AND status = 'working'").run(Date.now(), row.agent_id)
+      }).catch((err) => {
+        db.prepare("UPDATE agent_runs SET status = 'failed', error = COALESCE(error, ?), finished_at = COALESCE(finished_at, ?) WHERE id = ?").run(err?.message || String(err), Date.now(), row.id)
+        db.prepare("UPDATE agents SET status = 'error', updated_at = ? WHERE id = ?").run(Date.now(), row.agent_id)
+      })
+    }
+  }
+
   async getRoomAgents(roomId: string): Promise<Agent[]> {
     this.recoverStaleRuns(roomId)
     const rows = db.prepare(`
-      SELECT a.*, ra.room_role, ra.auto_enabled, ra.priority as room_priority,
+      SELECT a.*, COALESCE(u.nickname, u.username) owner_name, ra.room_role, ra.auto_enabled, ra.priority as room_priority,
         CASE WHEN b.room_id IS NULL THEN NULL ELSE json_object(
           'modelProfileId', b.model_profile_id,
           'model', b.model,
@@ -491,6 +522,7 @@ export class AgentService {
       ) as agent_last_active_at
       FROM agents a
       INNER JOIN room_agents ra ON a.id = ra.agent_id
+      LEFT JOIN users u ON u.id = a.owner_id
       LEFT JOIN room_agent_model_bindings b ON b.room_id = ra.room_id AND b.agent_id = ra.agent_id
       WHERE ra.room_id = ?
       ORDER BY ra.auto_enabled DESC, ra.priority ASC, ra.added_at ASC
@@ -563,11 +595,11 @@ export class AgentService {
       '【系统规则】',
       '1. 只能通过 ./freechat 操作项目，不要直接访问或修改项目共享目录。',
       '2. 需要用户决策时使用 interaction。',
-      '3. 处理长期事项时使用 task/progress。',
+      '3. 处理长期事项时使用 task/progress。创建任何新任务、子任务或任务计划前，必须先执行 ./freechat task list 查看房间已有未关闭任务；发现同一目标/同名任务时必须复用已有 taskId，用 progress/update/subtask add 推进，禁止重新创建同类父任务。',
       '3.1 需要查看房间协作者时使用 ./freechat members list；助理需要拉入已有业务 Agent 时可使用 ./freechat agent list-available 和 ./freechat agent add <名称或ID>；缺少必要专家时可用 ./freechat agent create-request 发起创建确认卡，但必须等待用户确认。',
       '3.2 目录规则：当前工作区 res/ 只放你的私有草稿，用户项目正式文件必须通过 ./freechat file write/write-local 写到业务路径（如 星源纪/正文/...、星源纪/剧情/...），不要写项目路径 res/...。HTML 写到 ui/*.html 只是文件；要显示在页面区必须继续执行 ./freechat tab create-file 或 tab create-local。主交付页面/阅读页/看板页创建后必须加 --default 或执行 ./freechat tab set-default <tabId|标题>，让用户进入页面区直接看到默认首页。file write --show 只加入文件视图，不创建页面 Tab。页面内目录/导航要跨 FreeChat 页面跳转时，用 data-freechat-tab-id 或 data-freechat-tab-title，可选 data-freechat-anchor；普通 href 不能切换外层 Tab。HTML 可以修改，但 HTML 只负责展示和交互；小说卷/章/集目录必须来自 manifest.json，正文必须来自 Markdown 文件。新增/删除/修改集数时优先修改 manifest 和正文文件，不要把正文或硬编码目录塞进 HTML。',
       agent.roleType === 'assistant'
-        ? '4. 你是默认入口和调度者；用户未明确 @ 专家时，只代表自己/助理响应。遇到复合任务、长内容任务、或明显命中房间专家专长的任务，必须先用 members.list 查看专家；有匹配专家时禁止自己直接产出最终成品，必须用 ./freechat task plan create-json 创建真实交互卡，或用 task/subtask --assignee 分派专家。禁止只用普通聊天文本/Markdown 表格假装任务计划。用户给出大致题材但缺少时长/受众等细节时，不要只追问；应先用合理默认假设创建计划卡，并在计划说明里写清可后续调整。'
+        ? '4. 你是默认入口和调度者；用户未明确 @ 专家时，只代表自己/助理响应。遇到复合任务、长内容任务、或明显命中房间专家专长的任务，必须先用 ./freechat task list 查看已有任务，再用 members.list 查看专家；有匹配专家时禁止自己直接产出最终成品，必须复用已有任务或用 ./freechat task plan create-json 创建真实交互卡，或用 task/subtask --assignee 分派专家。禁止只用普通聊天文本/Markdown 表格假装任务计划。用户给出大致题材但缺少时长/受众等细节时，不要只追问；应先用合理默认假设创建计划卡，并在计划说明里写清可后续调整。'
         : '4. 专家只处理人类明确 @ 或任务分派给自己的事项；不要抢助理的入口职责。',
       '5. 不要通过普通聊天 @ 另一个 Agent 来制造自动对话；多 Agent 协作优先通过任务/子任务分派。',
       '6. 回复要简洁、面向当前项目上下文。',
@@ -710,7 +742,7 @@ export class AgentService {
     return this.runtime.getActiveProcess(roomId, agentId)
   }
 
-  async spawnClaudeCode(roomId: string, agentId: string, message: string, options: { timeoutMs?: number; actorUserId?: string; onEvent?: (event: any) => void } = {}): Promise<{ response: string; silent: boolean }> {
+  async spawnClaudeCode(roomId: string, agentId: string, message: string, options: { timeoutMs?: number; actorUserId?: string; onEvent?: (event: any) => void } & AgentRunContext = {}): Promise<{ response: string; silent: boolean }> {
     return this.runtime.spawnClaudeCode(
       roomId,
       agentId,

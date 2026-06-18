@@ -34,6 +34,12 @@ export class BillingRuleRepository {
     return db.prepare('SELECT * FROM model_billing_rules WHERE id = ?').get(ruleId) as any
   }
 
+  ensureDefaultModelRule(profileId: string, model: string, body: any, intValue: (value: any) => number) {
+    const existing = db.prepare('SELECT * FROM model_billing_rules WHERE model_profile_id = ? AND model = ?').get(profileId, model) as any
+    if (existing) return existing
+    return this.upsertModelRule(profileId, model, body, intValue)
+  }
+
   getAgentRule(agentTemplateId: string) {
     return db.prepare('SELECT * FROM agent_billing_rules WHERE agent_template_id = ?').get(agentTemplateId) as any
   }

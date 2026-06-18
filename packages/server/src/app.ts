@@ -34,6 +34,8 @@ import { agentDreamSchedulerService } from './services/agent-dream-scheduler.ser
 import { agentGrowthSchedulerService } from './services/agent-growth-scheduler.service.js'
 import { platformModelBootstrapService } from './services/platform-model-bootstrap.service.js'
 import { billingAggregationSchedulerService } from './services/billing-aggregation-scheduler.service.js'
+import { agentService } from './services/agent.service.js'
+import { systemAdminService } from './services/system-admin.service.js'
 
 async function buildApp() {
   const app = Fastify({
@@ -66,8 +68,11 @@ async function buildApp() {
     }
   })
 
-  // Ensure platform model provider and migrate server ai-config into model profiles
+  // Ensure system users and platform model provider
+  systemAdminService.ensureSystemAdmin()
   platformModelBootstrapService.ensurePlatformUserAndModels()
+  agentService.recoverStaleRuns()
+  void agentService.recoverInterruptedTaskRuns()
 
   // Static uploaded files (public)
   await app.register(fastifyStatic, {

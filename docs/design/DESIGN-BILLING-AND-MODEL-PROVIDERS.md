@@ -60,6 +60,23 @@ model_provider_user_id = model_profiles.owner_id
 platform provider      = user_platform_model_provider via platform model_profiles
 ```
 
+## Native Assistant Free Agent Fee
+
+FreeChat's built-in/default assistant is a native platform capability, not a paid Agent product.
+
+Rules:
+
+- Built-in/default assistant Agent service fee is always `0`.
+- It does not generate `agent_income` ledger entries.
+- Model usage is still metered separately through the selected model profile.
+- If the assistant uses a platform model, model provider billing can still apply.
+- If the assistant uses a user-owned key, token usage is still recorded but platform model charges depend on that model profile's rules.
+
+Implementation guardrail:
+
+- Billing ignores Agent billing rules for assistant templates whose config contains `builtInKey: default_assistant` or `defaultRoomAssistant: true`.
+- This protects against accidental rule misconfiguration while preserving model-provider accounting.
+
 ## Runtime Model Binding
 
 The long-term normalized model is:

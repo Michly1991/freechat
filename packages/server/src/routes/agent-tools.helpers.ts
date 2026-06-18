@@ -83,7 +83,7 @@ export function buildSubtaskWakePrompt(task: any, subtask: any, reason: string) 
   ].filter(Boolean).join('\n')
 }
 
-export async function invokeAssignedAgent(roomId: string, assigneeId: string | undefined, assigningAgentId: string, prompt: string, actorUserId?: string) {
+export async function invokeAssignedAgent(roomId: string, assigneeId: string | undefined, assigningAgentId: string, prompt: string, actorUserId?: string, context: { taskId?: string; subtaskId?: string } = {}) {
   if (!assigneeId) return
   const roomAgents = await agentService.getRoomAgents(roomId)
   const assigned = roomAgents.find((a) => a.id === assigneeId)
@@ -93,7 +93,7 @@ export async function invokeAssignedAgent(roomId: string, assigneeId: string | u
     try {
       await agentService.updateAgent(assigned.id, { status: 'working' } as any)
       broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'working', onlineStatus: 'working', lastActiveAt: Date.now() })
-      const result = await agentService.spawnClaudeCode(roomId, assigned.id, prompt, { timeoutMs: config.agent.taskTimeoutMs, actorUserId })
+      const result = await agentService.spawnClaudeCode(roomId, assigned.id, prompt, { timeoutMs: config.agent.taskTimeoutMs, actorUserId, runSource: context.subtaskId ? 'subtask' : 'task', taskId: context.taskId, subtaskId: context.subtaskId })
       await agentArtifactService.publishDeclaredArtifacts(roomId, assigned.id, prompt)
       const completed = await agentTaskCompletionService.autoCompleteFromRun(prompt, result.response || '')
       if (completed) broadcast(roomId, 'task.changed', { action: 'update', task: completed.task })
@@ -102,7 +102,7 @@ export async function invokeAssignedAgent(roomId: string, assigneeId: string | u
       if (completed?.released?.length) {
         for (const item of completed.released) {
           if (item.assigneeType === 'agent' && item.assigneeId) {
-            void invokeAssignedAgent(roomId, item.assigneeId, assigned.id, buildSubtaskWakePrompt(completed.task, item, '前置子任务已完成，你负责的子任务已解除阻塞，请立即处理。'), actorUserId)
+            void invokeAssignedAgent(roomId, item.assigneeId, assigned.id, buildSubtaskWakePrompt(completed.task, item, '前置子任务已完成，你负责的子任务已解除阻塞，请立即处理。'), actorUserId, { taskId: completed.task.id, subtaskId: item.id })
           }
         }
       }

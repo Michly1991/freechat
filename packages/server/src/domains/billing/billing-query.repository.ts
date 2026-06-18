@@ -95,6 +95,22 @@ export class BillingQueryRepository {
     return rows.map(normalize)
   }
 
+  unbilledUsage(userId: string, range: Range) {
+    const scopedRange = rangeWhere('mue', range)
+    const row = db.prepare(`
+      SELECT COUNT(*) count,
+             COALESCE(SUM(input_tokens), 0) inputTokens,
+             COALESCE(SUM(output_tokens), 0) outputTokens,
+             COALESCE(SUM(cache_write_tokens), 0) cacheWriteTokens,
+             COALESCE(SUM(cache_read_tokens), 0) cacheReadTokens,
+             COALESCE(SUM(total_tokens), 0) totalTokens
+      FROM metered_usage_events mue
+      WHERE mue.payer_user_id = ? AND mue.status IN ('pending', 'ignored', 'failed')${scopedRange.sql}
+        AND NOT EXISTS (SELECT 1 FROM billing_ledger_entries ble WHERE ble.usage_event_id = mue.id)
+    `).get(userId, ...scopedRange.params) as any
+    return normalize(row || {})
+  }
+
   daily(userId: string, role: BillingRole) {
     const rows = db.prepare(`
       SELECT stat_date date, COALESCE(SUM(total_tokens), 0) totalTokens, COALESCE(SUM(credits), 0) credits, COALESCE(SUM(entry_count), 0) count

@@ -160,6 +160,7 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
         <div className="flex justify-end gap-2"><button onClick={() => setEditingProfile(false)} className="px-3 py-2 bg-gray-100 rounded-lg text-sm">取消</button><button onClick={saveProfile} className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm">保存</button></div>
       </div> : <div>
         <div className="flex items-center gap-2 flex-wrap"><h4 className="text-lg font-semibold text-gray-900">{agent.name}</h4>{agent.autoEnabled && <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-600">自动</span>}{agent.isModified && <span className="text-xs px-2 py-1 rounded-full bg-orange-50 text-orange-600">本地已修改</span>}</div>
+        <p className="text-xs text-gray-400 mt-2">Owner：{agent.ownerName || agent.ownerId || '未知'}</p>
         <p className="text-sm text-gray-600 mt-2 whitespace-pre-wrap">{agent.description || '暂无描述'}</p>
         {agent.specialties?.length > 0 && <div className="flex gap-2 flex-wrap mt-3">{agent.specialties.map((item: string) => <span key={item} className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600">{item}</span>)}</div>}
         <pre className="text-xs bg-gray-900 text-gray-100 rounded-xl p-3 overflow-auto max-h-40 whitespace-pre-wrap mt-3">{agent.config?.systemPrompt || '暂无自定义提示词'}</pre>

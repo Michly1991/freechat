@@ -1,10 +1,25 @@
 import bcrypt from 'bcryptjs'
 import { v4 as uuidv4 } from 'uuid'
+import { billingRuleRepository } from '../domains/billing/billing-rule.repository.js'
 import { modelProfileRepository } from '../domains/model-provider/model-profile.repository.js'
 import { aiConfigService } from './ai-config.service.js'
 import { encryptSecret } from './secret-crypto.js'
 
 export const PLATFORM_USER_ID = 'user_platform_model_provider'
+
+const DEFAULT_PLATFORM_MODEL_RULE = {
+  inputCreditPerMillion: 100,
+  outputCreditPerMillion: 500,
+  cacheWriteCreditPerMillion: 100,
+  cacheReadCreditPerMillion: 20,
+  minCreditsPerRun: 0,
+  enabled: true,
+}
+
+function intValue(value: any): number {
+  const n = Number(value || 0)
+  return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0
+}
 
 export class PlatformModelBootstrapService {
   ensurePlatformUserAndModels(): void {
@@ -21,7 +36,7 @@ export class PlatformModelBootstrapService {
     for (const [key, provider] of Object.entries(aiConfig.providers || {})) {
       if (!provider?.enabled) continue
       const apiKey = aiConfig.apiKeys?.[key]
-      modelProfileRepository.upsertPlatformProfile({
+      const profile = modelProfileRepository.upsertPlatformProfile({
         id: `mp_platform_${key}`,
         ownerId: PLATFORM_USER_ID,
         name: provider.name || key,
@@ -31,6 +46,8 @@ export class PlatformModelBootstrapService {
         defaultModel: provider.defaultModel || null,
         models: JSON.stringify(provider.models || []),
       })
+      const models = provider.models?.length ? provider.models : [provider.defaultModel].filter(Boolean)
+      for (const model of models) billingRuleRepository.upsertModelRule(profile.id, model, DEFAULT_PLATFORM_MODEL_RULE, intValue)
     }
   }
 }
