@@ -80,7 +80,7 @@ export function ensureBillingSchema(db: Database.Database) {
       id TEXT PRIMARY KEY,
       scene_template_id TEXT NOT NULL UNIQUE,
       billing_mode TEXT NOT NULL DEFAULT 'free',
-      fixed_credits_per_use INTEGER DEFAULT 0,
+      fixed_credits_per_purchase INTEGER DEFAULT 0,
       revenue_share_rate REAL DEFAULT 0,
       enabled INTEGER DEFAULT 1,
       created_at INTEGER NOT NULL,
@@ -88,6 +88,11 @@ export function ensureBillingSchema(db: Database.Database) {
       FOREIGN KEY (scene_template_id) REFERENCES scene_templates(id) ON DELETE CASCADE
     )
   `)
+  const sceneRuleCols = db.prepare('PRAGMA table_info(scene_billing_rules)').all() as any[]
+  if (!sceneRuleCols.some((col) => col.name === 'fixed_credits_per_purchase')) {
+    db.exec('ALTER TABLE scene_billing_rules ADD COLUMN fixed_credits_per_purchase INTEGER DEFAULT 0')
+    if (sceneRuleCols.some((col) => col.name === 'fixed_credits_per_use')) db.exec('UPDATE scene_billing_rules SET fixed_credits_per_purchase = fixed_credits_per_use WHERE fixed_credits_per_purchase = 0')
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS metered_usage_events (
       id TEXT PRIMARY KEY,

@@ -97,14 +97,14 @@ export class SceneTemplateService {
     `).all(scene.id) as any[]
     const canEdit = this.canEditSceneRecord(scene, viewerId, viewerRole)
     const owner = db.prepare('SELECT nickname, username FROM users WHERE id = ?').get(scene.ownerId || scene.owner_id) as any
-    const rule = db.prepare('SELECT * FROM scene_billing_rules WHERE scene_template_id = ? AND enabled = 1').get(scene.id) as any
+    const rule = db.prepare('SELECT *, COALESCE(fixed_credits_per_purchase, fixed_credits_per_use, 0) fixed_purchase FROM scene_billing_rules WHERE scene_template_id = ? AND enabled = 1').get(scene.id) as any
     return {
       ...scene,
       ownerName: owner?.nickname || owner?.username || scene.ownerId || scene.owner_id,
       isBuiltIn: scene.id === SCENE_AGENT_MANAGEMENT_ID || scene.builtInKey === BUILT_IN_SCENE_KEY || scene.built_in_key === BUILT_IN_SCENE_KEY,
       canEdit,
-      priceSummary: rule ? (rule.billing_mode === 'free' ? '免费' : `固定 ${rule.fixed_credits_per_use || 0} credits/次`) : '暂无定价',
-      billingRule: canEdit && rule ? { billingMode: rule.billing_mode, fixedCreditsPerUse: rule.fixed_credits_per_use || 0, enabled: !!rule.enabled } : undefined,
+      priceSummary: rule ? (rule.billing_mode === 'free' ? '🎁 免费' : `${rule.fixed_purchase || 0} credits 买断`) : '暂无定价',
+      billingRule: canEdit && rule ? { billingMode: rule.billing_mode, fixedCreditsPerPurchase: rule.fixed_purchase || 0, enabled: !!rule.enabled } : undefined,
       agents: agents.map((agent) => ({ ...agent, autoEnabled: !!agent.autoEnabled })),
       pages: [],
     }
@@ -121,11 +121,11 @@ export class SceneTemplateService {
     if (!this.canEditSceneRecord(scene, user.id, user.role)) throw { code: 'FORBIDDEN', message: 'Only the Scene owner/admin can edit this Scene' }
     const now = Date.now()
     const mode = input?.billingMode === 'fixed' ? 'fixed' : 'free'
-    const fixed = Math.max(0, Math.trunc(Number(input?.fixedCreditsPerUse || 0)))
+    const fixed = Math.max(0, Math.trunc(Number(input?.fixedCreditsPerPurchase ?? input?.fixedCreditsPerUse ?? 0)))
     db.prepare(`
-      INSERT INTO scene_billing_rules (id, scene_template_id, billing_mode, fixed_credits_per_use, revenue_share_rate, enabled, created_at, updated_at)
+      INSERT INTO scene_billing_rules (id, scene_template_id, billing_mode, fixed_credits_per_purchase, revenue_share_rate, enabled, created_at, updated_at)
       VALUES (?, ?, ?, ?, 0, 1, ?, ?)
-      ON CONFLICT(scene_template_id) DO UPDATE SET billing_mode = excluded.billing_mode, fixed_credits_per_use = excluded.fixed_credits_per_use, updated_at = excluded.updated_at
+      ON CONFLICT(scene_template_id) DO UPDATE SET billing_mode = excluded.billing_mode, fixed_credits_per_purchase = excluded.fixed_credits_per_purchase, updated_at = excluded.updated_at
     `).run(`sbr_${uuidv4()}`, sceneId, mode, fixed, now, now)
     return this.hydrateScene(db.prepare('SELECT id, owner_id as ownerId, built_in_key as builtInKey, name, description, icon, version, status FROM scene_templates WHERE id = ?').get(sceneId), user)
   }

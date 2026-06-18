@@ -30,7 +30,7 @@ function upsertMissingSceneRule(scene: any) {
   const builtIn = scene.built_in_key || scene.id === 'scene_agent_management'
   const now = Date.now()
   db.prepare(`
-    INSERT INTO scene_billing_rules (id, scene_template_id, billing_mode, fixed_credits_per_use, revenue_share_rate, enabled, created_at, updated_at)
+    INSERT INTO scene_billing_rules (id, scene_template_id, billing_mode, fixed_credits_per_purchase, revenue_share_rate, enabled, created_at, updated_at)
     VALUES (?, ?, ?, ?, 0, 1, ?, ?)
   `).run(`sbr_${uuidv4()}`, scene.id, builtIn ? 'free' : 'fixed', builtIn ? 0 : 20, now, now)
 }

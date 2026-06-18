@@ -84,13 +84,13 @@ Scene market pricing uses:
 scene_billing_rules (
   scene_template_id,
   billing_mode,
-  fixed_credits_per_use,
+  fixed_credits_per_purchase,
   revenue_share_rate,
   enabled
 )
 ```
 
-Current MVP supports free/fixed scene pricing for display and future charge hooks.
+Current MVP supports free/fixed scene one-time purchase pricing for display and future purchase hooks. A scene is bought once; later runtime cost comes from the included Agents and selected model providers.
 
 Default marketplace pricing bootstrap fills missing rules without overriding owner-edited rules:
 
@@ -98,8 +98,8 @@ Default marketplace pricing bootstrap fills missing rules without overriding own
 native/default assistant: free Agent service fee
 custom assistant: fixed 2 credits/run + 10% model fee + input 20/output 80 per million tokens
 specialist Agent: fixed 5 credits/run + 20% model fee + input 50/output 200 per million tokens
-built-in scene: free
-custom scene: fixed 20 credits/use
+built-in scene: free 🎁
+custom scene: fixed 20 credits one-time purchase
 ```
 
 ## Native Assistant Free Agent Fee
