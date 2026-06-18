@@ -12,6 +12,7 @@ import { DesktopTabs, MobileNav } from './home/HomeTabs'
 import { MessagesSection } from './home/MessagesSection'
 import { SettingsSection } from './home/SettingsSection'
 import { isBrowserNotificationEnabled, showBrowserNotification } from '../features/notifications/browser-notifications'
+import { BillingPanel } from '../features/settings/BillingPanel'
 import { isStrongNotification, playNotificationSound, soundKindForNotification } from '../features/notifications/notification-sound'
 import type { ContactKind, HomeTab, SelectedAgent } from './home/types'
 
@@ -333,6 +334,7 @@ export default function HomePage() {
         {activeHomeTab === 'contacts' && (
           <ContactsSection contactKind={contactKind} setContactKind={setContactKind} searchQ={searchQ} setSearchQ={setSearchQ} searchResults={searchResults} friends={friends} agents={agents} scenes={scenes} reloadScenes={loadScenes} friendRequests={friendRequests} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} searchUsers={searchUsers} sendFriendRequest={sendFriendRequest} acceptFriendRequest={acceptFriendRequest} rejectFriendRequest={rejectFriendRequest} openDm={openDm} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />
         )}
+        {activeHomeTab === 'billing' && <BillingPanel />}
         {activeHomeTab === 'settings' && <SettingsSection user={user} onLogout={handleLogout} />}
       </main>
       <MobileNav activeHomeTab={activeHomeTab} setActiveHomeTab={setActiveHomeTab} />

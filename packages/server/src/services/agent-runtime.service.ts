@@ -1,4 +1,4 @@
-import { spawn } from 'child_process'
+import { spawn, type ChildProcess } from 'child_process'
 import { mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
@@ -6,7 +6,9 @@ import type { Agent } from '@freechat/shared'
 import db from '../storage/db.js'
 import { config } from '../config.js'
 import { aiConfigService } from './ai-config.service.js'
+import { billingService } from './billing.service.js'
 import { roomAnalyticsService, type TokenUsage } from './room-analytics.service.js'
+import { decryptSecret } from './secret-crypto.js'
 
 export interface AgentRuntimeEvent {
   type: 'activity' | 'delta'
@@ -15,7 +17,48 @@ export interface AgentRuntimeEvent {
   tool?: string
 }
 
+export interface ActiveAgentProcessInfo {
+  roomId: string
+  agentId: string
+  runId: string
+  pid?: number
+  startedAt: number
+}
+
+interface ActiveAgentProcess extends ActiveAgentProcessInfo {
+  forceStop: (reason: string) => boolean
+}
+
+type ResolvedRuntimeModel = {
+  runtime?: 'claude-code' | 'provider-api'
+  model?: string
+  baseUrl?: string
+  apiKey?: string
+  maxTokens?: number
+  temperature?: number
+}
+
 export class AgentRuntimeService {
+private activeProcesses = new Map<string, ActiveAgentProcess>()
+
+private processKey(roomId: string, agentId: string): string {
+  return `${roomId}:${agentId}`
+}
+
+getActiveProcess(roomId: string, agentId: string): ActiveAgentProcessInfo | undefined {
+  const active = this.activeProcesses.get(this.processKey(roomId, agentId))
+  if (!active) return undefined
+  return { roomId: active.roomId, agentId: active.agentId, runId: active.runId, pid: active.pid, startedAt: active.startedAt }
+}
+
+forceStopAgentProcess(roomId: string, agentId: string, reason = 'Force restarted by user'): { stopped: boolean; process?: ActiveAgentProcessInfo; message?: string } {
+  const active = this.activeProcesses.get(this.processKey(roomId, agentId))
+  if (!active) return { stopped: false, message: 'No active runtime process' }
+  const process = { roomId: active.roomId, agentId: active.agentId, runId: active.runId, pid: active.pid, startedAt: active.startedAt }
+  const stopped = active.forceStop(reason)
+  return { stopped, process, message: stopped ? reason : 'Active process was already stopping' }
+}
+
 /**
  * Spawn an agent to process a message.
  * Server-side agents default to Claude Code CLI with the agent private workspace as cwd.
@@ -34,7 +77,15 @@ async spawnClaudeCode(
   const hardTimeoutMs = options.timeoutMs || config.agent.timeoutMs
   const idleTimeoutMs = config.agent.idleTimeoutMs
   const agent = await getAgent(agentId)
+  const preflight = billingService.checkRoomAgentInvocation(roomId, agentId)
+  if (!preflight.allowed) {
+    const err = new Error(`余额不足，请充值后再调用 Agent（最低需要 ${preflight.estimatedMinCredits} credits，当前余额 ${preflight.balance} credits）`)
+    ;(err as any).code = 'INSUFFICIENT_CREDITS'
+    ;(err as any).details = preflight
+    throw err
+  }
   const workspaceDir = await prepareAgentWorkspace(roomId, agent, options.actorUserId)
+  const roomModel = this.resolveRuntimeModel(roomId, agentId)
   const runId = this.createAgentRun(roomId, agentId, message, options.actorUserId)
 
   // Check for existing session
@@ -48,12 +99,15 @@ async spawnClaudeCode(
   if (sessionDecision.rotate && existingSession) await this.writeSessionSummary(roomId, agentId, workspaceDir, sessionDecision.reason)
 
   // Optional provider API mode. Default server agent runtime is Claude Code CLI.
-  if (config.agent.runtime === 'provider-api') try {
+  const requestedRuntime = roomModel.runtime || config.agent.runtime
+  if (requestedRuntime === 'provider-api') try {
     const aiConfig = aiConfigService.getConfig()
     const provider = aiConfig.providers[aiConfig.currentProvider]
-    const apiKey = aiConfigService.getApiKey(aiConfig.currentProvider)
+    const apiKey = roomModel.apiKey || aiConfigService.getApiKey(aiConfig.currentProvider)
+    const baseUrl = roomModel.baseUrl || provider?.baseUrl
+    const model = roomModel.model || provider?.defaultModel
 
-    if (provider && provider.enabled && apiKey) {
+    if (provider && provider.enabled && apiKey && baseUrl && model) {
       const agentPrompt = buildAgentSystemPrompt(agent)
       
       // Build messages array with conversation history
@@ -68,7 +122,7 @@ async spawnClaudeCode(
       // Add current user message
       messages.push({ role: 'user', content: message })
 
-      const response = await fetch(`${provider.baseUrl}/v1/messages`, {
+      const response = await fetch(`${baseUrl}/v1/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -76,8 +130,9 @@ async spawnClaudeCode(
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
-          model: provider.defaultModel,
-          max_tokens: 4096,
+          model,
+          max_tokens: roomModel.maxTokens || 4096,
+          ...(roomModel.temperature !== undefined ? { temperature: roomModel.temperature } : {}),
           system: agentPrompt,
           messages
         })
@@ -90,7 +145,7 @@ async spawnClaudeCode(
         
         // Check for [SILENT] marker
         if (responseText === '[SILENT]' || responseText.includes('[SILENT]')) {
-          this.finishAgentRun(runId, 'succeeded', '', undefined, sessionDecision.rotate ? undefined : existingSession?.session_id, usage, 'provider-api', provider.defaultModel)
+          this.finishAgentRun(runId, 'succeeded', '', undefined, sessionDecision.rotate ? undefined : existingSession?.session_id, usage, 'provider-api', model)
           return { response: '', silent: true }
         }
 
@@ -103,7 +158,7 @@ async spawnClaudeCode(
         await this.saveMessageToHistory(newSessionId, 'assistant', responseText)
         this.cleanupAgentHistory(newSessionId)
         this.cleanupOldAgentSessions(roomId, agentId)
-        this.finishAgentRun(runId, 'succeeded', responseText, undefined, newSessionId, usage, 'provider-api', provider.defaultModel)
+        this.finishAgentRun(runId, 'succeeded', responseText, undefined, newSessionId, usage, 'provider-api', model)
 
         return { response: responseText, silent: false }
       } else {
@@ -132,17 +187,24 @@ async spawnClaudeCode(
     '--verbose'
   ]
 
+  if (roomModel.model) args.push('--model', roomModel.model)
+
   // Resume existing session if available
   if (existingSession && !sessionDecision.rotate) {
     args.push('--resume', existingSession.session_id)
   }
 
   const runClaude = (runArgs: string[]): Promise<{ response: string; silent: boolean; sessionId?: string; usage?: TokenUsage }> => new Promise((resolve, reject) => {
+    const env: NodeJS.ProcessEnv = { ...process.env }
+    if (roomModel.baseUrl) env.ANTHROPIC_BASE_URL = roomModel.baseUrl
+    if (roomModel.apiKey) env.ANTHROPIC_API_KEY = roomModel.apiKey
+    if (roomModel.model) env.ANTHROPIC_MODEL = roomModel.model
     const proc = spawn('claude', runArgs, {
       cwd: workspaceDir,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env },
+      env,
     })
+    const processKey = this.processKey(roomId, agentId)
 
     let stdout = ''
     let stderr = ''
@@ -152,14 +214,22 @@ async spawnClaudeCode(
     let usage: TokenUsage = {}
     let settled = false
     let timedOut = false
+    let forceStopped = false
     let hardTimer: NodeJS.Timeout | undefined
     let idleTimer: NodeJS.Timeout | undefined
     let killTimer: NodeJS.Timeout | undefined
 
+    const unregisterProcess = () => {
+      const active = this.activeProcesses.get(processKey)
+      if (active?.runId === runId) this.activeProcesses.delete(processKey)
+    }
+
     const cleanup = () => {
       if (hardTimer) clearTimeout(hardTimer)
       if (idleTimer) clearTimeout(idleTimer)
-      if (killTimer) clearTimeout(killTimer)
+      // Do not clear killTimer here: timeout/force-stop must still escalate to SIGKILL
+      // after the promise is rejected if the child ignores SIGTERM.
+      unregisterProcess()
     }
 
     const fail = (err: any) => {
@@ -176,20 +246,41 @@ async spawnClaudeCode(
       resolve(value)
     }
 
-    const killForTimeout = (code: string, messageText: string) => {
-      timedOut = true
-      const combined = `${stdout.trim()}\n${stderr.trim()}`.trim()
+    const terminateProcess = (procRef: ChildProcess, signal: NodeJS.Signals = 'SIGTERM') => {
       try {
-        if (!proc.killed) proc.kill('SIGTERM')
+        if (!procRef.killed) return procRef.kill(signal)
       } catch {}
+      return false
+    }
+
+    const killForRuntimeStop = (code: string, messageText: string) => {
+      const combined = `${stdout.trim()}\n${stderr.trim()}`.trim()
+      terminateProcess(proc, 'SIGTERM')
 
       killTimer = setTimeout(() => {
-        try {
-          if (!proc.killed) proc.kill('SIGKILL')
-        } catch {}
+        terminateProcess(proc, 'SIGKILL')
       }, config.agent.killGraceMs)
 
       fail({ code, message: `${messageText}. Partial output: ${combined.slice(-2000)}` })
+    }
+
+    this.activeProcesses.set(processKey, {
+      roomId,
+      agentId,
+      runId,
+      pid: proc.pid,
+      startedAt: Date.now(),
+      forceStop: (reason: string) => {
+        if (settled || forceStopped) return false
+        forceStopped = true
+        killForRuntimeStop('AGENT_FORCE_STOPPED', reason || 'Force restarted by user')
+        return true
+      },
+    })
+
+    const killForTimeout = (code: string, messageText: string) => {
+      timedOut = true
+      killForRuntimeStop(code, messageText)
     }
 
     const armIdleTimer = () => {
@@ -310,7 +401,7 @@ async spawnClaudeCode(
       this.cleanupAgentHistory(result.sessionId)
     }
     this.cleanupOldAgentSessions(roomId, agentId)
-    this.finishAgentRun(runId, 'succeeded', result.response, undefined, result.sessionId, result.usage, 'claude-code')
+    this.finishAgentRun(runId, 'succeeded', result.response, undefined, result.sessionId, result.usage, 'claude-code', roomModel.model)
     return { response: result.response, silent: result.silent }
   } catch (err: any) {
     if (existingSession && !sessionDecision.rotate && String(err.message || '').includes('No conversation found')) {
@@ -321,10 +412,13 @@ async spawnClaudeCode(
         this.cleanupAgentHistory(result.sessionId)
       }
       this.cleanupOldAgentSessions(roomId, agentId)
-      this.finishAgentRun(runId, 'succeeded', result.response, undefined, result.sessionId, result.usage, 'claude-code')
+      this.finishAgentRun(runId, 'succeeded', result.response, undefined, result.sessionId, result.usage, 'claude-code', roomModel.model)
       return { response: result.response, silent: result.silent }
     }
-    this.finishAgentRun(runId, err?.code === 'AGENT_TIMEOUT' || err?.code === 'AGENT_IDLE_TIMEOUT' ? 'timeout' : 'failed', undefined, err?.message || String(err), sessionDecision.rotate ? undefined : existingSession?.session_id)
+    const failedStatus = err?.code === 'AGENT_TIMEOUT' || err?.code === 'AGENT_IDLE_TIMEOUT'
+      ? 'timeout'
+      : (err?.code === 'AGENT_FORCE_STOPPED' ? 'cancelled' : 'failed')
+    this.finishAgentRun(runId, failedStatus, undefined, err?.message || String(err), sessionDecision.rotate ? undefined : existingSession?.session_id)
     throw err
   }
 }
@@ -364,6 +458,32 @@ private async writeSessionSummary(roomId: string, agentId: string, workspaceDir:
   }
 }
 
+private resolveRuntimeModel(roomId: string, agentId: string): ResolvedRuntimeModel {
+  const row = db.prepare(`
+    SELECT
+      b.model_profile_id binding_profile_id,
+      b.model binding_model,
+      b.runtime binding_runtime,
+      b.max_tokens binding_max_tokens,
+      b.temperature binding_temperature,
+      mp.base_url,
+      mp.api_key_cipher,
+      mp.default_model
+    FROM room_agents ra
+    LEFT JOIN room_agent_model_bindings b ON b.room_id = ra.room_id AND b.agent_id = ra.agent_id
+    LEFT JOIN model_profiles mp ON mp.id = b.model_profile_id AND mp.enabled = 1
+    WHERE ra.room_id = ? AND ra.agent_id = ?
+  `).get(roomId, agentId) as any
+  return {
+    runtime: row?.binding_runtime || undefined,
+    model: row?.binding_model || row?.default_model || undefined,
+    baseUrl: row?.base_url || undefined,
+    apiKey: decryptSecret(row?.api_key_cipher) || undefined,
+    maxTokens: row?.binding_max_tokens || undefined,
+    temperature: row?.binding_temperature ?? undefined,
+  }
+}
+
 private createAgentRun(roomId: string, agentId: string, input: string, actorUserId?: string): string {
   const id = `arun_${uuidv4()}`
   db.prepare(`
@@ -384,6 +504,7 @@ private finishAgentRun(runId: string, status: 'succeeded' | 'failed' | 'timeout'
         duration_ms = ?, input_tokens = ?, output_tokens = ?, cache_creation_input_tokens = ?, cache_read_input_tokens = ?, total_tokens = ?, finished_at = ?
     WHERE id = ?
   `).run(status, output || null, error || null, sessionId || null, runtime || null, model || null, durationMs, usage.inputTokens || 0, usage.outputTokens || 0, usage.cacheCreationInputTokens || 0, usage.cacheReadInputTokens || 0, totalTokens, now, runId)
+  billingService.billRun(runId)
 }
 
 /**

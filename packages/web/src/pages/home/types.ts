@@ -2,7 +2,7 @@ import type { Dispatch, FormEvent, MouseEvent, SetStateAction } from 'react'
 import type { SwipeAction } from '../../components/SwipeActionItem'
 import type { AgentFormState, AgentToolKey } from '../home-agent-form'
 
-export type HomeTab = 'messages' | 'contacts' | 'settings'
+export type HomeTab = 'messages' | 'contacts' | 'billing' | 'settings'
 export type ContactKind = 'people' | 'agents' | 'scenes'
 export type SelectedAgent = { agentId: string; autoEnabled: boolean }
 

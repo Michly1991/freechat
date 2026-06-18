@@ -342,12 +342,13 @@ CLI 合约同步新增：
 - 父任务重试失败项：`task.retry` / `./freechat task retry <taskId> [--reason <text>]`。仅重试 `failed`、`cancelled`、`blocked` 子任务，不推倒已完成项。
 - 重试审计字段：`retry_count`、`last_retry_at`、`last_retry_by` 同步记录在父任务和子任务上，前端显示子任务重试次数。
 - Agent 软重启：`agent.restart` / `./freechat agent restart <agentNameOrId> [--clear-session true]`。软重启将 Agent 恢复为 active/online，并可清理该房间 Agent 会话；如果仍有 running run，拒绝重启，避免双进程并发。
+- Agent 强制重启：`agent.restart` 支持 `mode='force'`，CLI 可用 `./freechat agent restart <agentNameOrId> --force true --clear-session true`。强制重启会中断当前 Claude Code runtime，取消 running run，恢复 Agent 在线，并复用软恢复的任务续跑逻辑。
 
 前端入口：任务看板中失败/阻塞子任务显示“重试”；父任务存在失败项时显示“重试失败项”；Agent 资料弹窗提供“软重启 Agent”。
 
 ### 人工界面恢复入口补充
 
-当房间存在 `error` Agent 时，房间顶部显示异常横幅，列出异常 Agent 并提供“一键软恢复”。桌面侧边栏和移动成员抽屉中的异常 Agent 行也直接显示“恢复”按钮，不需要进入资料弹窗。所有入口统一调用 `agent.restart`，仍保留 running-run 防护。
+当房间存在 `error` Agent 时，房间顶部显示异常横幅，列出异常 Agent 并提供“一键软恢复”。桌面侧边栏和移动成员抽屉中的异常 Agent 行也直接显示“恢复”按钮，不需要进入资料弹窗。working Agent 行和执行记录 running 详情提供“强制重启”入口，二次确认后调用 `agent.restart mode=force`，用于处理卡死或长时间无响应的运行。
 
 ### 代码结构整理
 

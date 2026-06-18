@@ -536,11 +536,11 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           await agentService.assertRoomAssistant(roomId, agent.id)
           const target = args.agent || args.agentId || args.id || args.name
           if (!target) throw { code: 'VALIDATION_ERROR', message: 'agent is required' }
-          const result = await agentRestartService.softRestart(roomId, target, agent.id, args.clearSession !== false)
+          const result = await agentRestartService.restart(roomId, target, agent.id, { mode: args.force === true || args.mode === 'force' ? 'force' : 'soft', clearSession: args.clearSession !== false })
           broadcast(roomId, 'agent.status_update', { agentId: result.agent.id, status: 'active', onlineStatus: 'online', lastActiveAt: Date.now(), lastError: null })
           if (result.pendingSubtasks.length > 0) {
             const lines = result.pendingSubtasks.map((item: any, i: number) => `${i + 1}. 父任务 ${item.task_id}「${item.task_title}」 / 子任务 ${item.id}「${item.title}」`).join('\n')
-            await invokeAssignedAgent(roomId, result.agent.id, agent.id, `你刚刚被人工软恢复，请继续处理已分派但未完成的子任务：\n${lines}\n\n请先用 ./freechat task subtask update 标记状态/进展。项目交付文件必须通过 ./freechat file write-local <项目文件路径> <本地文件路径> --show 或 ./freechat file write <项目文件路径> <内容> --show 写入；直接写 res/ 只是私有工作区，用户文件目录不可见。完成后在聊天中简短汇报。`, actorUserId)
+            await invokeAssignedAgent(roomId, result.agent.id, agent.id, `你刚刚被人工${result.mode === 'force' ? '强制重启' : '软恢复'}，请继续处理已分派但未完成的子任务：\n${lines}\n\n请先用 ./freechat task subtask update 标记状态/进展。项目交付文件必须通过 ./freechat file write-local <项目文件路径> <本地文件路径> --show 或 ./freechat file write <项目文件路径> <内容> --show 写入；直接写 res/ 只是私有工作区，用户文件目录不可见。完成后在聊天中简短汇报。`, actorUserId)
           }
           return { success: true, data: result }
         }

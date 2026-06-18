@@ -406,6 +406,27 @@ AGENT_KILL_GRACE_MS=5000
 4. 返回 `AGENT_TIMEOUT` 错误，并保留最后一段 stdout/stderr 作为排障信息。
 5. stdout/stderr 在内存中最多保留最近 1MB，避免异常输出撑爆服务端内存。
 
+### 强制重启与运行进程注册表
+
+每次 Claude Code CLI 调用都会在 `AgentRuntimeService` 内注册 `roomId:agentId -> { runId, pid, forceStop }`。人工强制重启走同一个 restart REST API，只是 body 传 `mode='force'`：
+
+```http
+POST /api/rooms/:roomId/agents/:agentId/restart
+Content-Type: application/json
+
+{ "mode": "force", "clearSession": true }
+```
+
+行为：
+
+1. 若存在当前 runtime 子进程，先 `SIGTERM`，等待 `AGENT_KILL_GRACE_MS` 后仍未退出则 `SIGKILL`。
+2. 将该房间该 Agent 的 `agent_runs.status='running'` 标记为 `cancelled`，错误信息记录为强制重启。
+3. Agent 状态恢复 `active/online`，并清理 `lastError`。
+4. 若 `clearSession=true`，删除该房间该 Agent 的 Claude session 与历史消息，避免继续 resume 到异常上下文。
+5. 与软恢复一致，扫描最近 5 个 `assigned/doing` 子任务并重新唤醒 Agent 续跑。
+
+软重启仍是默认模式；如果还有 running run，会拒绝并提示使用 force，避免误中断正常运行。
+
 ### Agent History 清理
 
 配置项：

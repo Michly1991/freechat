@@ -127,6 +127,23 @@ export const api = {
     return request<any>(`/me/analytics/runs${qs ? `?${qs}` : ''}`)
   },
   getPersonalAnalyticsRunDetail: (runId: string) => request<any>(`/me/analytics/runs/${runId}`),
+  getModelProfiles: () => request<{ profiles: any[] }>('/model-profiles'),
+  createModelProfile: (body: any) => request<{ profile: any }>('/model-profiles', { method: 'POST', body: JSON.stringify(body) }),
+  updateModelProfile: (id: string, body: any) => request<{ profile: any }>(`/model-profiles/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  getModelBillingRules: (profileId: string) => request<{ rules: any[] }>(`/model-profiles/${profileId}/billing-rules`),
+  upsertModelBillingRule: (profileId: string, model: string, body: any) => request<{ rule: any }>(`/model-profiles/${profileId}/billing-rules/${encodeURIComponent(model)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  getAgentBillingRule: (agentId: string) => request<{ rule: any | null }>(`/agents/${agentId}/billing-rule`),
+  upsertAgentBillingRule: (agentId: string, body: any) => request<{ rule: any }>(`/agents/${agentId}/billing-rule`, { method: 'PUT', body: JSON.stringify(body) }),
+  getBillingAccount: () => request<any>('/billing/account'),
+  refreshBillingAggregate: (body: { from?: number; to?: number } = {}) => request<any>('/billing/aggregate', { method: 'POST', body: JSON.stringify(body) }),
+  getBillingLedger: (params?: { role?: 'payer' | 'agent_provider' | 'model_provider'; from?: number; to?: number; limit?: number }) => {
+    const qs = params ? new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString() : ''
+    return request<any>(`/billing/ledger${qs ? `?${qs}` : ''}`)
+  },
+  getBillingSummary: (params?: { role?: 'payer' | 'agent_provider' | 'model_provider'; from?: number; to?: number }) => {
+    const qs = params ? new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString() : ''
+    return request<any>(`/billing/summary${qs ? `?${qs}` : ''}`)
+  },
   getAgentDreams: (roomId?: string) => request<any>(`/agent-dreams${roomId ? `?roomId=${encodeURIComponent(roomId)}` : ''}`),
   runAgentDreams: (body: { roomId?: string; agentId?: string; date?: string; dryRun?: boolean } = {}) => request<any>('/agent-dreams/run', { method: 'POST', body: JSON.stringify(body) }),
   getAgentGrowth: (roomId: string) => request<any>(`/rooms/${roomId}/agent-growth`),
@@ -229,8 +246,10 @@ export const api = {
     request(`/rooms/${roomId}/agents`, { method: 'POST', body: JSON.stringify({ agentId, ...(options || {}) }) }),
   removeRoomAgent: (roomId: string, agentId: string) =>
     request(`/rooms/${roomId}/agents/${agentId}`, { method: 'DELETE' }),
-  restartRoomAgent: (roomId: string, agentId: string, clearSession = true) =>
-    request<{ agent: any; pendingSubtasks: any[] }>(`/rooms/${roomId}/agents/${agentId}/restart`, { method: 'POST', body: JSON.stringify({ clearSession }) }),
+  restartRoomAgent: (roomId: string, agentId: string, clearSession = true, mode: 'soft' | 'force' = 'soft') =>
+    request<{ agent: any; pendingSubtasks: any[]; mode: 'soft' | 'force'; stoppedRuntime?: any }>(`/rooms/${roomId}/agents/${agentId}/restart`, { method: 'POST', body: JSON.stringify({ clearSession, mode }) }),
+  updateRoomAgentModel: (roomId: string, agentId: string, body: any) =>
+    request<{ agent: any }>(`/rooms/${roomId}/agents/${agentId}/model`, { method: 'PATCH', body: JSON.stringify(body) }),
   invokeAgent: (roomId: string, agentId: string, message: string) =>
     request(`/rooms/${roomId}/agents/${agentId}/invoke`, { method: 'POST', body: JSON.stringify({ message }) }),
   searchMarket: (q?: string) => request<{ agents: any[] }>(`/agent-market/search${q ? `?q=${encodeURIComponent(q)}` : ''}`),

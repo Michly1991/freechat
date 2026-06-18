@@ -90,7 +90,7 @@ function usage() {
     '  ./freechat agent add <agentNameOrId>',
     '  ./freechat agent remove <agentNameOrId>',
     '  ./freechat agent detail [agentId]',
-    '  ./freechat agent restart <agentNameOrId> [--clear-session true]',
+    '  ./freechat agent restart <agentNameOrId> [--clear-session true] [--force true]',
     '  ./freechat agent create-request <name> --description <desc> --specialties <a,b>',
     '  ./freechat agent create-json <localJsonPath>',
     '  ./freechat room info',
@@ -403,7 +403,7 @@ if (domain === 'tool' && cmd === 'list') {
 } else if (domain === 'agent' && cmd === 'restart') {
   if (!rest[0]) die('agentNameOrId is required');
   const opts = parseNamedOptions(rest.slice(1)).options;
-  call('agent.restart', { agent: rest[0], clearSession: opts.clearSession !== 'false' });
+  call('agent.restart', { agent: rest[0], clearSession: opts.clearSession !== 'false', force: opts.force === 'true', mode: opts.force === 'true' ? 'force' : 'soft' });
 } else if (domain === 'agent' && (cmd === 'create-request' || cmd === 'create')) {
   if (!rest[0]) die('agent name is required');
   const opts = parseNamedOptions(rest.slice(1)).options;

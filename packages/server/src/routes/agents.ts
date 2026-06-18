@@ -315,6 +315,23 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     }
   })
 
+  // PATCH /api/rooms/:roomId/agents/:agentId/model - update room-agent model config
+  app.patch('/api/rooms/:roomId/agents/:agentId/model', async (request, reply) => {
+    const user = (request as any).user
+    const { roomId, agentId } = request.params as any
+    try {
+      const canEdit = await agentService.canEditRoomAgents(roomId, user.id)
+      if (!canEdit) {
+        return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Only project owner/editor can configure room agents' } })
+      }
+      const agent = await agentService.updateRoomAgentModelConfig(roomId, agentId, request.body as any)
+      return reply.send({ success: true, data: { agent } })
+    } catch (err: any) {
+      if (err.code === 'AGENT_NOT_FOUND' || err.code === 'MODEL_PROFILE_NOT_FOUND') return reply.code(404).send({ success: false, error: err })
+      throw err
+    }
+  })
+
   // DELETE /api/rooms/:roomId/agents/:agentId - remove agent from room
   app.delete('/api/rooms/:roomId/agents/:agentId', async (request, reply) => {
     const user = (request as any).user
@@ -344,26 +361,26 @@ export async function registerAgentRoutes(app: FastifyInstance) {
   app.post('/api/rooms/:roomId/agents/:agentId/restart', async (request, reply) => {
     const user = (request as any).user
     const { roomId, agentId } = request.params as any
-    const { clearSession = true } = request.body as any || {}
+    const { clearSession = true, mode = 'soft' } = request.body as any || {}
 
     const canEdit = await agentService.canEditRoomAgents(roomId, user.id)
     if (!canEdit) {
       return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Only project owner/editor can restart agents' } })
     }
 
-    const result = await agentRestartService.softRestart(roomId, agentId, user.id, clearSession !== false)
+    const result = await agentRestartService.restart(roomId, agentId, user.id, { mode: mode === 'force' ? 'force' : 'soft', clearSession: clearSession !== false })
     const gateway = getGateway()
     gateway?.broadcast(roomId, {
       msgId: `agent_restart_${Date.now()}`,
       roomId,
       type: 'broadcast',
       action: 'agent.status_update',
-      payload: { agentId: result.agent.id, status: result.agent.status, onlineStatus: 'online', lastActiveAt: Date.now() },
+      payload: { agentId: result.agent.id, status: result.agent.status, onlineStatus: 'online', lastActiveAt: Date.now(), lastError: null },
       timestamp: Date.now()
     })
     if (result.pendingSubtasks.length > 0) {
       const lines = result.pendingSubtasks.map((item: any, i: number) => `${i + 1}. 父任务 ${item.task_id}「${item.task_title}」 / 子任务 ${item.id}「${item.title}」`).join('\n')
-      void gateway?.invokeAgents(roomId, `你刚刚被人工软恢复，请继续处理已分派但未完成的子任务：\n${lines}\n\n请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。`, [{ id: result.agent.id, name: result.agent.name, role: 'ai' }], 'task', user.id)
+      void gateway?.invokeAgents(roomId, `你刚刚被人工${result.mode === 'force' ? '强制重启' : '软恢复'}，请继续处理已分派但未完成的子任务：\n${lines}\n\n请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。`, [{ id: result.agent.id, name: result.agent.name, role: 'ai' }], 'task', user.id)
     }
     return reply.send({ success: true, data: result })
   })
@@ -418,7 +435,11 @@ export async function registerAgentRoutes(app: FastifyInstance) {
 
         return reply.send({ success: true, data: { response: result.response } })
       } catch (execErr: any) {
-        await agentService.updateAgent(agentId, { status: 'error' } as any)
+        const isBillingBlock = execErr?.code === 'INSUFFICIENT_CREDITS'
+        await agentService.updateAgent(agentId, { status: isBillingBlock ? 'active' : 'error' } as any)
+        if (isBillingBlock) {
+          return reply.code(402).send({ success: false, error: { code: execErr.code, message: execErr.message, details: execErr.details } })
+        }
         throw execErr
       }
     } catch (err: any) {

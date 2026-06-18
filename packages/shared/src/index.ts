@@ -52,6 +52,14 @@ export interface AgentRuntimeConfig {
   dreamMemory?: AgentDreamMemoryItem[]
 }
 
+export interface RoomAgentModelConfig {
+  modelProfileId?: string
+  model?: string
+  runtime?: 'claude-code' | 'provider-api'
+  maxTokens?: number
+  temperature?: number
+}
+
 export interface Agent {
   id: string
   name: string
@@ -68,6 +76,7 @@ export interface Agent {
   roomRole?: RoomAgentRole
   autoEnabled?: boolean
   roomPriority?: number
+  roomModelConfig?: RoomAgentModelConfig
   isTemplate?: boolean
   templateVersion?: number
   sourceTemplateId?: string

@@ -1,9 +1,10 @@
-import { MessageCircle, Settings, Users } from 'lucide-react'
+import { CreditCard, MessageCircle, Settings, Users } from 'lucide-react'
 import type { DesktopTabsProps, HomeTab, MobileNavProps } from './types'
 
 const tabs: { key: HomeTab; label: string }[] = [
   { key: 'messages', label: '消息' },
   { key: 'contacts', label: '通讯录' },
+  { key: 'billing', label: '账单' },
   { key: 'settings', label: '设置' },
 ]
 
@@ -26,13 +27,14 @@ export function DesktopTabs({ activeHomeTab, setActiveHomeTab }: DesktopTabsProp
 const mobileTabs = [
   { key: 'messages' as const, label: '消息', Icon: MessageCircle },
   { key: 'contacts' as const, label: '通讯录', Icon: Users },
+  { key: 'billing' as const, label: '账单', Icon: CreditCard },
   { key: 'settings' as const, label: '设置', Icon: Settings },
 ]
 
 export function MobileNav({ activeHomeTab, setActiveHomeTab }: MobileNavProps) {
   return (
     <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 safe-area-inset-bottom">
-      <div className="grid grid-cols-3 h-16">
+      <div className="grid grid-cols-4 h-16">
         {mobileTabs.map(({ key, label, Icon }) => (
           <button
             key={key}

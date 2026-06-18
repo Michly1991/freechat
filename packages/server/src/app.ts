@@ -23,12 +23,17 @@ import { registerPersonalAnalyticsRoutes } from './routes/personal-analytics.js'
 import { registerAgentDreamRoutes } from './routes/agent-dreams.js'
 import { registerAgentGrowthRoutes } from './routes/agent-growth.js'
 import { registerNotificationRoutes } from './routes/notifications.js'
+import { registerModelProfileRoutes } from './routes/model-profiles.js'
+import { registerBillingRoutes } from './routes/billing.js'
+import { registerBillingRuleRoutes } from './routes/billing-rules.js'
 import { authenticate } from './auth/middleware.js'
 import { initDatabase } from './storage/db.js'
 import { initWebSocket } from './ws/gateway.js'
 import { config } from './config.js'
 import { agentDreamSchedulerService } from './services/agent-dream-scheduler.service.js'
 import { agentGrowthSchedulerService } from './services/agent-growth-scheduler.service.js'
+import { platformModelBootstrapService } from './services/platform-model-bootstrap.service.js'
+import { billingAggregationSchedulerService } from './services/billing-aggregation-scheduler.service.js'
 
 async function buildApp() {
   const app = Fastify({
@@ -60,6 +65,9 @@ async function buildApp() {
       fileSize: 10 * 1024 * 1024
     }
   })
+
+  // Ensure platform model provider and migrate server ai-config into model profiles
+  platformModelBootstrapService.ensurePlatformUserAndModels()
 
   // Static uploaded files (public)
   await app.register(fastifyStatic, {
@@ -99,6 +107,9 @@ async function buildApp() {
   await registerAgentDreamRoutes(app)
   await registerAgentGrowthRoutes(app)
   await registerNotificationRoutes(app)
+  await registerModelProfileRoutes(app)
+  await registerBillingRoutes(app)
+  await registerBillingRuleRoutes(app)
   await registerAgentToolRoutes(app)
 
   // Error handler
@@ -132,6 +143,7 @@ export async function startServer() {
   // Start nightly Agent dream/growth reviews
   agentDreamSchedulerService.start()
   agentGrowthSchedulerService.start()
+  billingAggregationSchedulerService.start()
 
   return app
 }

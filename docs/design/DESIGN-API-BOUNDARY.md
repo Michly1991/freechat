@@ -88,7 +88,11 @@ Agent 重启已从 WS 迁移到 REST：
 
 ```text
 POST /api/rooms/:roomId/agents/:agentId/restart
+Body: { clearSession?: boolean, mode?: 'soft' | 'force' }
 ```
+
+- `mode` 默认 `soft`，仍保留 running-run 防护，避免双进程并发。
+- `mode='force'` 用于人工处理卡死 Agent：服务端会中断当前 Claude Code runtime，取消 running run，清理会话后恢复在线。
 
 WS gateway 已移除 `task.*` 和 `agent.restart` 的 client action 入口。
 

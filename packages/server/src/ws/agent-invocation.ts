@@ -238,13 +238,16 @@ export class AgentInvocationHandler {
         clearInterval(activityTimer)
         const message = err?.message || String(err)
         const isTimeout = /timed out|timeout/i.test(message)
-        await agentService.updateAgent(agentId, { status: isTimeout ? 'active' : 'error' } as any).catch(() => {})
+        const isForcedStop = err?.code === 'AGENT_FORCE_STOPPED' || /force restarted|强制重启/i.test(message)
+        const isBillingBlock = err?.code === 'INSUFFICIENT_CREDITS'
+        const recoverable = isTimeout || isForcedStop || isBillingBlock
+        await agentService.updateAgent(agentId, { status: recoverable ? 'active' : 'error' } as any).catch(() => {})
         this.broadcastToRoom(roomId, {
           msgId: uuidv4(),
           roomId,
           type: 'broadcast',
           action: 'agent.status_update',
-          payload: { agentId, status: isTimeout ? 'active' : 'error', onlineStatus: isTimeout ? 'online' : 'error', lastActiveAt: Date.now(), lastError: message },
+          payload: { agentId, status: recoverable ? 'active' : 'error', onlineStatus: recoverable ? 'online' : 'error', lastActiveAt: Date.now(), lastError: isForcedStop || isBillingBlock ? null : message },
           timestamp: Date.now()
         })
         agentStreamService.failStream(streamMessageId, message)

@@ -10,7 +10,7 @@ import { renderAgentCliCjs, renderAgentCliWrapper } from './agent-cli-template.j
 import { renderAgentApiDoc, renderAgentGuide } from './agent-workspace-template.js'
 import { AgentRuntimeService } from './agent-runtime.service.js'
 import { searchMarketplaceAgents } from './agent-marketplace.js'
-import type { Agent, AgentRuntimeConfig, AgentToolPermissions, RoomAgentRole } from '@freechat/shared'
+import type { Agent, AgentRuntimeConfig, AgentToolPermissions, RoomAgentModelConfig, RoomAgentRole } from '@freechat/shared'
 import { DEFAULT_AGENT_TOOLS } from '@freechat/shared'
 import { mergeAgentConfig, rowToAgent, type AgentRow } from './agent-mapper.js'
 import { agentCapabilityService } from './agent-capability.service.js'
@@ -38,6 +38,23 @@ export interface AddAgentToRoomOptions {
   roomRole?: RoomAgentRole
   autoEnabled?: boolean
   priority?: number
+}
+
+function sanitizeRoomModelConfig(value: any): RoomAgentModelConfig | null {
+  if (!value || typeof value !== 'object') return null
+  const out: RoomAgentModelConfig = {}
+  if (value.modelProfileId) out.modelProfileId = String(value.modelProfileId)
+  if (value.model) out.model = String(value.model)
+  if (value.runtime === 'provider-api' || value.runtime === 'claude-code') out.runtime = value.runtime
+  if (value.maxTokens !== undefined) {
+    const n = Number(value.maxTokens)
+    if (Number.isFinite(n) && n > 0) out.maxTokens = Math.trunc(n)
+  }
+  if (value.temperature !== undefined) {
+    const n = Number(value.temperature)
+    if (Number.isFinite(n)) out.temperature = n
+  }
+  return Object.keys(out).length > 0 ? out : null
 }
 
 export class AgentService {
@@ -71,6 +88,52 @@ export class AgentService {
 
     const agent = rowToAgent(db.prepare('SELECT * FROM agents WHERE id = ?').get(id) as AgentRow)
     return { agent, apiKey }
+  }
+
+  async updateRoomAgentModelConfig(roomId: string, agentId: string, input: any): Promise<Agent> {
+    const modelConfig = sanitizeRoomModelConfig(input)
+    const row = db.prepare('SELECT 1 FROM room_agents WHERE room_id = ? AND agent_id = ?').get(roomId, agentId)
+    if (!row) throw { code: 'AGENT_NOT_FOUND', message: 'Agent is not in this room' }
+    if (modelConfig?.modelProfileId) {
+      const profile = db.prepare('SELECT id FROM model_profiles WHERE id = ? AND enabled = 1').get(modelConfig.modelProfileId)
+      if (!profile) throw { code: 'MODEL_PROFILE_NOT_FOUND', message: 'Model profile not found or disabled' }
+    }
+    const now = Date.now()
+    const tx = db.transaction(() => {
+      if (modelConfig) {
+        const extra = { maxTokens: modelConfig.maxTokens, temperature: modelConfig.temperature }
+        db.prepare(`
+          INSERT INTO room_agent_model_bindings (
+            room_id, agent_id, model_profile_id, model, runtime, max_tokens, temperature, configured_by, extra_config, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+          ON CONFLICT(room_id, agent_id) DO UPDATE SET
+            model_profile_id = excluded.model_profile_id,
+            model = excluded.model,
+            runtime = excluded.runtime,
+            max_tokens = excluded.max_tokens,
+            temperature = excluded.temperature,
+            extra_config = excluded.extra_config,
+            updated_at = excluded.updated_at
+        `).run(
+          roomId,
+          agentId,
+          modelConfig.modelProfileId || null,
+          modelConfig.model || null,
+          modelConfig.runtime || null,
+          modelConfig.maxTokens || null,
+          modelConfig.temperature ?? null,
+          JSON.stringify(extra),
+          now
+        )
+      } else {
+        db.prepare('DELETE FROM room_agent_model_bindings WHERE room_id = ? AND agent_id = ?').run(roomId, agentId)
+      }
+    })
+    tx()
+    const agents = await this.getRoomAgents(roomId)
+    const agent = agents.find((item) => item.id === agentId)
+    if (!agent) throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found' }
+    return agent
   }
 
   async getAgent(agentId: string): Promise<Agent> {
@@ -356,13 +419,21 @@ export class AgentService {
 
   async getAutoAgent(roomId: string): Promise<Agent | null> {
     const row = db.prepare(`
-      SELECT a.*, ra.room_role, ra.auto_enabled, ra.priority as room_priority, (
+      SELECT a.*, ra.room_role, ra.auto_enabled, ra.priority as room_priority,
+        CASE WHEN b.room_id IS NULL THEN NULL ELSE json_object(
+          'modelProfileId', b.model_profile_id,
+          'model', b.model,
+          'runtime', b.runtime,
+          'maxTokens', b.max_tokens,
+          'temperature', b.temperature
+        ) END as room_model_config, (
         SELECT MAX(last_active_at)
         FROM agent_sessions s
         WHERE s.room_id = ra.room_id AND s.agent_id = a.id
       ) as agent_last_active_at
       FROM agents a
       INNER JOIN room_agents ra ON a.id = ra.agent_id
+      LEFT JOIN room_agent_model_bindings b ON b.room_id = ra.room_id AND b.agent_id = ra.agent_id
       WHERE ra.room_id = ? AND ra.auto_enabled = 1 AND a.status != 'inactive'
       ORDER BY ra.priority ASC, ra.added_at ASC
       LIMIT 1
@@ -406,13 +477,21 @@ export class AgentService {
   async getRoomAgents(roomId: string): Promise<Agent[]> {
     this.recoverStaleRuns(roomId)
     const rows = db.prepare(`
-      SELECT a.*, ra.room_role, ra.auto_enabled, ra.priority as room_priority, (
+      SELECT a.*, ra.room_role, ra.auto_enabled, ra.priority as room_priority,
+        CASE WHEN b.room_id IS NULL THEN NULL ELSE json_object(
+          'modelProfileId', b.model_profile_id,
+          'model', b.model,
+          'runtime', b.runtime,
+          'maxTokens', b.max_tokens,
+          'temperature', b.temperature
+        ) END as room_model_config, (
         SELECT MAX(last_active_at)
         FROM agent_sessions s
         WHERE s.room_id = ra.room_id AND s.agent_id = a.id
       ) as agent_last_active_at
       FROM agents a
       INNER JOIN room_agents ra ON a.id = ra.agent_id
+      LEFT JOIN room_agent_model_bindings b ON b.room_id = ra.room_id AND b.agent_id = ra.agent_id
       WHERE ra.room_id = ?
       ORDER BY ra.auto_enabled DESC, ra.priority ASC, ra.added_at ASC
     `).all(roomId) as AgentRow[]
@@ -623,13 +702,21 @@ export class AgentService {
     return workspaceDir
   }
 
+  forceStopAgentRuntime(roomId: string, agentId: string, reason?: string) {
+    return this.runtime.forceStopAgentProcess(roomId, agentId, reason)
+  }
+
+  getActiveAgentRuntime(roomId: string, agentId: string) {
+    return this.runtime.getActiveProcess(roomId, agentId)
+  }
+
   async spawnClaudeCode(roomId: string, agentId: string, message: string, options: { timeoutMs?: number; actorUserId?: string; onEvent?: (event: any) => void } = {}): Promise<{ response: string; silent: boolean }> {
     return this.runtime.spawnClaudeCode(
       roomId,
       agentId,
       message,
       (id) => this.getAgent(id),
-      (targetRoomId, agent) => this.prepareAgentWorkspace(targetRoomId, agent),
+      (targetRoomId, agent, actorUserId) => this.prepareAgentWorkspace(targetRoomId, agent, actorUserId),
       (agent) => this.buildAgentSystemPrompt(agent),
       options
     )

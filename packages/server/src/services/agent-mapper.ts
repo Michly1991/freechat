@@ -1,4 +1,4 @@
-import type { Agent, AgentRuntimeConfig, RoomAgentRole } from '@freechat/shared'
+import type { Agent, AgentRuntimeConfig, RoomAgentModelConfig, RoomAgentRole } from '@freechat/shared'
 import { DEFAULT_ASSISTANT_AGENT_CONFIG, DEFAULT_SPECIALIST_AGENT_CONFIG } from '@freechat/shared'
 
 export interface AgentRow {
@@ -19,6 +19,7 @@ export interface AgentRow {
   room_role?: string | null
   auto_enabled?: number | null
   room_priority?: number | null
+  room_model_config?: string | null
   is_template?: number | null
   template_version?: number | null
   source_template_id?: string | null
@@ -35,6 +36,11 @@ export function mergeAgentConfig(roleType: 'assistant' | 'specialist', config?: 
     tools: { ...(base.tools || {}), ...(config?.tools || {}) },
     model: { ...(base.model || {}), ...(config?.model || {}) },
   }
+}
+
+function parseRoomModelConfig(value?: string | null): RoomAgentModelConfig | undefined {
+  if (!value) return undefined
+  try { return JSON.parse(value) as RoomAgentModelConfig } catch { return undefined }
 }
 
 export function rowToAgent(row: AgentRow): Agent {
@@ -66,6 +72,7 @@ export function rowToAgent(row: AgentRow): Agent {
     roomRole: (row.room_role as RoomAgentRole) || undefined,
     autoEnabled: row.auto_enabled !== undefined && row.auto_enabled !== null ? !!row.auto_enabled : undefined,
     roomPriority: row.room_priority ?? undefined,
+    roomModelConfig: parseRoomModelConfig(row.room_model_config),
     isTemplate: row.is_template !== undefined && row.is_template !== null ? !!row.is_template : undefined,
     templateVersion: row.template_version ?? undefined,
     sourceTemplateId: row.source_template_id || undefined,

@@ -10,6 +10,7 @@ import { InteractionCard } from './components/InteractionCard'
 import { RoomMainPanel } from './components/RoomMainPanel'
 import { DesktopMembersPanel, MobileMembersDrawer, ProfileModal } from './components/RoomMembers'
 import { RoomSettingsSidePanel } from './components/RoomSettingsSidePanel'
+import { AgentModelDialog } from './components/AgentModelDialog'
 import { DesktopPanelTabs, FileDialog, MobileBottomNav, RoomHeader } from './components/RoomShellChrome'
 import { createRoomAgentActions } from './room-agent-actions'
 import { createRoomFileActions, createRoomTabActions, createRoomTaskActions } from './room-actions'
@@ -57,6 +58,7 @@ export function RoomPageImpl() {
   const [showMobileMembers, setShowMobileMembers] = useState(false)
   const [showRoomSettings, setShowRoomSettings] = useState(false)
   const [selectedProfile, setSelectedProfile] = useState<any | null>(null)
+  const [modelConfigAgent, setModelConfigAgent] = useState<any | null>(null)
   const [wsStatus, setWsStatus] = useState<'connecting' | 'open' | 'closed' | 'error'>('connecting')
   const [sendError, setSendError] = useState('')
   const [wsNoticeDismissed, setWsNoticeDismissed] = useState(false)
@@ -293,7 +295,7 @@ export function RoomPageImpl() {
     roomId, newTaskTitle, setNewTaskTitle, setCreatingTask, newSubtaskTitles, setNewSubtaskTitles,
     feedback, setExpandedTaskIds, setTasks,
   })
-  const { restartAgent, restartAllErrorAgents } = createRoomAgentActions({ roomId, errorAgents, feedback })
+  const { restartAgent, restartAllErrorAgents } = createRoomAgentActions({ roomId, errorAgents, workingAgents, feedback, refreshAgents: loadRoom })
   const renderInteractionCard = (msg: Message) => (
     <InteractionCard
       msg={msg}
@@ -353,6 +355,7 @@ export function RoomPageImpl() {
           roomAgents={visibleRoomAgents}
           openMemberProfile={openMemberProfile}
           restartAgent={restartAgent}
+          openModelConfig={setModelConfigAgent}
           roomId={roomId}
           feedback={feedback}
           onMembersChanged={loadRoom}
@@ -365,6 +368,7 @@ export function RoomPageImpl() {
         roomAgents={visibleRoomAgents}
         openMemberProfile={openMemberProfile}
         restartAgent={restartAgent}
+        openModelConfig={setModelConfigAgent}
         roomId={roomId}
         feedback={feedback}
         onMembersChanged={loadRoom}
@@ -374,6 +378,7 @@ export function RoomPageImpl() {
         setSelectedProfile={setSelectedProfile}
         restartAgent={restartAgent}
       />
+      <AgentModelDialog roomId={roomId} agent={modelConfigAgent} onClose={() => setModelConfigAgent(null)} onSaved={loadRoom} feedback={feedback} />
       <MobileBottomNav activePanel={activePanel} setActivePanel={setActivePanel} roomNewMessageCount={roomNewMessageCount} agentWorking={workingAgents.length > 0} />
       <RoomSettingsSidePanel
         open={showRoomSettings}
