@@ -42,7 +42,7 @@ export function ContactsSection(props: ContactsSectionProps) {
       </div>
       <div className="flex bg-gray-100 rounded-xl p-1 mb-4 w-fit">
         <button onClick={() => setContactKind('people')} className={`px-4 py-2 rounded-lg text-sm ${contactKind === 'people' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>人员</button>
-        <button onClick={() => setContactKind('agents')} className={`px-4 py-2 rounded-lg text-sm ${contactKind === 'agents' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>Agent</button>
+        <button onClick={() => setContactKind('agents')} className={`px-4 py-2 rounded-lg text-sm ${contactKind === 'agents' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>AI市场</button>
         <button onClick={() => setContactKind('scenes')} className={`px-4 py-2 rounded-lg text-sm ${contactKind === 'scenes' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>场景</button>
       </div>
 
@@ -209,12 +209,12 @@ function AgentContacts({ agents, showCreateAgent, editingAgentId, agentForm, set
 
   return (
     <div className="space-y-4">
-      <ContactCreateHeader title="Agent" description="管理全局共享 Agent 模板；创建项目时会克隆为项目副本。" buttonLabel="新增 Agent" onCreate={() => showCreateAgent && !editingAgentId ? resetAgentEditor() : openCreateAgent()} />
+      <ContactCreateHeader title="AI市场" description="管理全局共享 AI 模板；创建项目时会克隆为项目副本。" buttonLabel="新增 AI" onCreate={() => showCreateAgent && !editingAgentId ? resetAgentEditor() : openCreateAgent()} />
       {showCreateAgent && (
         <div className="p-4 border border-blue-100 bg-blue-50/50 rounded-xl space-y-3">
-          <div className="text-sm font-semibold text-gray-700">{editingAgentId ? (canEditCurrent ? '编辑 Agent' : '查看 Agent') : '新建 Agent'}</div>
+          <div className="text-sm font-semibold text-gray-700">{editingAgentId ? (canEditCurrent ? '编辑 AI' : '查看 AI') : '新建 AI'}</div>
           <div className="grid sm:grid-cols-2 gap-3">
-            <input value={agentForm.name} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, name: e.target.value })} className="px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500" placeholder="Agent 名称，例如：需求分析师" />
+            <input value={agentForm.name} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, name: e.target.value })} className="px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500" placeholder="AI 名称，例如：需求分析师" />
             <select value={agentForm.roleType} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, roleType: e.target.value as any })} className="px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500"><option value="assistant">业务助理</option><option value="specialist">业务专家</option></select>
           </div>
           <input value={agentForm.description} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, description: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500" placeholder="职责描述" />
@@ -225,23 +225,23 @@ function AgentContacts({ agents, showCreateAgent, editingAgentId, agentForm, set
           </div>
           {editingAgentId && (
             <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-3">
-              <div className="flex items-center justify-between"><div><p className="text-sm font-semibold text-gray-700">Skills</p><p className="text-xs text-gray-400">维护这个 Agent 的技能说明，运行时会写入 skills/。</p></div>{canEditCurrent && <button onClick={startNewSkill} className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-xs text-blue-600 hover:bg-blue-100">+ 新建 Skill</button>}</div>
+              <div className="flex items-center justify-between"><div><p className="text-sm font-semibold text-gray-700">Skills</p><p className="text-xs text-gray-400">维护这个 AI 的技能说明，运行时会写入 skills/。</p></div>{canEditCurrent && <button onClick={startNewSkill} className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-xs text-blue-600 hover:bg-blue-100">+ 新建 Skill</button>}</div>
               {skills.length === 0 && editingSkillId !== 'new' && <p className="text-xs text-gray-400 border border-dashed border-gray-200 rounded-lg p-3">暂无 Skill。</p>}
               <div className="space-y-2">{skills.map((skill) => <div key={skill.id} className="border border-gray-100 rounded-lg p-2"><div className="flex items-center justify-between gap-2"><div className="min-w-0"><p className="text-sm font-medium text-gray-700 truncate">{skill.name}</p>{skill.description && <p className="text-xs text-gray-400 truncate">{skill.description}</p>}</div>{canEditCurrent && <div className="flex gap-2 shrink-0"><button onClick={() => startEditSkill(skill)} className="text-xs text-blue-600">编辑</button><button onClick={() => removeSkill(skill.id)} className="text-xs text-red-500">删除</button></div>}</div></div>)}</div>
               {editingSkillId && <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 space-y-2"><input value={skillForm.name} onChange={(e) => setSkillForm({ ...skillForm, name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm" placeholder="Skill 名称" /><input value={skillForm.description} onChange={(e) => setSkillForm({ ...skillForm, description: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm" placeholder="Skill 描述" /><label className="text-xs text-gray-500 flex items-center gap-2"><input type="checkbox" checked={skillForm.enabled} onChange={(e) => setSkillForm({ ...skillForm, enabled: e.target.checked })} />启用</label><textarea value={skillForm.content} onChange={(e) => setSkillForm({ ...skillForm, content: e.target.value })} rows={8} className="w-full px-3 py-2 border border-gray-300 rounded text-xs font-mono" placeholder="SKILL.md 内容" /><div className="flex gap-2 justify-end"><button onClick={() => setEditingSkillId(null)} className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs">取消</button><button onClick={saveSkill} disabled={skillSaving || !skillForm.name.trim()} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs disabled:opacity-60">{skillSaving ? '保存中...' : '保存 Skill'}</button></div></div>}
             </div>
           )}
-          <div className="flex gap-2">{canEditCurrent && <button onClick={createAgentFromContacts} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">{editingAgentId ? '保存修改' : '保存 Agent'}</button>}<button onClick={resetAgentEditor} className="bg-gray-100 text-gray-600 px-4 py-2 rounded-lg text-sm hover:bg-gray-200">{canEditCurrent ? '取消' : '关闭'}</button></div>
+          <div className="flex gap-2">{canEditCurrent && <button onClick={createAgentFromContacts} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">{editingAgentId ? '保存修改' : '保存 AI'}</button>}<button onClick={resetAgentEditor} className="bg-gray-100 text-gray-600 px-4 py-2 rounded-lg text-sm hover:bg-gray-200">{canEditCurrent ? '取消' : '关闭'}</button></div>
         </div>
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {agents.length === 0 ? <p className="text-sm text-gray-400">暂无 Agent，点击右上角新建一个。</p> : [...agents].sort((a, b) => (a.builtInKey === 'default_assistant' ? -1 : 0) - (b.builtInKey === 'default_assistant' ? -1 : 0)).map((a) => (
+        {agents.length === 0 ? <p className="text-sm text-gray-400">AI市场暂无内容，点击右上角新建一个。</p> : [...agents].sort((a, b) => (a.builtInKey === 'default_assistant' ? -1 : 0) - (b.builtInKey === 'default_assistant' ? -1 : 0)).map((a) => (
           <div key={a.id} className="p-3 rounded-xl border border-gray-100 flex items-start justify-between gap-3">
             <div className="flex items-start gap-3 min-w-0">
               <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-400 to-blue-500 text-white flex items-center justify-center shrink-0"><Bot className="w-5 h-5" /></span>
-              <div className="min-w-0"><div className="flex items-center gap-2 flex-wrap"><p className="text-sm font-medium truncate">{a.name}</p><span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-600">{a.roleType === 'assistant' ? '助理' : '专家'}</span>{a.builtInKey === 'default_assistant' && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">默认助理</span>}</div>{a.description && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{a.description}</p>}<p className="text-xs text-gray-400 mt-1 truncate">Owner：{a.ownerName || a.ownerId || '未知'}</p>{a.specialties?.length > 0 && <p className="text-xs text-gray-400 mt-1 truncate">{a.specialties.join('、')}</p>}</div>
+              <div className="min-w-0"><div className="flex items-center gap-2 flex-wrap"><p className="text-sm font-medium truncate">{a.name}</p><span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-600">{a.roleType === 'assistant' ? '助理' : '专家'}</span>{a.builtInKey === 'default_assistant' && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">默认助理</span>}</div>{a.description && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{a.description}</p>}<p className="text-xs text-gray-400 mt-1 truncate">发布人：{a.ownerName || a.ownerId || '未知'}</p>{a.specialties?.length > 0 && <p className="text-xs text-gray-400 mt-1 truncate">{a.specialties.join('、')}</p>}</div>
             </div>
-            <div className="flex items-center gap-1 shrink-0">{a.canEdit !== false ? <><button onClick={() => openEditAgent(a)} className="text-blue-500 hover:text-blue-700 p-1" title="编辑 Agent"><Pencil className="w-4 h-4" /></button>{a.canDelete !== false && <button onClick={() => deleteAgentFromContacts(a)} className="text-red-400 hover:text-red-600 p-1" title="删除 Agent"><Trash2 className="w-4 h-4" /></button>}</> : <button onClick={() => openEditAgent(a)} className="text-[10px] px-2 py-1 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200">查看</button>}</div>
+            <div className="flex items-center gap-1 shrink-0">{a.canEdit !== false ? <><button onClick={() => openEditAgent(a)} className="text-blue-500 hover:text-blue-700 p-1" title="编辑 AI"><Pencil className="w-4 h-4" /></button>{a.canDelete !== false && <button onClick={() => deleteAgentFromContacts(a)} className="text-red-400 hover:text-red-600 p-1" title="删除 Agent"><Trash2 className="w-4 h-4" /></button>}</> : <button onClick={() => openEditAgent(a)} className="text-[10px] px-2 py-1 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200">查看</button>}</div>
           </div>
         ))}
       </div>
