@@ -7,13 +7,17 @@ import { encryptSecret } from './secret-crypto.js'
 
 export const PLATFORM_USER_ID = 'user_platform_model_provider'
 
-const DEFAULT_PLATFORM_MODEL_RULE = {
-  inputCreditPerMillion: 100,
-  outputCreditPerMillion: 500,
-  cacheWriteCreditPerMillion: 100,
-  cacheReadCreditPerMillion: 20,
-  minCreditsPerRun: 0,
-  enabled: true,
+const PLATFORM_MODEL_RULES = {
+  economy: { inputCreditPerMillion: 50, outputCreditPerMillion: 200, cacheWriteCreditPerMillion: 50, cacheReadCreditPerMillion: 10, minCreditsPerRun: 0, enabled: true },
+  standard: { inputCreditPerMillion: 100, outputCreditPerMillion: 400, cacheWriteCreditPerMillion: 100, cacheReadCreditPerMillion: 20, minCreditsPerRun: 0, enabled: true },
+  premium: { inputCreditPerMillion: 200, outputCreditPerMillion: 800, cacheWriteCreditPerMillion: 200, cacheReadCreditPerMillion: 40, minCreditsPerRun: 0, enabled: true },
+}
+
+function defaultRuleForPlatformModel(model?: string | null) {
+  const name = String(model || '').toLowerCase()
+  if (/mini|lite|flash|turbo|small/.test(name)) return PLATFORM_MODEL_RULES.economy
+  if (/max|pro|plus|code|reason|thinking|r1|o1|o3/.test(name)) return PLATFORM_MODEL_RULES.premium
+  return PLATFORM_MODEL_RULES.standard
 }
 
 function intValue(value: any): number {
@@ -47,7 +51,7 @@ export class PlatformModelBootstrapService {
         models: JSON.stringify(provider.models || []),
       })
       const models = provider.models?.length ? provider.models : [provider.defaultModel].filter(Boolean)
-      for (const model of models) billingRuleRepository.upsertModelRule(profile.id, model, DEFAULT_PLATFORM_MODEL_RULE, intValue)
+      for (const model of models) billingRuleRepository.upsertModelRule(profile.id, model, defaultRuleForPlatformModel(model), intValue)
     }
   }
 }

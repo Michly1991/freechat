@@ -68,7 +68,17 @@ FreeChat has three marketplace-style products:
 2. **Model market**: model profiles backed by provider `apiKey` + `baseUrl`. Others see provider summary, host, default/supported models, publisher, and price. Only owner/admin sees full baseUrl, key last4, and edit form.
 3. **Scene market**: scene templates. Others see summary, included AI list, publisher, and scene price. Owner/admin/editor can edit scene composition and pricing.
 
-Model market pricing uses `model_billing_rules`. Scene market pricing uses:
+Model market pricing uses `model_billing_rules`. Platform bootstrap assigns default model prices by tier:
+
+```text
+economy  = input 50 / output 200 / cache write 50 / cache read 10 credits per million tokens
+standard = input 100 / output 400 / cache write 100 / cache read 20 credits per million tokens
+premium  = input 200 / output 800 / cache write 200 / cache read 40 credits per million tokens
+```
+
+Model names containing `mini|lite|flash|turbo|small` use economy. Names containing `max|pro|plus|code|reason|thinking|r1|o1|o3` use premium. Others use standard. Minimum per run stays `0` in development to avoid blocking users with empty wallets.
+
+Scene market pricing uses:
 
 ```sql
 scene_billing_rules (
