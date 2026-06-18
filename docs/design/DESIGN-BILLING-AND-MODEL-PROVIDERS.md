@@ -92,6 +92,16 @@ scene_billing_rules (
 
 Current MVP supports free/fixed scene pricing for display and future charge hooks.
 
+Default marketplace pricing bootstrap fills missing rules without overriding owner-edited rules:
+
+```text
+native/default assistant: free Agent service fee
+custom assistant: fixed 2 credits/run + 10% model fee + input 20/output 80 per million tokens
+specialist Agent: fixed 5 credits/run + 20% model fee + input 50/output 200 per million tokens
+built-in scene: free
+custom scene: fixed 20 credits/use
+```
+
 ## Native Assistant Free Agent Fee
 
 FreeChat's built-in/default assistant is a native platform capability, not a paid Agent product.

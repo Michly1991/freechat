@@ -33,6 +33,7 @@ import { config } from './config.js'
 import { agentDreamSchedulerService } from './services/agent-dream-scheduler.service.js'
 import { agentGrowthSchedulerService } from './services/agent-growth-scheduler.service.js'
 import { platformModelBootstrapService } from './services/platform-model-bootstrap.service.js'
+import { marketPricingBootstrapService } from './services/market-pricing-bootstrap.service.js'
 import { billingAggregationSchedulerService } from './services/billing-aggregation-scheduler.service.js'
 import { agentService } from './services/agent.service.js'
 import { systemAdminService } from './services/system-admin.service.js'
@@ -71,6 +72,7 @@ async function buildApp() {
   // Ensure system users and platform model provider
   systemAdminService.ensureSystemAdmin()
   platformModelBootstrapService.ensurePlatformUserAndModels()
+  marketPricingBootstrapService.ensureDefaultMarketPricing()
   agentService.recoverStaleRuns()
   void agentService.recoverInterruptedTaskRuns()
 
