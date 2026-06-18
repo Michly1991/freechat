@@ -79,11 +79,8 @@ export async function registerBillingRuleRoutes(app: FastifyInstance) {
   })
 
   app.get('/api/agents/:id/billing-rule', async (request, reply) => {
-    const user = (request as any).user
     const { id } = request.params as any
     await agentService.getAgent(id)
-    const canEdit = await agentService.canEditAgent(id, user)
-    if (!canEdit) return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Only owner/editor can view this Agent billing rule' } })
     const row = billingRuleRepository.getAgentRule(id)
     return reply.send({ success: true, data: { rule: row ? rowToAgentRule(row) : null } })
   })

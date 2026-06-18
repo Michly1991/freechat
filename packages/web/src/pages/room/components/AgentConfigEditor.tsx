@@ -4,6 +4,18 @@ import { TemplatePermissionPanel } from './TemplatePermissionPanel'
 
 const TOOL_KEYS = ['chat', 'task', 'file', 'tab', 'interaction', 'members']
 
+function formatAgentPrice(agent: any, rule: any | null) {
+  if (agent?.builtInKey === 'default_assistant') return '免费（系统内置助理，模型费另计）'
+  if (!rule) return '暂无定价'
+  if (rule.billingMode === 'free') return '免费'
+  const parts = []
+  if (rule.fixedCreditsPerRun) parts.push(`固定 ${rule.fixedCreditsPerRun} credits/次`)
+  if (rule.tokenMultiplier) parts.push(`模型费 × ${rule.tokenMultiplier}`)
+  if (rule.inputCreditPerMillion) parts.push(`输入 ${rule.inputCreditPerMillion}/百万 tokens`)
+  if (rule.outputCreditPerMillion) parts.push(`输出 ${rule.outputCreditPerMillion}/百万 tokens`)
+  return parts.length ? parts.join('，') : '暂无定价'
+}
+
 interface Props {
   agentId: string
   feedback: any
@@ -53,6 +65,7 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
   const agent = detail?.agent
   const canEdit = agent?.canEdit !== false
   const tools = { chat: true, task: true, file: true, tab: true, interaction: true, members: true, ...(agent?.config?.tools || {}) }
+  const priceText = formatAgentPrice(agent, billingRule)
 
   const startEditProfile = () => {
     if (!canEdit) return
@@ -146,11 +159,11 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
           <h3 className="font-semibold text-gray-900">基础配置</h3>
           <p className="text-xs text-gray-400 mt-1">{scopeLabel}</p>
           {agent?.builtInKey === 'default_assistant' && <p className="text-xs text-amber-600 mt-1">系统默认助理已锁定：可查看和使用，不可编辑或删除。</p>}
-          {!canEdit && agent?.builtInKey !== 'default_assistant' && <p className="text-xs text-amber-600 mt-1">你可以查看/使用该 Agent，但只有 owner/admin 可以修改。</p>}
+          {!canEdit && agent?.builtInKey !== 'default_assistant' && <p className="text-xs text-amber-600 mt-1">你可以查看/使用该 AI，但只有发布人/admin 可以查看完整配置并修改。</p>}
         </div>
         {canEdit && <button onClick={startEditProfile} className="text-sm text-blue-600">编辑</button>}
       </div>
-      {agent?.builtInKey !== 'default_assistant' && <TemplatePermissionPanel targetType="agent" targetId={agent.id} canEdit={canEdit} feedback={feedback} />}
+      {canEdit && agent?.builtInKey !== 'default_assistant' && <TemplatePermissionPanel targetType="agent" targetId={agent.id} canEdit={canEdit} feedback={feedback} />}
       {editingProfile ? <div className="space-y-3 mt-3">
         <input value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="AI 名称" />
         <textarea value={profileForm.description} onChange={(e) => setProfileForm({ ...profileForm, description: e.target.value })} rows={2} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="描述" />
@@ -161,12 +174,14 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
       </div> : <div>
         <div className="flex items-center gap-2 flex-wrap"><h4 className="text-lg font-semibold text-gray-900">{agent.name}</h4>{agent.autoEnabled && <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-600">自动</span>}{agent.isModified && <span className="text-xs px-2 py-1 rounded-full bg-orange-50 text-orange-600">本地已修改</span>}</div>
         <p className="text-xs text-gray-400 mt-2">发布人：{agent.ownerName || agent.ownerId || '未知'}</p>
+        <p className="text-xs text-blue-600 mt-2">价格：{priceText}</p>
         <p className="text-sm text-gray-600 mt-2 whitespace-pre-wrap">{agent.description || '暂无描述'}</p>
         {agent.specialties?.length > 0 && <div className="flex gap-2 flex-wrap mt-3">{agent.specialties.map((item: string) => <span key={item} className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600">{item}</span>)}</div>}
-        <pre className="text-xs bg-gray-900 text-gray-100 rounded-xl p-3 overflow-auto max-h-40 whitespace-pre-wrap mt-3">{agent.config?.systemPrompt || '暂无自定义提示词'}</pre>
+        {canEdit && <pre className="text-xs bg-gray-900 text-gray-100 rounded-xl p-3 overflow-auto max-h-40 whitespace-pre-wrap mt-3">{agent.config?.systemPrompt || '暂无自定义提示词'}</pre>}
       </div>}
     </section>
 
+    {canEdit && <>
     <section className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
       <div className="flex items-center justify-between gap-2 mb-3"><div><h3 className="font-semibold text-gray-900">Agent 服务计费</h3><p className="text-xs text-gray-400 mt-1">作为 Agent 提供方的收入规则；使用方消费 = 模型费用 + Agent 服务费。</p></div>{billingRule && <span className="text-xs rounded-full bg-green-50 px-2 py-1 text-green-600">已配置</span>}</div>
       {canEdit ? <div className="grid gap-2 sm:grid-cols-5"><select value={billingForm.billingMode} onChange={(e) => setBillingForm({ ...billingForm, billingMode: e.target.value })} className="rounded-lg border border-gray-300 px-3 py-2 text-sm"><option value="token_multiplier">模型费倍率</option><option value="free">免费</option></select><input type="number" step="0.01" value={billingForm.tokenMultiplier} onChange={(e) => setBillingForm({ ...billingForm, tokenMultiplier: Number(e.target.value) })} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="倍率" /><input type="number" value={billingForm.fixedCreditsPerRun} onChange={(e) => setBillingForm({ ...billingForm, fixedCreditsPerRun: Number(e.target.value) })} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="固定/次" /><input type="number" value={billingForm.inputCreditPerMillion} onChange={(e) => setBillingForm({ ...billingForm, inputCreditPerMillion: Number(e.target.value) })} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="前token/百万" /><button onClick={saveBillingRule} className="rounded-lg bg-gray-900 px-3 py-2 text-sm text-white">保存</button></div> : <p className="text-sm text-gray-400">只有 Agent owner/admin 可以修改计费规则。</p>}
@@ -194,5 +209,6 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
         {canEdit && editingScriptId && <div className="mt-3 border border-blue-100 bg-blue-50/40 rounded-xl p-3 space-y-2"><input value={scriptForm.name} onChange={(e) => setScriptForm({ ...scriptForm, name: e.target.value })} className="w-full px-3 py-2 border rounded text-sm" placeholder="脚本名称" /><input value={scriptForm.description} onChange={(e) => setScriptForm({ ...scriptForm, description: e.target.value })} className="w-full px-3 py-2 border rounded text-sm" placeholder="描述" /><div className="grid grid-cols-2 gap-2"><input value={scriptForm.language} onChange={(e) => setScriptForm({ ...scriptForm, language: e.target.value })} className="px-3 py-2 border rounded text-sm" placeholder="language" /><select value={scriptForm.runPolicy} onChange={(e) => setScriptForm({ ...scriptForm, runPolicy: e.target.value })} className="px-3 py-2 border rounded text-sm"><option value="manual_only">manual_only</option><option value="agent_allowed">agent_allowed</option><option value="disabled">disabled</option></select></div><label className="text-xs flex items-center gap-2"><input type="checkbox" checked={scriptForm.enabled} onChange={(e) => setScriptForm({ ...scriptForm, enabled: e.target.checked })} />启用</label><textarea value={scriptForm.content} onChange={(e) => setScriptForm({ ...scriptForm, content: e.target.value })} rows={8} className="w-full px-3 py-2 border rounded text-xs font-mono" /><div className="flex justify-end gap-2"><button onClick={() => setEditingScriptId(null)} className="text-sm px-3 py-1.5 bg-gray-100 rounded">取消</button><button onClick={saveScript} className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded">保存</button></div></div>}
       </section>
     </div>
+    </>}
   </div>
 }
