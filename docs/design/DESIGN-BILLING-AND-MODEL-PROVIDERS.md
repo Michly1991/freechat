@@ -309,9 +309,9 @@ Asynchronous path:
 
 ## UI
 
-Top-level home tabs include `账单` next to `设置`.
+Top-level home tabs include `市场` next to `设置`; billing is no longer a standalone top-level tab.
 
-Billing page shows three views:
+The market page contains `AI市场 / 模型市场 / 场景市场 / 我的账单`. The billing sub-tab shows three views:
 
 - usage payer bill
 - Agent provider income

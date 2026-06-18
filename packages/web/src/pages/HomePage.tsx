@@ -6,15 +6,15 @@ import { useFeedback } from '../components/FeedbackProvider'
 import type { SwipeAction } from '../components/SwipeActionItem'
 import { agentToForm, buildAgentPayload, emptyAgentForm, type AgentToolKey } from './home-agent-form'
 import { ContactsSection } from './home/ContactsSection'
+import { MarketSection } from './home/MarketSection'
 import { HomeHeader } from './home/HomeHeader'
 import { AddFriendModal, CreateRoomModal, JoinRoomModal } from './home/HomeModals'
 import { DesktopTabs, MobileNav } from './home/HomeTabs'
 import { MessagesSection } from './home/MessagesSection'
 import { SettingsSection } from './home/SettingsSection'
 import { isBrowserNotificationEnabled, showBrowserNotification } from '../features/notifications/browser-notifications'
-import { BillingPanel } from '../features/settings/BillingPanel'
 import { isStrongNotification, playNotificationSound, soundKindForNotification } from '../features/notifications/notification-sound'
-import type { ContactKind, HomeTab, SelectedAgent } from './home/types'
+import type { ContactKind, HomeTab, MarketKind, SelectedAgent } from './home/types'
 
 export default function HomePage() {
   const [rooms, setRooms] = useState<any[]>([])
@@ -24,6 +24,7 @@ export default function HomePage() {
   const [scenes, setScenes] = useState<any[]>([])
   const [selectedSceneId, setSelectedSceneId] = useState('')
   const [contactKind, setContactKind] = useState<ContactKind>('people')
+  const [marketKind, setMarketKind] = useState<MarketKind>('agents')
   const [showCreateAgent, setShowCreateAgent] = useState(false)
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
   const [agentForm, setAgentForm] = useState(emptyAgentForm())
@@ -334,7 +335,7 @@ export default function HomePage() {
         {activeHomeTab === 'contacts' && (
           <ContactsSection contactKind={contactKind} setContactKind={setContactKind} searchQ={searchQ} setSearchQ={setSearchQ} searchResults={searchResults} friends={friends} agents={agents} scenes={scenes} reloadScenes={loadScenes} friendRequests={friendRequests} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} searchUsers={searchUsers} sendFriendRequest={sendFriendRequest} acceptFriendRequest={acceptFriendRequest} rejectFriendRequest={rejectFriendRequest} openDm={openDm} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />
         )}
-        {activeHomeTab === 'billing' && <BillingPanel />}
+        {activeHomeTab === 'market' && <MarketSection marketKind={marketKind} setMarketKind={setMarketKind} agents={agents} scenes={scenes} reloadScenes={loadScenes} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />}
         {activeHomeTab === 'settings' && <SettingsSection user={user} onLogout={handleLogout} />}
       </main>
       <MobileNav activeHomeTab={activeHomeTab} setActiveHomeTab={setActiveHomeTab} />

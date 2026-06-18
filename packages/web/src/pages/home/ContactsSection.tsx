@@ -5,35 +5,19 @@ import { AGENT_TOOL_KEYS } from '../home-agent-form'
 import type { ContactsSectionProps } from './types'
 import { AgentConfigEditor } from '../room/components/AgentConfigEditor'
 import { TemplatePermissionPanel } from '../room/components/TemplatePermissionPanel'
-import { ModelMarketSection } from './ModelMarketSection'
 
 export function ContactsSection(props: ContactsSectionProps) {
   const {
-    contactKind,
-    setContactKind,
     searchQ,
     setSearchQ,
     searchResults,
     friends,
-    agents,
-    scenes,
-    reloadScenes,
     friendRequests,
-    showCreateAgent,
-    editingAgentId,
-    agentForm,
-    setAgentForm,
-    openCreateAgent,
-    resetAgentEditor,
     searchUsers,
     sendFriendRequest,
     acceptFriendRequest,
     rejectFriendRequest,
     openDm,
-    toggleAgentTool,
-    createAgentFromContacts,
-    openEditAgent,
-    deleteAgentFromContacts,
   } = props
 
   return (
@@ -41,48 +25,18 @@ export function ContactsSection(props: ContactsSectionProps) {
       <div className="flex items-center justify-between gap-3 mb-3">
         <h2 className="text-lg font-semibold text-gray-800">通讯录</h2>
       </div>
-      <div className="overflow-x-auto pb-1 mb-4 -mx-1 px-1">
-        <div className="inline-flex bg-gray-100 rounded-xl p-1 min-w-max">
-          <button onClick={() => setContactKind('people')} className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${contactKind === 'people' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>人员</button>
-          <button onClick={() => setContactKind('agents')} className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${contactKind === 'agents' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>AI市场</button>
-          <button onClick={() => setContactKind('models')} className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${contactKind === 'models' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>模型市场</button>
-          <button onClick={() => setContactKind('scenes')} className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${contactKind === 'scenes' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500'}`}>场景市场</button>
-        </div>
-      </div>
-
-      {contactKind === 'people' && (
-        <PeopleContacts
-          searchQ={searchQ}
-          setSearchQ={setSearchQ}
-          searchResults={searchResults}
-          friends={friends}
-          friendRequests={friendRequests}
-          searchUsers={searchUsers}
-          sendFriendRequest={sendFriendRequest}
-          acceptFriendRequest={acceptFriendRequest}
-          rejectFriendRequest={rejectFriendRequest}
-          openDm={openDm}
-        />
-      )}
-
-      {contactKind === 'agents' && (
-        <AgentContacts
-          agents={agents}
-          showCreateAgent={showCreateAgent}
-          editingAgentId={editingAgentId}
-          agentForm={agentForm}
-          setAgentForm={setAgentForm}
-          toggleAgentTool={toggleAgentTool}
-          createAgentFromContacts={createAgentFromContacts}
-          resetAgentEditor={resetAgentEditor}
-          openCreateAgent={openCreateAgent}
-          openEditAgent={openEditAgent}
-          deleteAgentFromContacts={deleteAgentFromContacts}
-        />
-      )}
-
-      {contactKind === 'models' && <ModelMarketSection />}
-      {contactKind === 'scenes' && <SceneContacts scenes={scenes} agents={agents} reloadScenes={reloadScenes} />}
+      <PeopleContacts
+        searchQ={searchQ}
+        setSearchQ={setSearchQ}
+        searchResults={searchResults}
+        friends={friends}
+        friendRequests={friendRequests}
+        searchUsers={searchUsers}
+        sendFriendRequest={sendFriendRequest}
+        acceptFriendRequest={acceptFriendRequest}
+        rejectFriendRequest={rejectFriendRequest}
+        openDm={openDm}
+      />
     </section>
   )
 }
@@ -164,7 +118,7 @@ type AgentProps = Pick<ContactsSectionProps,
   'createAgentFromContacts' | 'resetAgentEditor' | 'openCreateAgent' | 'openEditAgent' | 'deleteAgentFromContacts'
 >
 
-function AgentContacts({ agents, showCreateAgent, editingAgentId, agentForm, setAgentForm, toggleAgentTool, createAgentFromContacts, resetAgentEditor, openCreateAgent, openEditAgent, deleteAgentFromContacts }: AgentProps) {
+export function AgentContacts({ agents, showCreateAgent, editingAgentId, agentForm, setAgentForm, toggleAgentTool, createAgentFromContacts, resetAgentEditor, openCreateAgent, openEditAgent, deleteAgentFromContacts }: AgentProps) {
   const [skills, setSkills] = useState<any[]>([])
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null)
   const [skillForm, setSkillForm] = useState({ name: '', description: '', content: '', enabled: true })
@@ -254,7 +208,7 @@ function AgentContacts({ agents, showCreateAgent, editingAgentId, agentForm, set
   )
 }
 
-function SceneContacts({ scenes, agents, reloadScenes }: { scenes: any[]; agents: any[]; reloadScenes: () => void }) {
+export function SceneContacts({ scenes, agents, reloadScenes }: { scenes: any[]; agents: any[]; reloadScenes: () => void }) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<{ name: string; description: string; agents: any[] }>({ name: '', description: '', agents: [] })
   const [selectedGlobalAgentId, setSelectedGlobalAgentId] = useState('')

@@ -2,8 +2,9 @@ import type { Dispatch, FormEvent, MouseEvent, SetStateAction } from 'react'
 import type { SwipeAction } from '../../components/SwipeActionItem'
 import type { AgentFormState, AgentToolKey } from '../home-agent-form'
 
-export type HomeTab = 'messages' | 'contacts' | 'billing' | 'settings'
-export type ContactKind = 'people' | 'agents' | 'models' | 'scenes'
+export type HomeTab = 'messages' | 'contacts' | 'market' | 'settings'
+export type ContactKind = 'people'
+export type MarketKind = 'agents' | 'models' | 'scenes' | 'billing'
 export type SelectedAgent = { agentId: string; autoEnabled: boolean }
 
 export type HeaderProps = {
@@ -66,6 +67,24 @@ export type ContactsSectionProps = {
   acceptFriendRequest: (requestId: string) => void
   rejectFriendRequest: (requestId: string) => void
   openDm: (friendId: string) => void
+  toggleAgentTool: (key: AgentToolKey) => void
+  createAgentFromContacts: () => void
+  openEditAgent: (agent: any) => void
+  deleteAgentFromContacts: (agent: any) => void
+}
+
+export type MarketSectionProps = {
+  marketKind: MarketKind
+  setMarketKind: (kind: MarketKind) => void
+  agents: any[]
+  scenes: any[]
+  reloadScenes: () => void
+  showCreateAgent: boolean
+  editingAgentId: string | null
+  agentForm: AgentFormState
+  setAgentForm: Dispatch<SetStateAction<AgentFormState>>
+  openCreateAgent: () => void
+  resetAgentEditor: () => void
   toggleAgentTool: (key: AgentToolKey) => void
   createAgentFromContacts: () => void
   openEditAgent: (agent: any) => void
