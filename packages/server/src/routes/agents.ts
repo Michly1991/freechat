@@ -11,6 +11,7 @@ import { creditWalletService } from '../services/credit-wallet.service.js'
 import { agentPackageService } from '../services/agent-package.service.js'
 import db from '../storage/db.js'
 import { agentPackageImportService } from '../services/agent-package-import.service.js'
+import { remoteAgentConnectorService } from '../services/remote-agent-connector.service.js'
 
 export async function registerAgentRoutes(app: FastifyInstance) {
   const isRoomCreator = (roomId: string, userId: string) => {
@@ -109,6 +110,32 @@ export async function registerAgentRoutes(app: FastifyInstance) {
       }
       throw err
     }
+  })
+
+  // POST /api/agents/:id/connectors/pairing-code - create short-lived remote connector pairing code
+  app.post('/api/agents/:id/connectors/pairing-code', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    await agentService.assertAgentOwner(id, user.id, user.role)
+    const result = await remoteAgentConnectorService.createPairingCode(id, user.id)
+    return reply.send({ success: true, data: result })
+  })
+
+  // GET /api/agents/:id/connectors - list remote connectors for an Agent
+  app.get('/api/agents/:id/connectors', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    await agentService.assertAgentOwner(id, user.id, user.role)
+    return reply.send({ success: true, data: { connectors: remoteAgentConnectorService.listConnectors(id, user.id) } })
+  })
+
+  // DELETE /api/agents/:id/connectors/:connectorId - revoke remote connector
+  app.delete('/api/agents/:id/connectors/:connectorId', async (request, reply) => {
+    const user = (request as any).user
+    const { id, connectorId } = request.params as any
+    await agentService.assertAgentOwner(id, user.id, user.role)
+    remoteAgentConnectorService.revokeConnector(id, user.id, connectorId)
+    return reply.send({ success: true })
   })
 
   // GET /api/agents/:id/detail - template/project agent detail with skills and scripts

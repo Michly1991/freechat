@@ -27,6 +27,7 @@ import { registerModelProfileRoutes } from './routes/model-profiles.js'
 import { registerBillingRoutes } from './routes/billing.js'
 import { registerBillingRuleRoutes } from './routes/billing-rules.js'
 import { registerMarketRoutes } from './routes/market.js'
+import { registerRemoteAgentRoutes } from './routes/remote-agents.js'
 import { authenticate } from './auth/middleware.js'
 import { initDatabase } from './storage/db.js'
 import { initWebSocket } from './ws/gateway.js'
@@ -93,7 +94,7 @@ async function buildApp() {
   app.addHook('preHandler', async (request, reply) => {
     const path = request.url.split('?')[0]
     const publicApiPaths = new Set(['/api/health', '/api/auth/register', '/api/auth/login'])
-    if (path.startsWith('/api/') && !publicApiPaths.has(path) && !path.startsWith('/api/agent-tools/')) {
+    if (path.startsWith('/api/') && !publicApiPaths.has(path) && !path.startsWith('/api/agent-tools/') && !path.startsWith('/api/remote-agents/')) {
       await authenticate(request, reply)
     }
   })
@@ -121,6 +122,7 @@ async function buildApp() {
   await registerBillingRoutes(app)
   await registerBillingRuleRoutes(app)
   await registerMarketRoutes(app)
+  await registerRemoteAgentRoutes(app)
   await registerAgentToolRoutes(app)
 
   // Error handler

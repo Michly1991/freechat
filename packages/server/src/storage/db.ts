@@ -7,6 +7,7 @@ import { ensureAgentGrowthSchema } from './agent-growth-schema.js'
 import { ensureNotificationSchema } from './notification-schema.js'
 import { ensureBillingSchema } from './billing-schema.js'
 import { ensureAgentAnalyticsSchema } from './agent-analytics-schema.js'
+import { ensureRemoteAgentSchema } from './remote-agent-schema.js'
 
 mkdirSync(dirname(config.database.path), { recursive: true })
 
@@ -590,6 +591,7 @@ export function initDatabase() {
   `)
 
   ensureAgentAnalyticsSchema(db)
+  ensureRemoteAgentSchema(db)
   ensureAgentDreamSchema(db)
   ensureAgentGrowthSchema(db)
 

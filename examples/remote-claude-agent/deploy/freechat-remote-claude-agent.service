@@ -1,0 +1,14 @@
+[Unit]
+Description=FreeChat Remote Claude Agent
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/freechat-remote-claude-agent
+Environment=FREECHAT_REMOTE_AGENT_HOME=/opt/freechat-remote-claude-agent/state
+ExecStart=/usr/bin/node dist/index.js connect
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -19,6 +19,7 @@ import { templatePermissionService } from './template-permission.service.js'
 import { tabFilesMapService } from './tab-files-map.service.js'
 import { agentGrowthService } from './agent-growth.service.js'
 import { agentPackageService } from './agent-package.service.js'
+import { remoteAgentConnectorService } from './remote-agent-connector.service.js'
 
 export interface AgentConfig {
   name: string
@@ -778,6 +779,11 @@ export class AgentService {
   }
 
   async spawnClaudeCode(roomId: string, agentId: string, message: string, options: { timeoutMs?: number; actorUserId?: string; onEvent?: (event: any) => void } & AgentRunContext = {}): Promise<{ response: string; silent: boolean }> {
+    const agent = await this.getAgent(agentId)
+    if (agent.deployment === 'client') {
+      remoteAgentConnectorService.enqueueRun(roomId, agentId, message, options)
+      return { response: '', silent: true }
+    }
     return this.runtime.spawnClaudeCode(
       roomId,
       agentId,

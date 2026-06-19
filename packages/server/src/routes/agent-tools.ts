@@ -25,6 +25,7 @@ import { agentStreamService } from '../services/agent-stream.service.js'
 import { roomAnalyticsService } from '../services/room-analytics.service.js'
 import { tabFilesMapService } from '../services/tab-files-map.service.js'
 import { notificationService } from '../services/notification.service.js'
+import { remoteAgentConnectorService } from '../services/remote-agent-connector.service.js'
 import { assertProjectFilePathAllowed, broadcast, buildFileTree, buildSubtaskWakePrompt, invokeAssignedAgent, resolveAgentAssignee, safeRelativePath, throwTabNotFound, validateTabIds } from './agent-tools.helpers.js'
 
 export async function registerAgentToolRoutes(app: FastifyInstance) {
@@ -32,10 +33,17 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
     const { roomId } = request.params as any
     const auth = request.headers.authorization || ''
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : ''
-    const verified = verifyAgentToolToken(roomId, token)
+    let verified = verifyAgentToolToken(roomId, token)
+    let remoteAuth: any = null
+    if (!verified.ok || !verified.agentId) {
+      remoteAuth = await remoteAgentConnectorService.authenticateBearer(request.headers.authorization)
+      if (remoteAuth) verified = { ok: true, agentId: remoteAuth.agentId, actorUserId: remoteAuth.ownerId }
+    }
     if (!verified.ok || !verified.agentId) {
       return reply.code(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: 'Invalid agent tool token' } })
     }
+    const roomAgent = db.prepare('SELECT 1 FROM room_agents WHERE room_id = ? AND agent_id = ?').get(roomId, verified.agentId)
+    if (!roomAgent) return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Agent is not in this room' } })
 
     const agent = await agentService.getAgent(verified.agentId)
     const actorUserId = verified.actorUserId || (db.prepare('SELECT created_by FROM rooms WHERE id = ?').get(roomId) as any)?.created_by || agent.ownerId || agent.id

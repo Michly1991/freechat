@@ -352,6 +352,7 @@ Detailed design documents are kept under `docs/design/`:
 - [Data Architecture / 数据架构](docs/design/ARCHITECTURE-DATA.md)
 - [Agent System / Agent 体系](docs/design/DESIGN-AGENT.md)
 - [Agent Runtime / Agent 运行时](docs/design/DESIGN-AGENT-RUNTIME.md)
+- [Remote Agent Connector / 远程 Agent 连接器](docs/design/DESIGN-REMOTE-AGENT-CONNECTOR.md)
 - [Agent Streaming / Agent 流式事件](docs/design/DESIGN-AGENT-STREAMING.md)
 - [Agent Collaboration / 多 Agent 协作](docs/design/DESIGN-AGENT-COLLABORATION.md)
 - [Agent Package Publishing / Agent 包发布](docs/design/DESIGN-AGENT-PACKAGE-PUBLISHING.md)
@@ -375,7 +376,7 @@ Ongoing work:
 
 - More complete production deployment guide.
 - Stronger marketplace packaging and review workflow.
-- More polished multi-agent collaboration UX.
+- More polished multi-agent and remote Agent collaboration UX.
 - Better notification preferences and possible PWA push support.
 - Performance optimization for large rooms, long histories, and heavy agent activity.
 - More complete billing audits and model-provider settlement flows.
