@@ -122,7 +122,7 @@ export async function registerProfileRoutes(app: FastifyInstance) {
 
     try {
       const row = db.prepare(`
-        SELECT id, username, nickname, avatar, role, created_at
+        SELECT id, username, nickname, avatar, role, identity_type, created_at
         FROM users WHERE id = ?
       `).get(userId) as any
 
@@ -142,6 +142,7 @@ export async function registerProfileRoutes(app: FastifyInstance) {
             nickname: row.nickname,
             avatar: row.avatar,
             role: row.role,
+            identityType: row.identity_type || 'human',
             createdAt: row.created_at,
           }
         }
@@ -165,7 +166,7 @@ export async function registerProfileRoutes(app: FastifyInstance) {
 
     try {
       const rows = db.prepare(`
-        SELECT id, username, nickname, avatar, role, created_at
+        SELECT id, username, nickname, avatar, role, identity_type, created_at
         FROM users
         WHERE username LIKE ? OR nickname LIKE ?
         ORDER BY username ASC
@@ -178,6 +179,7 @@ export async function registerProfileRoutes(app: FastifyInstance) {
         nickname: row.nickname,
         avatar: row.avatar,
         role: row.role,
+        identityType: row.identity_type || 'human',
         createdAt: row.created_at,
         friendStatus: getFriendStatus(user.id, row.id),
       }))

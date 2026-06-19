@@ -1,10 +1,26 @@
 import db from '../storage/db.js'
 import { hashPassword, verifyPassword, generateToken } from '../auth/jwt.js'
 import { v4 as uuidv4 } from 'uuid'
-import type { User, AuthResponse } from '@freechat/shared'
+import type { User, AuthResponse, UserIdentityType } from '@freechat/shared'
+
+function normalizeIdentityType(value: unknown): UserIdentityType {
+  return value === 'agent' ? 'agent' : 'human'
+}
+
+function mapUser(row: any): User {
+  return {
+    id: row.id,
+    username: row.username,
+    nickname: row.nickname,
+    avatar: row.avatar,
+    role: row.role,
+    identityType: normalizeIdentityType(row.identity_type),
+    createdAt: row.created_at
+  }
+}
 
 export class AuthService {
-  async register(username: string, password: string, nickname: string): Promise<AuthResponse> {
+  async register(username: string, password: string, nickname: string, identityType: UserIdentityType = 'human'): Promise<AuthResponse> {
     // Check if username exists
     const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username)
     if (existing) {
@@ -16,11 +32,11 @@ export class AuthService {
     const now = Date.now()
 
     db.prepare(`
-      INSERT INTO users (id, username, password_hash, nickname, role, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 'user', ?, ?)
-    `).run(id, username, passwordHash, nickname, now, now)
+      INSERT INTO users (id, username, password_hash, nickname, role, identity_type, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'user', ?, ?, ?)
+    `).run(id, username, passwordHash, nickname, normalizeIdentityType(identityType), now, now)
 
-    const user: User = { id, username, nickname, role: 'user', createdAt: now }
+    const user: User = { id, username, nickname, role: 'user', identityType: normalizeIdentityType(identityType), createdAt: now }
     const token = generateToken(user)
 
     return { user, token }
@@ -37,14 +53,7 @@ export class AuthService {
       throw { code: 'INVALID_PASSWORD', message: 'Invalid username or password' }
     }
 
-    const user: User = {
-      id: row.id,
-      username: row.username,
-      nickname: row.nickname,
-      avatar: row.avatar,
-      role: row.role,
-      createdAt: row.created_at
-    }
+    const user = mapUser(row)
     const token = generateToken(user)
 
     return { user, token }
@@ -56,14 +65,7 @@ export class AuthService {
       throw { code: 'NOT_FOUND', message: 'User not found' }
     }
 
-    return {
-      id: row.id,
-      username: row.username,
-      nickname: row.nickname,
-      avatar: row.avatar,
-      role: row.role,
-      createdAt: row.created_at
-    }
+    return mapUser(row)
   }
 
   async updateProfile(userId: string, nickname?: string, avatar?: string): Promise<User> {

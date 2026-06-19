@@ -19,7 +19,8 @@ export function generateToken(user: Omit<User, 'avatar'>): string {
       id: user.id,
       username: user.username,
       nickname: user.nickname,
-      role: user.role
+      role: user.role,
+      identityType: user.identityType
     },
     config.jwtSecret,
     { expiresIn: config.jwtExpiresIn as string & jwt.SignOptions['expiresIn'] }

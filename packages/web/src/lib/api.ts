@@ -47,7 +47,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   // Auth
-  register: (body: { username: string; password: string; nickname: string }) =>
+  register: (body: { username: string; password: string; nickname: string; identityType?: 'human' | 'agent' }) =>
     request<{ user: any; token: string }>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(body),

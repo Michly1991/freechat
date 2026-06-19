@@ -22,6 +22,7 @@ export function createRoomProfileController({ members, roomAgents, setSelectedPr
         subtitle: target.username ? `@${target.username}` : '项目成员',
         status: '在线',
         roomRole: target.role,
+        identityType: target.identityType || target.type,
       })
     } else {
       setSelectedProfile({

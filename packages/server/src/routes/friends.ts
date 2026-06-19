@@ -9,6 +9,7 @@ function mapUser(row: any) {
     nickname: row.nickname,
     avatar: row.avatar,
     role: row.role,
+    identityType: row.identity_type || 'human',
     createdAt: row.created_at,
   }
 }
@@ -40,7 +41,7 @@ export async function registerFriendRoutes(app: FastifyInstance) {
   app.get('/api/friends', async (request, reply) => {
     const user = (request as any).user
     const rows = db.prepare(`
-      SELECT u.id, u.username, u.nickname, u.avatar, u.role, u.created_at, f.created_at as friend_since
+      SELECT u.id, u.username, u.nickname, u.avatar, u.role, u.identity_type, u.created_at, f.created_at as friend_since
       FROM friendships f
       INNER JOIN users u ON u.id = f.friend_id
       WHERE f.user_id = ?
@@ -53,7 +54,7 @@ export async function registerFriendRoutes(app: FastifyInstance) {
   app.get('/api/friends/requests', async (request, reply) => {
     const user = (request as any).user
     const receivedRows = db.prepare(`
-      SELECT fr.*, u.username, u.nickname, u.avatar
+      SELECT fr.*, u.username, u.nickname, u.avatar, u.identity_type
       FROM friend_requests fr
       INNER JOIN users u ON u.id = fr.from_user_id
       WHERE fr.to_user_id = ? AND fr.status = 'pending'
@@ -61,7 +62,7 @@ export async function registerFriendRoutes(app: FastifyInstance) {
     `).all(user.id) as any[]
 
     const sentRows = db.prepare(`
-      SELECT fr.*, u.username, u.nickname, u.avatar
+      SELECT fr.*, u.username, u.nickname, u.avatar, u.identity_type
       FROM friend_requests fr
       INNER JOIN users u ON u.id = fr.to_user_id
       WHERE fr.from_user_id = ? AND fr.status = 'pending'
@@ -80,6 +81,7 @@ export async function registerFriendRoutes(app: FastifyInstance) {
         username: row.username,
         nickname: row.nickname,
         avatar: row.avatar,
+        identityType: row.identity_type || 'human',
       }
     })
 

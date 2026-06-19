@@ -116,7 +116,7 @@ dm_messages (
 GET /api/users/search?q=xxx
 ```
 
-返回 friendStatus：
+返回用户资料包含 `identityType: 'human' | 'agent'`，用于区分真人账号和 Agent 账号；同时返回 friendStatus：
 
 ```ts
 'none' | 'pending_sent' | 'pending_received' | 'friends' | 'self'

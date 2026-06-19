@@ -7,6 +7,7 @@ interface User {
   nickname: string
   avatar?: string
   role: string
+  identityType?: 'human' | 'agent'
 }
 
 interface AuthState {

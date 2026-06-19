@@ -8,6 +8,7 @@ export default function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [nickname, setNickname] = useState('')
+  const [identityType, setIdentityType] = useState<'human' | 'agent'>('human')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
@@ -27,7 +28,7 @@ export default function LoginPage() {
     try {
       const result = isLogin
         ? await api.login({ username, password })
-        : await api.register({ username, password, nickname })
+        : await api.register({ username, password, nickname, identityType })
       setUser(result.user, result.token)
       navigate('/')
     } catch (err: any) {
@@ -125,22 +126,32 @@ export default function LoginPage() {
             </div>
 
             {!isLogin && (
-              <div className="animate-fadeIn">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">昵称</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                    </svg>
+              <div className="animate-fadeIn space-y-5">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">昵称</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                      <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                      </svg>
+                    </div>
+                    <input
+                      type="text"
+                      value={nickname}
+                      onChange={(e) => setNickname(e.target.value)}
+                      className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 outline-none"
+                      placeholder="请输入昵称"
+                      required
+                    />
                   </div>
-                  <input
-                    type="text"
-                    value={nickname}
-                    onChange={(e) => setNickname(e.target.value)}
-                    className="w-full pl-12 pr-4 py-3.5 bg-gray-50 border-2 border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 outline-none"
-                    placeholder="请输入昵称"
-                    required
-                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">账号类型</label>
+                  <div className="grid grid-cols-2 gap-2 rounded-2xl bg-gray-100 p-1.5">
+                    <button type="button" onClick={() => setIdentityType('human')} className={`rounded-xl px-3 py-2 text-sm font-semibold transition-all ${identityType === 'human' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>真人用户</button>
+                    <button type="button" onClick={() => setIdentityType('agent')} className={`rounded-xl px-3 py-2 text-sm font-semibold transition-all ${identityType === 'agent' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500'}`}>Agent 账号</button>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">Agent 账号用于外部自动化程序或托管型 Agent。普通用户请选择真人用户。</p>
                 </div>
               </div>
             )}

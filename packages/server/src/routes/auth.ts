@@ -7,7 +7,7 @@ import { join } from 'path'
 export async function registerAuthRoutes(app: FastifyInstance) {
   // Register
   app.post('/api/auth/register', async (request, reply) => {
-    const { username, password, nickname } = request.body as any
+    const { username, password, nickname, identityType } = request.body as any
 
     if (!username || !password || !nickname) {
       return reply.code(400).send({
@@ -17,7 +17,13 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     }
 
     try {
-      const result = await authService.register(username, password, nickname)
+      if (identityType !== undefined && identityType !== 'human' && identityType !== 'agent') {
+        return reply.code(400).send({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'identityType must be human or agent' }
+        })
+      }
+      const result = await authService.register(username, password, nickname, identityType)
       return reply.send({ success: true, data: result })
     } catch (err: any) {
       if (err.code === 'USERNAME_TAKEN') {

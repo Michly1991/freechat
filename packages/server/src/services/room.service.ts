@@ -13,6 +13,11 @@ interface InitialRoomAgent {
   priority?: number
 }
 
+function getUserIdentityType(userId: string): 'human' | 'agent' {
+  const row = db.prepare('SELECT identity_type FROM users WHERE id = ?').get(userId) as any
+  return row?.identity_type === 'agent' ? 'agent' : 'human'
+}
+
 export class RoomService {
   async createRoom(name: string, description: string | null, userId: string, initialMemberIds: string[] = [], initialAgents: InitialRoomAgent[] = [], options: { skipDefaultAssistant?: boolean } = {}): Promise<Room> {
     const id = `room_${uuidv4()}`
@@ -54,15 +59,15 @@ export class RoomService {
 
       // Add creator as owner
       db.prepare(`
-        INSERT INTO room_members (room_id, user_id, role, joined_at)
-        VALUES (?, ?, 'owner', ?)
-      `).run(id, userId, now)
+        INSERT INTO room_members (room_id, user_id, role, type, joined_at)
+        VALUES (?, ?, 'owner', ?, ?)
+      `).run(id, userId, getUserIdentityType(userId), now)
 
       for (const memberId of initialMemberIds) {
         db.prepare(`
-          INSERT OR IGNORE INTO room_members (room_id, user_id, role, joined_at)
-          VALUES (?, ?, 'editor', ?)
-        `).run(id, memberId, now)
+          INSERT OR IGNORE INTO room_members (room_id, user_id, role, type, joined_at)
+          VALUES (?, ?, 'editor', ?, ?)
+        `).run(id, memberId, getUserIdentityType(memberId), now)
       }
 
       if (shouldCreateDefaultAssistant) {
@@ -191,7 +196,7 @@ export class RoomService {
 
   async getRoomMembers(roomId: string): Promise<RoomMember[]> {
     const rows: any[] = db.prepare(`
-      SELECT rm.*, u.username, u.nickname, u.avatar
+      SELECT rm.*, u.username, u.nickname, u.avatar, u.identity_type
       FROM room_members rm
       INNER JOIN users u ON rm.user_id = u.id
       WHERE rm.room_id = ?
@@ -203,7 +208,8 @@ export class RoomService {
       nickname: row.nickname,
       avatar: row.avatar,
       role: row.role,
-      type: row.type || 'human',
+      type: row.type || row.identity_type || 'human',
+      identityType: row.identity_type || row.type || 'human',
       joinedAt: row.joined_at
     }))
   }
@@ -211,9 +217,9 @@ export class RoomService {
   async addMember(roomId: string, userId: string, role: string = 'editor'): Promise<void> {
     const now = Date.now()
     db.prepare(`
-      INSERT OR REPLACE INTO room_members (room_id, user_id, role, joined_at)
-      VALUES (?, ?, ?, ?)
-    `).run(roomId, userId, role, now)
+      INSERT OR REPLACE INTO room_members (room_id, user_id, role, type, joined_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(roomId, userId, role, getUserIdentityType(userId), now)
   }
 
   async removeMember(roomId: string, userId: string): Promise<void> {

@@ -1,5 +1,10 @@
 import type { AddFriendModalProps, CreateRoomModalProps, JoinRoomModalProps } from './types'
 
+function IdentityBadge({ identityType }: { identityType?: string }) {
+  const isAgent = identityType === 'agent'
+  return <span className={`inline-flex shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${isAgent ? 'bg-violet-50 text-violet-600' : 'bg-gray-100 text-gray-500'}`}>{isAgent ? 'Agent' : '真人'}</span>
+}
+
 export function JoinRoomModal({ show, inviteCode, joining, setInviteCode, setShowJoin, handleJoinRoom }: JoinRoomModalProps) {
   if (!show) return null
   return (
@@ -39,7 +44,7 @@ export function AddFriendModal({ show, searchQ, searchResults, setSearchQ, setSh
               <div className="flex items-center gap-3 min-w-0">
                 {u.avatar ? <img src={u.avatar} className="w-9 h-9 rounded-full object-cover" /> : <span className="w-9 h-9 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm">{(u.nickname || u.username || '?')[0].toUpperCase()}</span>}
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-800 truncate">{u.nickname || u.username}</p>
+                  <p className="flex items-center gap-1 text-sm font-medium text-gray-800"><span className="truncate">{u.nickname || u.username}</span><IdentityBadge identityType={u.identityType} /></p>
                   <p className="text-xs text-gray-400 truncate">@{u.username}</p>
                 </div>
               </div>

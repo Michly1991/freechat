@@ -14,6 +14,7 @@ CREATE TABLE users (
   nickname TEXT NOT NULL,       -- 显示昵称
   avatar TEXT,                  -- 头像 URL
   role TEXT NOT NULL DEFAULT 'user',  -- user | admin
+  identity_type TEXT DEFAULT 'human', -- human | agent；账号身份性质，不等同权限 role
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );

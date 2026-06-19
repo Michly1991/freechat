@@ -1,12 +1,15 @@
 // Shared type definitions for FreeChat
 
 // === User & Agent Types ===
+export type UserIdentityType = 'human' | 'agent'
+
 export interface User {
   id: string
   username: string
   nickname: string
   avatar?: string
   role: 'user' | 'admin'
+  identityType: UserIdentityType
   createdAt: number
 }
 
@@ -165,7 +168,8 @@ export interface RoomMember {
   nickname: string
   avatar?: string
   role: 'owner' | 'editor' | 'viewer'
-  type: 'human' | 'agent'
+  type: UserIdentityType
+  identityType?: UserIdentityType
   joinedAt: number
 }
 

@@ -6,6 +6,11 @@ import type { ContactsSectionProps } from './types'
 import { AgentConfigEditor } from '../room/components/AgentConfigEditor'
 import { TemplatePermissionPanel } from '../room/components/TemplatePermissionPanel'
 
+function IdentityBadge({ identityType }: { identityType?: string }) {
+  const isAgent = identityType === 'agent'
+  return <span className={`inline-flex shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${isAgent ? 'bg-violet-50 text-violet-600' : 'bg-gray-100 text-gray-500'}`}>{isAgent ? 'Agent' : '真人'}</span>
+}
+
 export function ContactsSection(props: ContactsSectionProps) {
   const {
     contactKind,
@@ -92,7 +97,7 @@ function PeopleContacts({ searchQ, setSearchQ, searchResults, friends, friendReq
             <div key={u.id} className="flex items-center justify-between p-2 rounded-lg bg-gray-50">
               <div className="flex items-center gap-2">
                 {u.avatar ? <img src={u.avatar} className="w-8 h-8 rounded-full object-cover" /> : <span className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs">{(u.nickname || u.username || '?')[0].toUpperCase()}</span>}
-                <span className="text-sm font-medium">{u.nickname || u.username}</span>
+                <span className="flex items-center gap-1 text-sm font-medium min-w-0"><span className="truncate">{u.nickname || u.username}</span><IdentityBadge identityType={u.identityType} /></span>
                 <span className="text-xs text-gray-400">@{u.username}</span>
               </div>
               {u.friendStatus === 'none' && <button onClick={() => sendFriendRequest(u.id)} className="text-xs text-blue-600 hover:text-blue-700">加好友</button>}
@@ -125,7 +130,7 @@ function PeopleContacts({ searchQ, setSearchQ, searchResults, friends, friendReq
           <div key={f.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100">
             <div className="flex items-center gap-2 min-w-0">
               {f.avatar ? <img src={f.avatar} className="w-9 h-9 rounded-full object-cover" /> : <span className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 text-white flex items-center justify-center text-sm">{(f.nickname || f.username || '?')[0].toUpperCase()}</span>}
-              <div className="min-w-0"><p className="text-sm font-medium truncate">{f.nickname || f.username}</p><p className="text-xs text-gray-400 truncate">@{f.username}</p></div>
+              <div className="min-w-0"><p className="flex items-center gap-1 text-sm font-medium"><span className="truncate">{f.nickname || f.username}</span><IdentityBadge identityType={f.identityType} /></p><p className="text-xs text-gray-400 truncate">@{f.username}</p></div>
             </div>
             <button onClick={() => openDm(f.id)} className="text-xs text-blue-600 hover:text-blue-700">发消息</button>
           </div>

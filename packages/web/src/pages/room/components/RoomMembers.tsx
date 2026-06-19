@@ -38,6 +38,11 @@ function MemberRoleBadge({ role, compact = false }: { role?: RoomMemberRole; com
   </span>
 }
 
+function IdentityBadge({ identityType, compact = false }: { identityType?: string; compact?: boolean }) {
+  const isAgent = identityType === 'agent'
+  return <span className={`inline-flex shrink-0 rounded-full px-1.5 py-0.5 ${compact ? 'text-[10px]' : 'text-[11px]'} font-medium ${isAgent ? 'bg-violet-50 text-violet-600' : 'bg-gray-100 text-gray-500'}`}>{isAgent ? 'Agent' : '真人'}</span>
+}
+
 function AddContactMembers({ roomId, members, feedback, onMembersChanged, compact = false }: any) {
   const [open, setOpen] = useState(false)
   const [friends, setFriends] = useState<any[]>([])
@@ -75,7 +80,7 @@ function AddContactMembers({ roomId, members, feedback, onMembersChanged, compac
         return <div key={friendId} className="flex items-center justify-between gap-2 rounded-lg bg-white border border-gray-100 p-2">
           <div className="flex items-center gap-2 min-w-0">
             {friend.avatar ? <img src={friend.avatar} alt="头像" className="w-8 h-8 rounded-full object-cover border border-gray-200" /> : <span className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xs font-semibold">{(friend.nickname || friend.username || '?')[0].toUpperCase()}</span>}
-            <div className="min-w-0"><p className="text-sm font-medium text-gray-800 truncate">{friend.nickname || friend.username || '未命名用户'}</p>{friend.username && <p className="text-xs text-gray-400 truncate">@{friend.username}</p>}</div>
+            <div className="min-w-0"><p className="flex items-center gap-1 text-sm font-medium text-gray-800"><span className="truncate">{friend.nickname || friend.username || '未命名用户'}</span><IdentityBadge identityType={friend.identityType} compact /></p>{friend.username && <p className="text-xs text-gray-400 truncate">@{friend.username}</p>}</div>
           </div>
           {already ? <span className="text-xs text-gray-400 shrink-0">已在项目</span> : <button onClick={() => addMember(friendId)} className="text-xs text-blue-600 hover:text-blue-700 shrink-0">添加</button>}
         </div>
@@ -144,6 +149,7 @@ function MemberListItem({ member, room, openMemberProfile, mobile = false }: any
     <div className="flex-1 min-w-0">
       <div className="flex items-center gap-1.5 min-w-0">
         <p className={`${mobile ? 'font-medium' : 'text-sm font-medium'} text-gray-800 truncate`}>{getMemberDisplayName(member)}</p>
+        <IdentityBadge identityType={member.identityType || member.type} compact={!mobile} />
         <MemberRoleBadge role={member.role} compact={!mobile} />
         {isPayer && <span className={`inline-flex shrink-0 items-center rounded-full border border-blue-100 bg-blue-50 px-1.5 py-0.5 ${mobile ? 'text-[11px]' : 'text-[10px]'} font-medium text-blue-600`}>付费人</span>}
       </div>
@@ -212,6 +218,7 @@ export function ProfileModal({ selectedProfile, setSelectedProfile, restartAgent
       <div className="space-y-2 text-sm">
         <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2"><span className="text-gray-500">类型</span><span className="font-medium text-gray-700 inline-flex items-center gap-1">{selectedProfile.kind === 'agent' ? <Bot className="w-4 h-4" /> : <UserRound className="w-4 h-4" />}{selectedProfile.kind === 'agent' ? 'AI Agent' : '项目成员'}</span></div>
         <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2"><span className="text-gray-500">状态</span><span className="font-medium text-gray-700 inline-flex items-center gap-1.5">{selectedProfile.kind === 'agent' && <span className={`w-2 h-2 rounded-full ${getAgentStatusDotClass(selectedProfile)}`}></span>}{selectedProfile.status}</span></div>
+        {selectedProfile.kind === 'member' && <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2"><span className="text-gray-500">身份</span><IdentityBadge identityType={selectedProfile.identityType || selectedProfile.type} /></div>}
         {selectedProfile.kind === 'member' && <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2"><span className="text-gray-500">房间角色</span><MemberRoleBadge role={selectedProfile.roomRole} /></div>}
         {selectedProfile.kind === 'agent' && <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2"><span className="text-gray-500">角色</span><span className="font-medium text-gray-700 inline-flex items-center gap-1">{selectedProfile.roleType === 'assistant' ? <ShieldCheck className="w-4 h-4" /> : <Wrench className="w-4 h-4" />}{selectedProfile.roleType === 'assistant' ? '助理' : '专家'}</span></div>}
         {selectedProfile.specialties?.length > 0 && <div className="flex flex-wrap gap-1.5 pt-1">{selectedProfile.specialties.map((s: string) => <span key={s} className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full">{s}</span>)}</div>}
