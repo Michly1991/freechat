@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import { sceneTemplateService } from '../services/scene-template.service.js'
 import { templatePermissionService } from '../services/template-permission.service.js'
+import { marketEngagementService } from '../services/market-engagement.service.js'
 
 export async function registerSceneRoutes(app: FastifyInstance) {
   app.get('/api/scenes', async (request, reply) => {
@@ -66,6 +67,22 @@ export async function registerSceneRoutes(app: FastifyInstance) {
     return reply.send({ success: true, data: { request: requestRow } })
   })
 
+  app.post('/api/scenes/:id/purchase', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    try {
+      const body = request.body as any
+      const result = marketEngagementService.purchaseScene(user, id, body?.confirmed === true)
+      const scene = sceneTemplateService.hydrateScene(sceneTemplateService.getSceneRecord(id), user)
+      return reply.send({ success: true, data: { ...result, scene } })
+    } catch (err: any) {
+      if (err.code === 'SCENE_NOT_FOUND') return reply.code(404).send({ success: false, error: err })
+      if (err.code === 'PURCHASE_CONFIRMATION_REQUIRED') return reply.code(409).send({ success: false, error: { code: err.code, message: err.message, priceCredits: err.priceCredits } })
+      if (err.code === 'INSUFFICIENT_CREDITS') return reply.code(402).send({ success: false, error: err })
+      throw err
+    }
+  })
+
   app.put('/api/scenes/:id/billing-rule', async (request, reply) => {
     const user = (request as any).user
     const { id } = request.params as any
@@ -90,6 +107,7 @@ export async function registerSceneRoutes(app: FastifyInstance) {
       description: body.description,
       icon: body.icon,
       agents: body.agents,
+      marketListed: body.marketListed,
     })
     return reply.send({ success: true, data: { scene } })
   })

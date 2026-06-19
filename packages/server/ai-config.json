@@ -4,14 +4,28 @@
       "name": "通义千问 (阿里云百炼)",
       "baseUrl": "https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic",
       "apiKeyHeader": "x-api-key",
-      "models": ["qwen3.7-max"],
+      "models": [
+        "qwen3.7-max"
+      ],
       "defaultModel": "qwen3.7-max",
+      "authType": "header",
+      "enabled": true
+    },
+    "doubao": {
+      "name": "豆包 Seed 2.0 Code（火山方舟）",
+      "baseUrl": "https://ark.cn-beijing.volces.com/api/coding",
+      "apiKeyHeader": "x-api-key",
+      "models": [
+        "doubao-seed-2.0-code"
+      ],
+      "defaultModel": "doubao-seed-2.0-code",
       "authType": "header",
       "enabled": true
     }
   },
-  "currentProvider": "qwen",
+  "currentProvider": "doubao",
   "apiKeys": {
-    "qwen": "sk-sp-D.IRLHY.OhNg.MEYCIQDG80kFRrKbdNsfouLhfDNJre0ANAVHPD6M8cMsyL9KUAIhAIgpNX+DQviAeadsBI12vuOS3UhPD0/ptcLhgzWvWnN7"
+    "qwen": "sk-sp-D.IRLHY.OhNg.MEYCIQDG80kFRrKbdNsfouLhfDNJre0ANAVHPD6M8cMsyL9KUAIhAIgpNX+DQviAeadsBI12vuOS3UhPD0/ptcLhgzWvWnN7",
+    "doubao": "ark-140165b1-e0bd-409c-b81b-294de08f030e-3c87a"
   }
 }

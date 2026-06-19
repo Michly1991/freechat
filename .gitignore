@@ -6,3 +6,10 @@ data
 workspace-data
 .DS_Store
 .freechat
+.openclaw/
+AGENTS.md
+SOUL.md
+IDENTITY.md
+USER.md
+TOOLS.md
+HEARTBEAT.md

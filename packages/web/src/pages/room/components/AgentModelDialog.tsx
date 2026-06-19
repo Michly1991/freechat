@@ -6,7 +6,7 @@ export function AgentModelDialog({ roomId, agent, onClose, onSaved, feedback }: 
   const [saving, setSaving] = useState(false)
   const cfg = agent?.roomModelConfig || {}
   const [form, setForm] = useState<any>({ modelProfileId: cfg.modelProfileId || '', model: cfg.model || '', runtime: cfg.runtime || 'claude-code', maxTokens: cfg.maxTokens || 4096, temperature: cfg.temperature ?? '' })
-  useEffect(() => { api.getModelProfiles().then((data) => setProfiles(data.profiles || [])).catch(() => setProfiles([])) }, [])
+  useEffect(() => { api.getModelProfiles().then((data) => setProfiles((data.profiles || []).filter((p: any) => p.canUse))).catch(() => setProfiles([])) }, [])
   if (!agent) return null
   const selectedProfile = profiles.find((p) => p.id === form.modelProfileId)
   const modelOptions = selectedProfile?.models || []

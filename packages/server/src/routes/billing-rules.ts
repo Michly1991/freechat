@@ -1,22 +1,18 @@
 import { FastifyInstance } from 'fastify'
 import { agentService } from '../services/agent.service.js'
 import { billingRuleRepository } from '../domains/billing/billing-rule.repository.js'
-
-function intValue(value: any): number {
-  const n = Number(value || 0)
-  return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0
-}
+import { microToCredit, nonNegativeCreditToMicro } from '../domains/billing/money.js'
 
 function rowToModelRule(row: any) {
   return {
     id: row.id,
     modelProfileId: row.model_profile_id,
     model: row.model,
-    inputCreditPerMillion: intValue(row.input_credit_per_million),
-    outputCreditPerMillion: intValue(row.output_credit_per_million),
-    cacheWriteCreditPerMillion: intValue(row.cache_write_credit_per_million),
-    cacheReadCreditPerMillion: intValue(row.cache_read_credit_per_million),
-    minCreditsPerRun: intValue(row.min_credits_per_run),
+    inputCreditPerMillion: microToCredit(row.input_credit_per_million),
+    outputCreditPerMillion: microToCredit(row.output_credit_per_million),
+    cacheWriteCreditPerMillion: microToCredit(row.cache_write_credit_per_million),
+    cacheReadCreditPerMillion: microToCredit(row.cache_read_credit_per_million),
+    minCreditsPerRun: microToCredit(row.min_credits_per_run),
     enabled: !!row.enabled,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -27,13 +23,11 @@ function rowToAgentRule(row: any) {
   return {
     id: row.id,
     agentTemplateId: row.agent_template_id,
-    billingMode: row.billing_mode,
-    tokenMultiplier: Number(row.token_multiplier || 0),
-    fixedCreditsPerRun: intValue(row.fixed_credits_per_run),
-    inputCreditPerMillion: intValue(row.input_credit_per_million),
-    outputCreditPerMillion: intValue(row.output_credit_per_million),
-    cacheWriteCreditPerMillion: intValue(row.cache_write_credit_per_million),
-    cacheReadCreditPerMillion: intValue(row.cache_read_credit_per_million),
+    billingMode: row.billing_mode === 'free' ? 'free' : 'per_token',
+    inputCreditPerMillion: microToCredit(row.input_credit_per_million),
+    outputCreditPerMillion: microToCredit(row.output_credit_per_million),
+    cacheWriteCreditPerMillion: microToCredit(row.cache_write_credit_per_million),
+    cacheReadCreditPerMillion: microToCredit(row.cache_read_credit_per_million),
     revenueShareRate: Number(row.revenue_share_rate ?? 1),
     enabled: !!row.enabled,
     createdAt: row.created_at,
@@ -67,7 +61,7 @@ export async function registerBillingRuleRoutes(app: FastifyInstance) {
     if (!String(model || '').trim()) return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'model is required' } })
     try {
       await assertModelProfileOwner(id, user)
-      const rule = rowToModelRule(billingRuleRepository.upsertModelRule(id, model, body, intValue))
+      const rule = rowToModelRule(billingRuleRepository.upsertModelRule(id, model, body, nonNegativeCreditToMicro))
       return reply.send({ success: true, data: { rule } })
     } catch (err: any) {
       if (err.code === 'MODEL_PROFILE_NOT_FOUND') return reply.code(404).send({ success: false, error: err })
@@ -88,7 +82,7 @@ export async function registerBillingRuleRoutes(app: FastifyInstance) {
     const { id } = request.params as any
     const body = request.body as any
     await agentService.assertAgentOwner(id, user.id, user.role)
-    const rule = rowToAgentRule(billingRuleRepository.upsertAgentRule(id, body, intValue))
+    const rule = rowToAgentRule(billingRuleRepository.upsertAgentRule(id, body, nonNegativeCreditToMicro))
     return reply.send({ success: true, data: { rule } })
   })
 }

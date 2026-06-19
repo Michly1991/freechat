@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { FileText, Folder, Upload } from 'lucide-react'
+import { FileText, Folder, Trash2, Upload } from 'lucide-react'
 import type { FileNode } from '../../room-page-model'
 
 interface RoomFilesPanelProps {
@@ -29,7 +29,7 @@ export function RoomFilesPanel({ files, currentFile, setCurrentFile, fileDirty, 
           <div className={`flex items-center gap-2 px-2 py-1 rounded cursor-pointer hover:bg-blue-50 ${currentFile?.path === node.path ? 'bg-blue-100' : ''}`} onClick={() => node.type === 'directory' ? null : openFile(node)}>
             <span className="text-sm text-gray-500">{node.type === 'directory' ? <Folder className="w-4 h-4" /> : <FileText className="w-4 h-4" />}</span>
             <span className="min-w-0 text-sm flex-1 truncate" title={node.path}>{node.name}</span>
-            {node.type === 'file' && <button onClick={(e) => { e.stopPropagation(); if (window.confirm(`确定删除文件“${node.path}”？`)) deleteFile(node.path) }} className="min-w-8 min-h-8 rounded text-xs text-red-400 hover:bg-red-50 hover:text-red-600">×</button>}
+            {node.type === 'file' && <button onClick={(e) => { e.stopPropagation(); if (window.confirm(`确定删除文件“${node.path}”？`)) deleteFile(node.path) }} className="min-w-8 min-h-8 rounded text-xs text-red-400 hover:bg-red-50 hover:text-red-600" title="删除"><Trash2 className="mx-auto w-4 h-4" /></button>}
           </div>
           {node.type === 'directory' && node.children && renderFileTree(node.children, depth + 1)}
         </div>

@@ -26,7 +26,7 @@ class AgentDreamSchedulerService {
     try {
       const dreams = agentDreamService.runDreams({ dryRun: !config.agentDream.autoApplySafeFixes })
       this.lastRunKey = key
-      console.log(`✓ Agent dream review completed: ${dreams.length} dreams`)
+      console.log(`Agent dream review completed: ${dreams.length} dreams`)
     } catch (err) {
       console.error('Agent dream review failed:', err)
     }

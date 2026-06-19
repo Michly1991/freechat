@@ -1,5 +1,194 @@
 import type Database from 'better-sqlite3'
 
+const MICROCREDITS_PER_CREDIT = 10000
+const MICROCREDIT_MIGRATION_KEY = 'billing_amount_unit'
+const MICROCREDIT_MIGRATION_VALUE = 'microcredit_10000'
+
+function ensureBillingLedgerRetentionForeignKeys(db: Database.Database) {
+  const table = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'billing_ledger_entries'").get()
+  if (!table) return
+
+  const foreignKeys = db.prepare('PRAGMA foreign_key_list(billing_ledger_entries)').all() as any[]
+  const cascades = foreignKeys.some((fk) => ['usage_event_id', 'run_id'].includes(fk.from) && fk.on_delete === 'CASCADE')
+  const cols = db.prepare('PRAGMA table_info(billing_ledger_entries)').all() as any[]
+  const hasRequiredRuntimeRefs = cols.some((col) => col.name === 'usage_event_id' && col.notnull) || cols.some((col) => col.name === 'run_id' && col.notnull)
+  if (!cascades && !hasRequiredRuntimeRefs) return
+
+  db.pragma('foreign_keys = OFF')
+  try {
+    db.exec('ALTER TABLE billing_ledger_entries RENAME TO billing_ledger_entries_legacy')
+    db.exec(`
+      CREATE TABLE billing_ledger_entries (
+        id TEXT PRIMARY KEY,
+        usage_event_id TEXT,
+        run_id TEXT,
+        account_user_id TEXT NOT NULL,
+        account_role TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        entry_type TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        currency TEXT DEFAULT 'CREDIT',
+        room_id TEXT,
+        agent_id TEXT,
+        agent_template_id TEXT,
+        model_profile_id TEXT,
+        model TEXT,
+        token_snapshot_json TEXT,
+        rule_snapshot_json TEXT,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (usage_event_id) REFERENCES metered_usage_events(id) ON DELETE SET NULL,
+        FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE SET NULL
+      )
+    `)
+    db.exec(`
+      INSERT INTO billing_ledger_entries (
+        id, usage_event_id, run_id, account_user_id, account_role, direction, entry_type, amount, currency,
+        room_id, agent_id, agent_template_id, model_profile_id, model, token_snapshot_json, rule_snapshot_json, created_at
+      )
+      SELECT id, usage_event_id, run_id, account_user_id, account_role, direction, entry_type, amount, currency,
+        room_id, agent_id, agent_template_id, model_profile_id, model, token_snapshot_json, rule_snapshot_json, created_at
+      FROM billing_ledger_entries_legacy
+    `)
+    db.exec('DROP TABLE billing_ledger_entries_legacy')
+  } finally {
+    db.pragma('foreign_keys = ON')
+  }
+}
+
+function ensureCreditTransactionsLedgerForeignKey(db: Database.Database) {
+  const table = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'credit_transactions'").get()
+  if (!table) return
+
+  const foreignKeys = db.prepare('PRAGMA foreign_key_list(credit_transactions)').all() as any[]
+  const ledgerForeignKey = foreignKeys.find((fk) => fk.from === 'ledger_id')
+  if (ledgerForeignKey?.table === 'billing_ledger_entries') return
+
+  db.exec('ALTER TABLE credit_transactions RENAME TO credit_transactions_legacy')
+  db.exec(`
+    CREATE TABLE credit_transactions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      run_id TEXT,
+      ledger_id TEXT,
+      type TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      balance_after INTEGER,
+      note TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE SET NULL,
+      FOREIGN KEY (ledger_id) REFERENCES billing_ledger_entries(id) ON DELETE SET NULL
+    )
+  `)
+  db.exec(`
+    INSERT INTO credit_transactions (id, user_id, run_id, ledger_id, type, amount, balance_after, note, created_at)
+    SELECT id, user_id, run_id,
+      CASE WHEN ledger_id IS NOT NULL AND EXISTS (SELECT 1 FROM billing_ledger_entries ble WHERE ble.id = credit_transactions_legacy.ledger_id) THEN ledger_id ELSE NULL END,
+      type, amount, balance_after, note, created_at
+    FROM credit_transactions_legacy
+  `)
+  db.exec('DROP TABLE credit_transactions_legacy')
+}
+
+function ensureAgentPurchasesLedgerForeignKey(db: Database.Database) {
+  const legacyExists = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'agent_purchases_legacy'").get()
+  const table = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'agent_purchases'").get()
+  if (!table && !legacyExists) return
+  if (!legacyExists && table) {
+    const foreignKeys = db.prepare('PRAGMA foreign_key_list(agent_purchases)').all() as any[]
+    const ledgerForeignKey = foreignKeys.find((fk) => fk.from === 'ledger_id')
+    if (ledgerForeignKey?.table === 'billing_ledger_entries') return
+    db.exec('ALTER TABLE agent_purchases RENAME TO agent_purchases_legacy')
+  } else if (legacyExists && table) {
+    db.exec('DROP TABLE agent_purchases')
+  }
+
+  db.exec(`
+    CREATE TABLE agent_purchases (
+      id TEXT PRIMARY KEY,
+      buyer_user_id TEXT NOT NULL,
+      agent_template_id TEXT NOT NULL,
+      room_id TEXT,
+      price_microcredits INTEGER NOT NULL DEFAULT 0,
+      ledger_id TEXT,
+      purchased_at INTEGER NOT NULL,
+      FOREIGN KEY (buyer_user_id) REFERENCES users(id),
+      FOREIGN KEY (agent_template_id) REFERENCES agents(id) ON DELETE CASCADE,
+      FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE SET NULL,
+      FOREIGN KEY (ledger_id) REFERENCES billing_ledger_entries(id) ON DELETE SET NULL,
+      UNIQUE(buyer_user_id, agent_template_id)
+    )
+  `)
+  const legacyCols = db.prepare('PRAGMA table_info(agent_purchases_legacy)').all() as any[]
+  const priceColumn = legacyCols.some((col) => col.name === 'price_microcredits')
+    ? 'price_microcredits'
+    : legacyCols.some((col) => col.name === 'price_credits')
+      ? 'price_credits'
+      : '0'
+  db.exec(`
+    INSERT INTO agent_purchases (id, buyer_user_id, agent_template_id, room_id, price_microcredits, ledger_id, purchased_at)
+    SELECT id, buyer_user_id, agent_template_id, room_id, COALESCE(${priceColumn}, 0),
+      CASE WHEN ledger_id IS NOT NULL AND EXISTS (SELECT 1 FROM billing_ledger_entries ble WHERE ble.id = agent_purchases_legacy.ledger_id) THEN ledger_id ELSE NULL END,
+      purchased_at
+    FROM agent_purchases_legacy
+  `)
+  db.exec('DROP TABLE agent_purchases_legacy')
+}
+
+function ensureBillingMetaTable(db: Database.Database) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_metadata (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `)
+}
+
+function multiplyColumnIfExists(db: Database.Database, table: string, column: string, factor: number) {
+  const exists = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)
+  if (!exists) return
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as any[]
+  if (!cols.some((col) => col.name === column)) return
+  db.prepare(`UPDATE ${table} SET ${column} = ${column} * ? WHERE ${column} IS NOT NULL`).run(factor)
+}
+
+function ensureMicrocreditMigration(db: Database.Database) {
+  ensureBillingMetaTable(db)
+  const row = db.prepare('SELECT value FROM app_metadata WHERE key = ?').get(MICROCREDIT_MIGRATION_KEY) as any
+  if (row?.value === MICROCREDIT_MIGRATION_VALUE) return
+  const previousFactor = row?.value === 'microcredit_100' ? 100 : 1
+  const migrationFactor = MICROCREDITS_PER_CREDIT / previousFactor
+
+  const tx = db.transaction(() => {
+    for (const [table, column] of [
+      ['model_billing_rules', 'input_credit_per_million'],
+      ['model_billing_rules', 'output_credit_per_million'],
+      ['model_billing_rules', 'cache_write_credit_per_million'],
+      ['model_billing_rules', 'cache_read_credit_per_million'],
+      ['model_billing_rules', 'min_credits_per_run'],
+      ['agent_billing_rules', 'fixed_credits_per_run'],
+      ['agent_billing_rules', 'fixed_credits_per_purchase'],
+      ['agent_billing_rules', 'input_credit_per_million'],
+      ['agent_billing_rules', 'output_credit_per_million'],
+      ['agent_billing_rules', 'cache_write_credit_per_million'],
+      ['agent_billing_rules', 'cache_read_credit_per_million'],
+      ['agent_purchases', 'price_microcredits'],
+      ['scene_billing_rules', 'fixed_credits_per_purchase'],
+      ['billing_ledger_entries', 'amount'],
+      ['credit_accounts', 'balance'],
+      ['credit_accounts', 'income_balance'],
+      ['credit_transactions', 'amount'],
+      ['credit_transactions', 'balance_after'],
+      ['billing_daily_stats', 'credits'],
+    ] as Array<[string, string]>) {
+      multiplyColumnIfExists(db, table, column, migrationFactor)
+    }
+    db.prepare('INSERT OR REPLACE INTO app_metadata (key, value, updated_at) VALUES (?, ?, ?)').run(MICROCREDIT_MIGRATION_KEY, MICROCREDIT_MIGRATION_VALUE, Date.now())
+  })
+  tx()
+}
+
 export function ensureBillingSchema(db: Database.Database) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS model_profiles (
@@ -74,7 +263,66 @@ export function ensureBillingSchema(db: Database.Database) {
       FOREIGN KEY (agent_template_id) REFERENCES agents(id) ON DELETE CASCADE
     )
   `)
+  const agentRuleCols = db.prepare('PRAGMA table_info(agent_billing_rules)').all() as any[]
+  if (!agentRuleCols.some((col) => col.name === 'fixed_credits_per_purchase')) {
+    db.exec('ALTER TABLE agent_billing_rules ADD COLUMN fixed_credits_per_purchase INTEGER DEFAULT 0')
+  }
+  db.exec(`
+    UPDATE agent_billing_rules
+    SET billing_mode = 'per_token',
+        fixed_credits_per_run = 0,
+        fixed_credits_per_purchase = 0,
+        input_credit_per_million = CASE WHEN input_credit_per_million = 0 THEN 5000 ELSE input_credit_per_million END,
+        output_credit_per_million = CASE WHEN output_credit_per_million = 0 THEN 10000 ELSE output_credit_per_million END,
+        cache_write_credit_per_million = CASE WHEN cache_write_credit_per_million = 0 THEN 5000 ELSE cache_write_credit_per_million END,
+        cache_read_credit_per_million = CASE WHEN cache_read_credit_per_million = 0 THEN 500 ELSE cache_read_credit_per_million END
+    WHERE enabled = 1 AND billing_mode NOT IN ('free', 'per_token')
+  `)
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_billing_rules_template ON agent_billing_rules(agent_template_id)`)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_purchases (
+      id TEXT PRIMARY KEY,
+      buyer_user_id TEXT NOT NULL,
+      agent_template_id TEXT NOT NULL,
+      room_id TEXT,
+      ledger_id TEXT,
+      price_microcredits INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'completed',
+      purchased_at INTEGER NOT NULL,
+      FOREIGN KEY (buyer_user_id) REFERENCES users(id),
+      FOREIGN KEY (agent_template_id) REFERENCES agents(id) ON DELETE CASCADE,
+      FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE SET NULL,
+      FOREIGN KEY (ledger_id) REFERENCES billing_ledger_entries(id) ON DELETE SET NULL
+    )
+  `)
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_purchases_buyer_template ON agent_purchases(buyer_user_id, agent_template_id)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_purchases_room ON agent_purchases(room_id, purchased_at)`)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS market_follows (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      UNIQUE(user_id, target_type, target_id)
+    )
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_market_follows_user_type ON market_follows(user_id, target_type, created_at)`)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scene_purchases (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      scene_template_id TEXT NOT NULL,
+      price_microcredits INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'completed',
+      purchased_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id),
+      FOREIGN KEY (scene_template_id) REFERENCES scene_templates(id) ON DELETE CASCADE,
+      UNIQUE(user_id, scene_template_id)
+    )
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_scene_purchases_user ON scene_purchases(user_id, purchased_at)`)
   db.exec(`
     CREATE TABLE IF NOT EXISTS scene_billing_rules (
       id TEXT PRIMARY KEY,
@@ -124,8 +372,8 @@ export function ensureBillingSchema(db: Database.Database) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS billing_ledger_entries (
       id TEXT PRIMARY KEY,
-      usage_event_id TEXT NOT NULL,
-      run_id TEXT NOT NULL,
+      usage_event_id TEXT,
+      run_id TEXT,
       account_user_id TEXT NOT NULL,
       account_role TEXT NOT NULL,
       direction TEXT NOT NULL,
@@ -140,10 +388,15 @@ export function ensureBillingSchema(db: Database.Database) {
       token_snapshot_json TEXT,
       rule_snapshot_json TEXT,
       created_at INTEGER NOT NULL,
-      FOREIGN KEY (usage_event_id) REFERENCES metered_usage_events(id) ON DELETE CASCADE,
-      FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
+      FOREIGN KEY (usage_event_id) REFERENCES metered_usage_events(id) ON DELETE SET NULL,
+      FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE SET NULL
     )
   `)
+  ensureBillingLedgerRetentionForeignKeys(db)
+  ensureCreditTransactionsLedgerForeignKey(db)
+  ensureAgentPurchasesLedgerForeignKey(db)
+  const agentPurchaseCols = db.prepare('PRAGMA table_info(agent_purchases)').all() as any[]
+  if (!agentPurchaseCols.some((col) => col.name === 'status')) db.exec("ALTER TABLE agent_purchases ADD COLUMN status TEXT NOT NULL DEFAULT 'completed'")
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_ledger_entries_event_type_role ON billing_ledger_entries(usage_event_id, entry_type, account_role)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_billing_ledger_entries_account ON billing_ledger_entries(account_user_id, account_role, created_at)`)
   db.exec(`
@@ -155,6 +408,7 @@ export function ensureBillingSchema(db: Database.Database) {
       FOREIGN KEY (user_id) REFERENCES users(id)
     )
   `)
+  ensureCreditTransactionsLedgerForeignKey(db)
   db.exec(`
     CREATE TABLE IF NOT EXISTS credit_transactions (
       id TEXT PRIMARY KEY,
@@ -194,4 +448,5 @@ export function ensureBillingSchema(db: Database.Database) {
     )
   `)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_billing_daily_stats_user_role_date ON billing_daily_stats(user_id, role, stat_date)`)
+  ensureMicrocreditMigration(db)
 }

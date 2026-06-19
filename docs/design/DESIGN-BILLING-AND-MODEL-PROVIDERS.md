@@ -6,7 +6,7 @@ FreeChat billing is based on Agent runs, but accounting is split into three role
 
 1. **Agent provider**: owner of the Agent template. They earn credits when rooms use their template.
 2. **Model provider**: owner of the key/base URL model profile. This can be a normal user or a platform system user.
-3. **Usage payer**: owner of the project room that introduced the Agent. Project collaborators may trigger runs, but the room owner pays.
+3. **Usage payer**: creator of the project room (`rooms.created_by`). Collaborators can participate in discussion and view shared results, but by default only the room creator can command Agent runs. All model and Agent runtime fees in the room are charged to the creator. Future sharing can allow selected collaborators to command Agents, while still charging the creator.
 
 The runtime model is configured on the **room Agent instance**, not on the whole room.
 
@@ -68,15 +68,15 @@ FreeChat has three marketplace-style products:
 2. **Model market**: model profiles backed by provider `apiKey` + `baseUrl`. Others see provider summary, host, default/supported models, publisher, and price. Only owner/admin sees full baseUrl, key last4, and edit form.
 3. **Scene market**: scene templates. Others see summary, included AI list, publisher, and scene price. Owner/admin/editor can edit scene composition and pricing.
 
-Model market pricing uses `model_billing_rules`. Platform bootstrap assigns default model prices by tier:
+Model market pricing uses `model_billing_rules`. `1 credit` is product-defined to roughly reference `1 RMB/CNY`, and internal storage uses `1 credit = 10000 microcredits`. Model prices must stay near real RMB token-cost magnitude rather than inflated platform points. API/UI fields remain expressed in credits; DB integer amount columns store microcredits after the `billing_amount_unit = microcredit_10000` metadata migration. Current platform bootstrap defaults are:
 
 ```text
-economy  = input 50 / output 200 / cache write 50 / cache read 10 credits per million tokens
-standard = input 100 / output 400 / cache write 100 / cache read 20 credits per million tokens
-premium  = input 200 / output 800 / cache write 200 / cache read 40 credits per million tokens
+economy  = input 1 / output 1 / cache write 1 / cache read 0 credits per million tokens
+standard = input 1 / output 2 / cache write 1 / cache read 0 credits per million tokens
+premium  = input 1 / output 2 / cache write 1 / cache read 0 credits per million tokens
 ```
 
-Model names containing `mini|lite|flash|turbo|small` use economy. Names containing `max|pro|plus|code|reason|thinking|r1|o1|o3` use premium. Others use standard. Minimum per run stays `0` in development to avoid blocking users with empty wallets.
+Model names containing `mini|lite|flash|turbo|small` use economy. Names containing `max|pro|plus|code|reason|thinking|r1|o1|o3` use premium. Others use standard. Minimum per run stays `0` in development to avoid blocking users with empty wallets. Runtime charges are rounded up to the nearest microcredit, not the nearest public credit.
 
 Scene market pricing uses:
 
@@ -96,11 +96,13 @@ Default marketplace pricing bootstrap fills missing rules without overriding own
 
 ```text
 native/default assistant: free Agent service fee
-custom assistant: fixed 2 credits/run + 10% model fee + input 20/output 80 per million tokens
-specialist Agent: fixed 5 credits/run + 20% model fee + input 50/output 200 per million tokens
+custom assistant: low per-token Agent service fee
+specialist Agent: low per-token Agent service fee
 built-in scene: free 🎁
 custom scene: fixed 20 credits one-time purchase
 ```
+
+Agent service fee is not buyout/purchase based. Following or adding an Agent to a room does not deduct credits. Agent providers earn only when their Agent actually runs, and the service fee is calculated from token usage. Model usage and Agent service usage are billed as separate runtime ledger rows for clarity.
 
 ## Native Assistant Free Agent Fee
 
@@ -171,12 +173,27 @@ Defines model-provider charge to the payer by token class. Vendor cost is intent
 
 ### agent_billing_rules
 
-Defines Agent-template service fee rules. First supported modes:
+Defines Agent-template service fee rules. Current supported modes:
 
 - `free`
-- `token_multiplier`
-- `fixed_per_run` via fixed credits
-- optional direct per-token Agent prices
+- `per_token`
+
+Prices are stored as microcredits per million tokens, separated by token class:
+
+```sql
+agent_billing_rules (
+  agent_template_id,
+  billing_mode,
+  input_credit_per_million,
+  output_credit_per_million,
+  cache_write_credit_per_million,
+  cache_read_credit_per_million,
+  revenue_share_rate,
+  enabled
+)
+```
+
+Legacy `fixed_credits_per_run`, `fixed_credits_per_purchase`, and `agent_purchases` are not part of the active Agent billing model. They may exist in development databases for historical rows only. Active runtime billing emits `agent_usage_charge` for the payer and `agent_income` for the Agent provider.
 
 ### metered_usage_events
 
@@ -221,8 +238,8 @@ billing_ledger_entries (
   account_role TEXT NOT NULL, -- payer / agent_provider / model_provider / platform
   direction TEXT NOT NULL,    -- debit / credit
   entry_type TEXT NOT NULL,   -- usage_charge / agent_income / model_income / refund / adjustment
-  amount INTEGER NOT NULL,
-  currency TEXT DEFAULT 'CREDIT',
+  amount INTEGER NOT NULL, -- microcredits
+  currency TEXT DEFAULT 'MICRO_CREDIT',
   room_id TEXT,
   agent_id TEXT,
   agent_template_id TEXT,
@@ -243,7 +260,7 @@ credit_accounts      spendable balance + income balance
 credit_transactions  immutable balance movements referencing ledger entries
 ```
 
-Wallet changes must reference ledger entries where possible.
+Wallet changes must reference `billing_ledger_entries` where possible. Development databases may contain an older `credit_transactions.ledger_id -> billing_ledger(id)` foreign key; schema initialization must detect and rebuild that table so wallet transactions point at `billing_ledger_entries(id)`. Billing failures must be logged instead of silently returning an empty ledger.
 
 ### billing_daily_stats
 
@@ -252,17 +269,22 @@ Materialized daily projection for trends and summaries. It can be rebuilt from l
 ## Charge Formula
 
 ```text
-model_charge = token class prices from model_billing_rules
-agent_charge = fixed_per_run + per-token Agent prices + model_charge * token_multiplier
-usage_total  = model_charge + agent_charge
+model_charge_micro = token class prices from model_billing_rules  # stored as microcredits per million tokens
+agent_charge_micro = token class prices from agent_billing_rules  # skipped for own Agent or free Agent
+usage_total_micro  = model_charge_micro + agent_charge_micro
+
+total_tokens = input_tokens + output_tokens + cache_write_tokens + cache_read_tokens
+
+Public API fields such as `inputCreditPerMillion`, wallet `balance`, and ledger `credit_amount` are expressed in credits. Database columns keep legacy names such as `*_credits`, but their stored integer unit is microcredits.
 ```
 
 Ledger entries:
 
 ```text
-payer          debit  usage_total
-model provider credit model_charge
-Agent provider credit agent_charge
+payer          debit  model_usage_charge
+payer          debit  agent_usage_charge
+model provider credit model_income
+Agent provider credit agent_income
 ```
 
 A future platform share can be represented by additional credit entries and adjusted provider credits.
@@ -284,11 +306,13 @@ Denied when:
 
 - known minimum charge exists and balance is insufficient.
 
-First version uses only deterministic minimums:
+First version uses only deterministic runtime minimums:
 
 ```text
-model_billing_rules.min_credits_per_run + agent_billing_rules.fixed_credits_per_run
+model_billing_rules.min_credits_per_run
 ```
+
+Agent add/follow does not charge immediately. Agent token service fees are charged at run completion. Future preflight may estimate Agent token service fees together with model minimums.
 
 Later versions may estimate context tokens and freeze balance.
 
@@ -309,12 +333,32 @@ Asynchronous path:
 
 ## UI
 
-Top-level home tabs include `市场` next to `设置`; billing is no longer a standalone top-level tab.
+Top-level home tabs include a standalone `账单` tab. Billing is not nested under market.
 
-The market page contains `AI市场 / 模型市场 / 场景市场 / 我的账单`. The billing sub-tab shows three views:
+The billing page shows four role views:
 
 - usage payer bill
 - Agent provider income
 - model provider income
+- scene provider income
 
-Settings keeps `我的模型` because key/baseUrl are configuration, not a bill.
+Within each role view, the `维度分析` area uses tabs instead of separate cramped cards:
+
+- `项目`: project/room aggregation.
+- `Agent`: canonical Agent template aggregation, merging room clones through `agent_template_id/source_template_id`.
+- `模型`: model/profile aggregation.
+- `场景购买` / `场景收入`: scene purchase fee/income aggregation from `scene_purchase` / `scene_income`; this is intentionally separate from project runtime cost.
+- `每日`: daily trend aggregation.
+
+Recent ledger rows are grouped by run for runtime entries. One visible runtime row shows model fee, Agent fee, and total credit side by side. Standalone purchases remain standalone rows.
+
+Wallet/billing reconciliation rule:
+
+- Development audits can run `node scripts/audit-billing-dev.mjs`; it verifies every user's `credit_accounts` against `credit_transactions`, linked ledger wallet transactions, Agent/scene purchase deductions/income, pending usage events, and stale runs. Basic smoke coverage can run `node scripts/smoke-freechat-dev.mjs`; it covers auth, balance gate, Agent create/delete, room Agent add/remove, resource lists, billing APIs, and room create/get/delete.
+- Revenue transaction types are `agent_income`, `model_income`, `platform_income`, and `scene_income`; they must increase `income_balance`, not spendable `balance`.
+- model runtime charges normally come from `billing_ledger_entries`.
+- Agent runtime service charges are `agent_usage_charge` payer rows and `agent_income` provider rows.
+- Scene purchases are projected from `scene_purchases` as `scene_purchase` payer entries and `scene_income` scene-provider entries.
+- Legacy/orphan wallet deductions such as `credit_transactions.type='usage_charge'` with no surviving ledger row are still shown as wallet-backed billing rows so wallet balance and账单支出 stay reconcilable.
+
+Settings no longer contains `我的模型`; model service configuration lives in the resource management flow.

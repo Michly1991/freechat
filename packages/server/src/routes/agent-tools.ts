@@ -384,7 +384,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           db.prepare(`
             INSERT INTO tabs (id, room_id, title, content, icon, sort_order, created_by, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(tabId, roomId, title, String(args.content || ''), args.icon || '📄', (maxOrder?.max_order ?? -1) + 1, actorUserId, now, now)
+          `).run(tabId, roomId, title, String(args.content || ''), args.icon || 'file', (maxOrder?.max_order ?? -1) + 1, actorUserId, now, now)
           if (args.makeDefault === true || args.default === true) {
             db.prepare(`INSERT INTO room_tab_preferences (room_id, default_tab_id, updated_by, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(room_id) DO UPDATE SET default_tab_id = excluded.default_tab_id, updated_by = excluded.updated_by, updated_at = excluded.updated_at`).run(roomId, tabId, actorUserId, now)
           }
@@ -405,7 +405,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           db.prepare(`
             INSERT INTO tabs (id, room_id, title, content, icon, sort_order, created_by, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(tabId, roomId, title, content, args.icon || '📄', (maxOrder?.max_order ?? -1) + 1, actorUserId, now, now)
+          `).run(tabId, roomId, title, content, args.icon || 'file', (maxOrder?.max_order ?? -1) + 1, actorUserId, now, now)
           if (args.makeDefault === true || args.default === true) {
             db.prepare(`INSERT INTO room_tab_preferences (room_id, default_tab_id, updated_by, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(room_id) DO UPDATE SET default_tab_id = excluded.default_tab_id, updated_by = excluded.updated_by, updated_at = excluded.updated_at`).run(roomId, tabId, actorUserId, now)
           }

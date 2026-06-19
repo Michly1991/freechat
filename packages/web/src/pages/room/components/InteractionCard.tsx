@@ -1,3 +1,4 @@
+import { AlertTriangle, Check, CheckSquare, HelpCircle, ListChecks } from 'lucide-react'
 import type { Message } from '../../room-page-model'
 
 interface InteractionCardProps {
@@ -85,7 +86,7 @@ export function InteractionCard(props: InteractionCardProps) {
   return (
     <div id={`interaction-${interaction.id}`} className={`fc-enter fc-card-hover min-w-0 max-w-full sm:max-w-[680px] overflow-hidden rounded-2xl border p-4 shadow-sm ${toneClasses}`}>
       <div className="flex items-start gap-3">
-        <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold ${iconClasses}`}>{interaction.status === 'resolved' && !canChange ? '✓' : interaction.priority === 'danger' ? '!' : interaction.type === 'task_plan' ? '计' : interaction.type === 'multi_choice' ? '☑' : '?'}</div>
+        <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold ${iconClasses}`}>{interaction.status === 'resolved' && !canChange ? <Check className="w-5 h-5" /> : interaction.priority === 'danger' ? <AlertTriangle className="w-5 h-5" /> : interaction.type === 'task_plan' ? <ListChecks className="w-5 h-5" /> : interaction.type === 'multi_choice' ? <CheckSquare className="w-5 h-5" /> : <HelpCircle className="w-5 h-5" />}</div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2"><h4 className="font-semibold text-gray-800 break-words [overflow-wrap:anywhere]">{interaction.title}</h4><span className={`text-[10px] px-2 py-0.5 rounded-full ${isPending ? 'bg-white/70 text-gray-700' : canChange ? 'bg-amber-100 text-amber-700' : 'bg-gray-200 text-gray-500'}`}>{isSubmitting ? '提交中' : isPending ? '待处理' : canChange ? '可修改' : '已处理'}</span></div>
           {interaction.description && <p className="mt-1 text-sm text-gray-600 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{interaction.description}</p>}

@@ -70,7 +70,7 @@ export const api = {
 
   // Rooms
   getRooms: () => request<{ rooms: any[] }>('/rooms'),
-  createRoom: (body: { name: string; description?: string; sceneId?: string; memberIds?: string[]; agents?: Array<{ agentId: string; roomRole?: 'assistant' | 'specialist'; autoEnabled?: boolean; priority?: number }> }) =>
+  createRoom: (body: { name: string; description?: string; sceneId?: string; memberIds?: string[]; agents?: Array<{ agentId: string; roomRole?: 'assistant' | 'specialist'; autoEnabled?: boolean; priority?: number; confirmedPurchase?: boolean }> }) =>
     request<{ room: any }>('/rooms', { method: 'POST', body: JSON.stringify(body) }),
   getRoom: (id: string) => request<{ room: any; members: any[] }>(`/rooms/${id}`),
   getRoomMessages: (id: string, limit = 100, before?: string) => request<{ messages: any[]; hasMore?: boolean }>(`/rooms/${id}/messages?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ''}`),
@@ -136,11 +136,11 @@ export const api = {
   upsertAgentBillingRule: (agentId: string, body: any) => request<{ rule: any }>(`/agents/${agentId}/billing-rule`, { method: 'PUT', body: JSON.stringify(body) }),
   getBillingAccount: () => request<any>('/billing/account'),
   refreshBillingAggregate: (body: { from?: number; to?: number } = {}) => request<any>('/billing/aggregate', { method: 'POST', body: JSON.stringify(body) }),
-  getBillingLedger: (params?: { role?: 'payer' | 'agent_provider' | 'model_provider'; from?: number; to?: number; limit?: number }) => {
+  getBillingLedger: (params?: { role?: 'payer' | 'agent_provider' | 'model_provider' | 'scene_provider'; from?: number; to?: number; limit?: number }) => {
     const qs = params ? new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString() : ''
     return request<any>(`/billing/ledger${qs ? `?${qs}` : ''}`)
   },
-  getBillingSummary: (params?: { role?: 'payer' | 'agent_provider' | 'model_provider'; from?: number; to?: number }) => {
+  getBillingSummary: (params?: { role?: 'payer' | 'agent_provider' | 'model_provider' | 'scene_provider'; from?: number; to?: number }) => {
     const qs = params ? new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString() : ''
     return request<any>(`/billing/summary${qs ? `?${qs}` : ''}`)
   },
@@ -208,10 +208,11 @@ export const api = {
   getScenes: () => request<{ scenes: any[] }>('/scenes'),
   createScene: (body: { name: string; description?: string; icon?: string; agents?: any[] }) =>
     request<{ scene: any }>('/scenes', { method: 'POST', body: JSON.stringify(body) }),
-  updateScene: (id: string, body: { name?: string; description?: string; icon?: string; agents?: any[] }) =>
+  updateScene: (id: string, body: { name?: string; description?: string; icon?: string; agents?: any[]; marketListed?: boolean }) =>
     request<{ scene: any }>(`/scenes/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   upsertSceneBillingRule: (id: string, body: any) =>
     request<{ scene: any }>(`/scenes/${id}/billing-rule`, { method: 'PUT', body: JSON.stringify(body) }),
+  purchaseScene: (id: string, confirmed = false) => request<{ scene: any; isPurchased: boolean; priceCredits: number }>(`/scenes/${id}/purchase`, { method: 'POST', body: JSON.stringify({ confirmed }) }),
   getScenePermissions: (id: string) => request<{ canManage: boolean; members: any[]; requests: any[] }>(`/scenes/${id}/permissions`),
   grantScenePermission: (id: string, userId: string, role = 'editor') =>
     request<{ members: any[] }>(`/scenes/${id}/permissions`, { method: 'POST', body: JSON.stringify({ userId, role }) }),
@@ -224,6 +225,11 @@ export const api = {
   getAgents: () => request<{ agents: any[] }>('/agents'),
   createAgent: (body: { name: string; roleType: string; deployment: string; description?: string; specialties?: string[]; config?: Record<string, any> }) =>
     request<{ agent: any; apiKey: string }>('/agents', { method: 'POST', body: JSON.stringify(body) }),
+  uploadAgentPackage: (file: File) => {
+    const formData = new FormData()
+    formData.append('package', file)
+    return request<{ agent: any; package: any; mode: string; listed: boolean }>('/agents/package/upload', { method: 'POST', body: formData })
+  },
   updateAgent: (id: string, body: Record<string, any>) =>
     request(`/agents/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteAgent: (id: string) => request(`/agents/${id}`, { method: 'DELETE' }),
@@ -237,6 +243,10 @@ export const api = {
     request<{ request: any }>(`/agents/${id}/permission-requests`, { method: 'POST', body: JSON.stringify({ message, role: 'editor' }) }),
   resolveAgentPermissionRequest: (id: string, requestId: string, decision: 'approve' | 'reject') =>
     request<{ request: any }>(`/agents/${id}/permission-requests/${requestId}/resolve`, { method: 'POST', body: JSON.stringify({ decision }) }),
+  followMarketTarget: (targetType: 'agent' | 'model', targetId: string) =>
+    request<{ targetType: string; targetId: string; isFollowing: boolean }>('/market/follows', { method: 'POST', body: JSON.stringify({ targetType, targetId }) }),
+  unfollowMarketTarget: (targetType: 'agent' | 'model', targetId: string) =>
+    request<{ targetType: string; targetId: string; isFollowing: boolean }>(`/market/follows/${targetType}/${targetId}`, { method: 'DELETE' }),
   createAgentSkill: (id: string, body: any) => request<{ skill: any }>(`/agents/${id}/skills`, { method: 'POST', body: JSON.stringify(body) }),
   updateAgentSkill: (id: string, skillId: string, body: any) => request<{ skill: any }>(`/agents/${id}/skills/${skillId}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteAgentSkill: (id: string, skillId: string) => request(`/agents/${id}/skills/${skillId}`, { method: 'DELETE' }),
@@ -244,7 +254,7 @@ export const api = {
   updateAgentScript: (id: string, scriptId: string, body: any) => request<{ script: any }>(`/agents/${id}/scripts/${scriptId}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteAgentScript: (id: string, scriptId: string) => request(`/agents/${id}/scripts/${scriptId}`, { method: 'DELETE' }),
   getRoomAgents: (roomId: string) => request<{ agents: any[] }>(`/rooms/${roomId}/agents`),
-  addRoomAgent: (roomId: string, agentId: string, options?: { roomRole?: 'assistant' | 'specialist'; autoEnabled?: boolean; priority?: number }) =>
+  addRoomAgent: (roomId: string, agentId: string, options?: { roomRole?: 'assistant' | 'specialist'; autoEnabled?: boolean; priority?: number; confirmedPurchase?: boolean }) =>
     request(`/rooms/${roomId}/agents`, { method: 'POST', body: JSON.stringify({ agentId, ...(options || {}) }) }),
   removeRoomAgent: (roomId: string, agentId: string) =>
     request(`/rooms/${roomId}/agents/${agentId}`, { method: 'DELETE' }),

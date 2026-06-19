@@ -2,10 +2,16 @@ import db from '../storage/db.js'
 import { v4 as uuidv4 } from 'uuid'
 import { agentService } from './agent.service.js'
 import { templatePermissionService } from './template-permission.service.js'
+import { microToCredit, nonNegativeCreditToMicro } from '../domains/billing/money.js'
+import { marketEngagementService } from './market-engagement.service.js'
 
 const SCENE_AGENT_MANAGEMENT_ID = 'scene_agent_management'
 const BUILT_IN_SCENE_KEY = 'agent_management'
 const BUILT_IN_SCENE_NAMES = new Set(['Agent管理', 'Agent 管理'])
+
+function fmtCredit(value: any): string {
+  return Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
 
 function normalizeSceneName(name: string) {
   return String(name || '').replace(/\s+/g, '')
@@ -69,8 +75,19 @@ export class SceneTemplateService {
 
   listScenes(user: { id: string; role?: string }) {
     this.ensureBuiltInScenes(user.id)
-    return (db.prepare('SELECT id, owner_id as ownerId, built_in_key as builtInKey, name, description, icon, version, status FROM scene_templates WHERE status = ? ORDER BY created_at ASC').all('active') as any[])
+    return (db.prepare(`SELECT id, owner_id as ownerId, built_in_key as builtInKey, name, description, icon, version, status, market_listed as marketListed FROM scene_templates
+      WHERE status = ? AND (
+        owner_id = ?
+        OR built_in_key IS NOT NULL
+        OR COALESCE(market_listed, 0) = 1
+        OR EXISTS (SELECT 1 FROM scene_purchases sp WHERE sp.user_id = ? AND sp.scene_template_id = scene_templates.id AND sp.status = 'completed')
+      )
+      ORDER BY created_at ASC`).all('active', user.id, user.id) as any[])
       .map((scene) => this.hydrateScene(scene, user))
+  }
+
+  getSceneRecord(sceneId: string) {
+    return db.prepare('SELECT id, owner_id as ownerId, built_in_key as builtInKey, name, description, icon, version, status, market_listed as marketListed FROM scene_templates WHERE id = ?').get(sceneId) as any
   }
 
   sceneHasAssistant(sceneId: string): boolean {
@@ -98,13 +115,18 @@ export class SceneTemplateService {
     const canEdit = this.canEditSceneRecord(scene, viewerId, viewerRole)
     const owner = db.prepare('SELECT nickname, username FROM users WHERE id = ?').get(scene.ownerId || scene.owner_id) as any
     const rule = db.prepare('SELECT *, COALESCE(fixed_credits_per_purchase, fixed_credits_per_use, 0) fixed_purchase FROM scene_billing_rules WHERE scene_template_id = ? AND enabled = 1').get(scene.id) as any
+    const isPurchased = viewerId ? !!db.prepare('SELECT 1 FROM scene_purchases WHERE user_id = ? AND scene_template_id = ? AND status = ?').get(viewerId, scene.id, 'completed') : false
+    const canUse = viewerId ? marketEngagementService.canUseScene({ id: viewerId, role: viewerRole }, scene.id) : false
     return {
       ...scene,
       ownerName: owner?.nickname || owner?.username || scene.ownerId || scene.owner_id,
       isBuiltIn: scene.id === SCENE_AGENT_MANAGEMENT_ID || scene.builtInKey === BUILT_IN_SCENE_KEY || scene.built_in_key === BUILT_IN_SCENE_KEY,
+      marketListed: !!(scene.marketListed ?? scene.market_listed),
+      isPurchased,
+      canUse,
       canEdit,
-      priceSummary: rule ? (rule.billing_mode === 'free' ? '🎁 免费' : `${rule.fixed_purchase || 0} credits 买断`) : '暂无定价',
-      billingRule: canEdit && rule ? { billingMode: rule.billing_mode, fixedCreditsPerPurchase: rule.fixed_purchase || 0, enabled: !!rule.enabled } : undefined,
+      priceSummary: rule ? (rule.billing_mode === 'free' ? '免费' : `${fmtCredit(microToCredit(rule.fixed_purchase))} credits 买断`) : '暂无定价',
+      billingRule: canEdit && rule ? { billingMode: rule.billing_mode, fixedCreditsPerPurchase: microToCredit(rule.fixed_purchase), enabled: !!rule.enabled } : undefined,
       agents: agents.map((agent) => ({ ...agent, autoEnabled: !!agent.autoEnabled })),
       pages: [],
     }
@@ -121,13 +143,13 @@ export class SceneTemplateService {
     if (!this.canEditSceneRecord(scene, user.id, user.role)) throw { code: 'FORBIDDEN', message: 'Only the Scene owner/admin can edit this Scene' }
     const now = Date.now()
     const mode = input?.billingMode === 'fixed' ? 'fixed' : 'free'
-    const fixed = Math.max(0, Math.trunc(Number(input?.fixedCreditsPerPurchase ?? input?.fixedCreditsPerUse ?? 0)))
+    const fixed = nonNegativeCreditToMicro(input?.fixedCreditsPerPurchase ?? input?.fixedCreditsPerUse ?? 0)
     db.prepare(`
       INSERT INTO scene_billing_rules (id, scene_template_id, billing_mode, fixed_credits_per_purchase, revenue_share_rate, enabled, created_at, updated_at)
       VALUES (?, ?, ?, ?, 0, 1, ?, ?)
       ON CONFLICT(scene_template_id) DO UPDATE SET billing_mode = excluded.billing_mode, fixed_credits_per_purchase = excluded.fixed_credits_per_purchase, updated_at = excluded.updated_at
     `).run(`sbr_${uuidv4()}`, sceneId, mode, fixed, now, now)
-    return this.hydrateScene(db.prepare('SELECT id, owner_id as ownerId, built_in_key as builtInKey, name, description, icon, version, status FROM scene_templates WHERE id = ?').get(sceneId), user)
+    return this.hydrateScene(this.getSceneRecord(sceneId), user)
   }
 
   async assertCanEditScene(sceneId: string, user: { id: string; role?: string }) {
@@ -146,15 +168,15 @@ export class SceneTemplateService {
     const sceneId = `scene_${uuidv4()}`
     const tx = db.transaction(() => {
       db.prepare(`
-        INSERT INTO scene_templates (id, owner_id, built_in_key, name, description, icon, version, status, created_at, updated_at)
-        VALUES (?, ?, NULL, ?, ?, ?, 1, 'active', ?, ?)
+        INSERT INTO scene_templates (id, owner_id, built_in_key, name, description, icon, version, status, market_listed, created_at, updated_at)
+        VALUES (?, ?, NULL, ?, ?, ?, 1, 'active', 0, ?, ?)
       `).run(sceneId, ownerId, name, input.description || null, input.icon || 'compass', now, now)
     })
     tx()
     return this.updateScene({ id: ownerId }, sceneId, { agents: input.agents || [] })
   }
 
-  updateScene(user: { id: string; role?: string }, sceneId: string, input: { name?: string; description?: string; icon?: string; agents?: any[] }) {
+  updateScene(user: { id: string; role?: string }, sceneId: string, input: { name?: string; description?: string; icon?: string; agents?: any[]; marketListed?: boolean }) {
     const exists = db.prepare('SELECT id, owner_id as ownerId, built_in_key as builtInKey FROM scene_templates WHERE id = ?').get(sceneId) as any
     if (!exists) throw { code: 'SCENE_NOT_FOUND', message: 'Scene not found' }
     if (!this.canEditSceneRecord(exists, user.id, user.role)) throw { code: 'FORBIDDEN', message: 'Only the Scene owner/admin can edit this Scene' }
@@ -164,6 +186,7 @@ export class SceneTemplateService {
     if (!isBuiltIn && input.name !== undefined) { fields.push('name = ?'); values.push(String(input.name).trim()) }
     if (!isBuiltIn && input.description !== undefined) { fields.push('description = ?'); values.push(input.description || null) }
     if (input.icon !== undefined) { fields.push('icon = ?'); values.push(input.icon || null) }
+    if (!isBuiltIn && input.marketListed !== undefined) { fields.push('market_listed = ?'); values.push(input.marketListed ? 1 : 0) }
     const now = Date.now()
     const tx = db.transaction(() => {
       if (fields.length > 0) {
@@ -186,12 +209,12 @@ export class SceneTemplateService {
       }
     })
     tx()
-    return this.hydrateScene(db.prepare('SELECT id, owner_id as ownerId, built_in_key as builtInKey, name, description, icon, version, status FROM scene_templates WHERE id = ?').get(sceneId), user)
+    return this.hydrateScene(this.getSceneRecord(sceneId), user)
   }
 
   async applySceneToRoom(sceneId: string, roomId: string, userId: string) {
     this.ensureBuiltInScenes(userId)
-    const scene = this.hydrateScene(db.prepare('SELECT id, owner_id as ownerId, built_in_key as builtInKey, name, description, icon, version, status FROM scene_templates WHERE id = ?').get(sceneId), userId)
+    const scene = this.hydrateScene(this.getSceneRecord(sceneId), userId)
     if (!scene) return
     const clonedAgents = [] as any[]
     for (const sceneAgent of scene.agents || []) {

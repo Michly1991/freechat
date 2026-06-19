@@ -6,8 +6,18 @@ import { agentCapabilityService } from '../services/agent-capability.service.js'
 import { templatePermissionService } from '../services/template-permission.service.js'
 import { agentRestartService } from '../services/agent-restart.service.js'
 import { getGateway } from '../ws/gateway.js'
+import { marketEngagementService } from '../services/market-engagement.service.js'
+import { creditWalletService } from '../services/credit-wallet.service.js'
+import { agentPackageService } from '../services/agent-package.service.js'
+import db from '../storage/db.js'
+import { agentPackageImportService } from '../services/agent-package-import.service.js'
 
 export async function registerAgentRoutes(app: FastifyInstance) {
+  const isRoomCreator = (roomId: string, userId: string) => {
+    const row = db.prepare('SELECT created_by FROM rooms WHERE id = ?').get(roomId) as any
+    return !!row?.created_by && row.created_by === userId
+  }
+
   // ===== User's own agents =====
 
   // GET /api/agents - list user's agents
@@ -17,12 +27,23 @@ export async function registerAgentRoutes(app: FastifyInstance) {
       const agents = await agentService.getUserAgents(user.id)
       const enriched = await Promise.all(agents.map(async (agent: any) => {
         const canEdit = await agentService.canEditAgent(agent.id, user)
-        return { ...agent, canEdit, canDelete: canEdit && agent.canDelete !== false }
+        const isOwner = agent.ownerId === user.id
+        const isFollowing = marketEngagementService.isFollowing(user.id, 'agent', agent.id)
+        const isBuiltInDefault = agent.builtInKey === 'default_assistant'
+        return { ...agent, canEdit, canDelete: canEdit && agent.canDelete !== false, isOwner, isFollowing, canUse: isOwner || isFollowing || isBuiltInDefault || canEdit || user.role === 'admin' }
       }))
       return reply.send({ success: true, data: { agents: enriched } })
     } catch (err: any) {
       throw err
     }
+  })
+
+  // POST /api/agents/package/upload - upload npm tgz Agent package and list in marketplace
+  app.post('/api/agents/package/upload', async (request, reply) => {
+    const user = (request as any).user
+    const file = await request.file()
+    const result = await agentPackageImportService.importFromMultipartFile(user.id, file)
+    return reply.send({ success: true, data: result })
   })
 
   // POST /api/agents - create agent (returns api_key once)
@@ -44,6 +65,10 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     }
 
     try {
+      const account = creditWalletService.getAccount(user.id)
+      if (account.balance <= 0) {
+        return reply.code(402).send({ success: false, error: { code: 'INSUFFICIENT_CREDITS', message: '余额不足，不能创建 Agent。请先充值 credit。' } })
+      }
       const result = await agentService.createAgent(user.id, {
         name,
         roleType,
@@ -75,6 +100,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
         specialties: body.specialties,
         config: body.config,
         status: body.status,
+        marketListed: body.marketListed,
       })
       return reply.send({ success: true, data: { agent: updated } })
     } catch (err: any) {
@@ -95,7 +121,8 @@ export async function registerAgentRoutes(app: FastifyInstance) {
       agent.canDelete = agent.canEdit && agent.canDelete !== false
       const skills = agentCapabilityService.listSkills(id)
       const scripts = agentCapabilityService.listScripts(id)
-      return reply.send({ success: true, data: { agent, skills, scripts } })
+      const agentMarkdown = await agentPackageService.readAgentMarkdown(agent).catch(() => '')
+      return reply.send({ success: true, data: { agent: { ...agent, agentMarkdown }, skills, scripts } })
     } catch (err: any) {
       throw err
     }
@@ -161,6 +188,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     if (!String(body?.name || '').trim()) return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'name is required' } })
     await agentService.assertAgentOwner(id, user.id, user.role)
     const skill = agentCapabilityService.createSkill(id, { ...body, name: String(body.name).trim() })
+    await agentPackageService.writeSkillPackage(id, skill).catch((err) => console.error('[agent-package] write skill failed', err))
     return reply.code(201).send({ success: true, data: { skill } })
   })
 
@@ -169,6 +197,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const { id, skillId } = request.params as any
     await agentService.assertAgentOwner(id, user.id, user.role)
     const skill = agentCapabilityService.updateSkill(id, skillId, request.body as any)
+    await agentPackageService.writeSkillPackage(id, skill).catch((err) => console.error('[agent-package] update skill package failed', err))
     return reply.send({ success: true, data: { skill } })
   })
 
@@ -176,7 +205,9 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const user = (request as any).user
     const { id, skillId } = request.params as any
     await agentService.assertAgentOwner(id, user.id, user.role)
+    const skill = agentCapabilityService.listSkills(id).find((item) => item.id === skillId)
     agentCapabilityService.deleteSkill(id, skillId)
+    await agentPackageService.deleteSkillPackage(id, skill).catch(() => {})
     return reply.send({ success: true })
   })
 
@@ -194,6 +225,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     if (!String(body?.name || '').trim()) return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'name is required' } })
     await agentService.assertAgentOwner(id, user.id, user.role)
     const script = agentCapabilityService.createScript(id, { ...body, name: String(body.name).trim() })
+    await agentPackageService.ensureAgentPackage(await agentService.getAgent(id)).catch((err) => console.error('[agent-package] write script failed', err))
     return reply.code(201).send({ success: true, data: { script } })
   })
 
@@ -202,6 +234,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const { id, scriptId } = request.params as any
     await agentService.assertAgentOwner(id, user.id, user.role)
     const script = agentCapabilityService.updateScript(id, scriptId, request.body as any)
+    await agentPackageService.ensureAgentPackage(await agentService.getAgent(id)).catch((err) => console.error('[agent-package] update script package failed', err))
     return reply.send({ success: true, data: { script } })
   })
 
@@ -210,6 +243,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const { id, scriptId } = request.params as any
     await agentService.assertAgentOwner(id, user.id, user.role)
     agentCapabilityService.deleteScript(id, scriptId)
+    await agentPackageService.ensureAgentPackage(await agentService.getAgent(id)).catch(() => {})
     return reply.send({ success: true })
   })
 
@@ -271,7 +305,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
   app.post('/api/rooms/:roomId/agents', async (request, reply) => {
     const user = (request as any).user
     const { roomId } = request.params as any
-    const { agentId, roomRole, autoEnabled, priority } = request.body as any
+    const { agentId, roomRole, autoEnabled, priority, confirmedPurchase } = request.body as any
 
     if (!agentId) {
       return reply.code(400).send({
@@ -292,7 +326,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
       if (!await agentService.canUseAgent(agentId, user.id)) {
         return reply.code(403).send({
           success: false,
-          error: { code: 'FORBIDDEN', message: 'You can only add your own agents in this version' }
+          error: { code: 'FORBIDDEN', message: '请先在市场关注/购买该 Agent，或选择自己创建的 Agent' }
         })
       }
 
@@ -300,6 +334,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
         roomRole: roomRole === 'assistant' ? 'assistant' : 'specialist',
         autoEnabled: autoEnabled === true,
         priority: Number(priority || 0),
+        confirmedPurchase: confirmedPurchase === true,
       })
 
       // Refresh Agent-visible room context files
@@ -310,6 +345,15 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     } catch (err: any) {
       if (err.code === 'AGENT_NOT_FOUND') {
         return reply.code(404).send({ success: false, error: err })
+      }
+      if (err.code === 'PURCHASE_CONFIRMATION_REQUIRED') {
+        return reply.code(409).send({ success: false, error: { code: err.code, message: err.message, priceCredits: err.priceCredits } })
+      }
+      if (err.code === 'INSUFFICIENT_CREDITS') {
+        return reply.code(402).send({ success: false, error: { code: err.code, message: err.message } })
+      }
+      if (err.code === 'AGENT_NOT_FOLLOWED') {
+        return reply.code(403).send({ success: false, error: { code: err.code, message: err.message } })
       }
       throw err
     }
@@ -363,9 +407,8 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const { roomId, agentId } = request.params as any
     const { clearSession = true, mode = 'soft' } = request.body as any || {}
 
-    const canEdit = await agentService.canEditRoomAgents(roomId, user.id)
-    if (!canEdit) {
-      return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Only project owner/editor can restart agents' } })
+    if (!isRoomCreator(roomId, user.id)) {
+      return reply.code(403).send({ success: false, error: { code: 'CREATOR_ONLY_AGENT_COMMAND', message: '只有项目创建人可以重启/指挥 Agent；运行费用由项目创建人承担。' } })
     }
 
     const result = await agentRestartService.restart(roomId, agentId, user.id, { mode: mode === 'force' ? 'force' : 'soft', clearSession: clearSession !== false })
@@ -406,12 +449,15 @@ export async function registerAgentRoutes(app: FastifyInstance) {
           error: { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' }
         })
       }
+      if (!isRoomCreator(roomId, user.id)) {
+        return reply.code(403).send({ success: false, error: { code: 'CREATOR_ONLY_AGENT_COMMAND', message: '只有项目创建人可以指挥 Agent；运行费用由项目创建人承担。' } })
+      }
 
       // Mark agent as working
       await agentService.updateAgent(agentId, { status: 'working' } as any)
 
       try {
-        const result = await agentService.spawnClaudeCode(roomId, agentId, message)
+        const result = await agentService.spawnClaudeCode(roomId, agentId, message, { actorUserId: user.id })
 
         // Mark agent as active again
         await agentService.updateAgent(agentId, { status: 'active' } as any)

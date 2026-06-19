@@ -18,6 +18,7 @@ import { renderRoleCapabilitiesForPrompt } from './agent-role-capabilities.js'
 import { templatePermissionService } from './template-permission.service.js'
 import { tabFilesMapService } from './tab-files-map.service.js'
 import { agentGrowthService } from './agent-growth.service.js'
+import { agentPackageService } from './agent-package.service.js'
 
 export interface AgentConfig {
   name: string
@@ -27,6 +28,7 @@ export interface AgentConfig {
   specialties?: string[]
   config?: AgentRuntimeConfig
   status?: 'active' | 'inactive' | 'working' | 'error'
+  marketListed?: boolean
 }
 
 export interface AgentCreateResult {
@@ -38,6 +40,7 @@ export interface AddAgentToRoomOptions {
   roomRole?: RoomAgentRole
   autoEnabled?: boolean
   priority?: number
+  confirmedPurchase?: boolean
 }
 
 function sanitizeRoomModelConfig(value: any): RoomAgentModelConfig | null {
@@ -87,6 +90,7 @@ export class AgentService {
     )
 
     const agent = rowToAgent(db.prepare(`SELECT a.*, COALESCE(u.nickname, u.username) owner_name FROM agents a LEFT JOIN users u ON u.id = a.owner_id WHERE a.id = ?`).get(id) as AgentRow)
+    await agentPackageService.ensureAgentPackage(agent).catch((err) => console.error('[agent-package] ensure failed after create', err))
     return { agent, apiKey }
   }
 
@@ -144,16 +148,21 @@ export class AgentService {
     return rowToAgent(row)
   }
 
-  async getUserAgents(_ownerId: string): Promise<Agent[]> {
+  async getUserAgents(ownerId: string): Promise<Agent[]> {
     const rows = db.prepare(`
       SELECT agents.*, COALESCE(u.nickname, u.username) owner_name FROM agents
       LEFT JOIN users u ON u.id = agents.owner_id
       WHERE COALESCE(is_template, 1) = 1
         AND (config IS NULL OR config NOT LIKE '%"defaultRoomAssistant":true%')
+        AND (
+          agents.owner_id = ?
+          OR COALESCE(agents.market_listed, 0) = 1
+          OR EXISTS (SELECT 1 FROM market_follows mf WHERE mf.user_id = ? AND mf.target_type = 'agent' AND mf.target_id = agents.id)
+        )
       ORDER BY
         CASE WHEN config LIKE '%"builtInKey":"default_assistant"%' THEN 0 ELSE 1 END ASC,
         created_at DESC
-    `).all() as AgentRow[]
+    `).all(ownerId, ownerId) as AgentRow[]
     return rows.map(r => rowToAgent(r))
   }
 
@@ -300,6 +309,10 @@ export class AgentService {
       fields.push('status = ?')
       values.push(updates.status)
     }
+    if (updates.marketListed !== undefined) {
+      fields.push('market_listed = ?')
+      values.push(updates.marketListed ? 1 : 0)
+    }
 
     if (fields.length === 0) {
       return this.getAgent(agentId)
@@ -311,7 +324,9 @@ export class AgentService {
 
     db.prepare(`UPDATE agents SET ${fields.join(', ')} WHERE id = ?`).run(...values)
     db.prepare('UPDATE agents SET is_modified = 1 WHERE id = ? AND COALESCE(is_template, 1) = 0').run(agentId)
-    return this.getAgent(agentId)
+    const agent = await this.getAgent(agentId)
+    await agentPackageService.ensureAgentPackage(agent).catch((err) => console.error('[agent-package] ensure failed after update', err))
+    return agent
   }
 
   async deleteAgent(agentId: string): Promise<void> {
@@ -358,6 +373,7 @@ export class AgentService {
     if (this.isBuiltInDefaultAssistant(agent) && this.roomHasAssistant(roomId)) {
       return
     }
+    if (!(await this.canUseAgent(agentId, addedBy))) throw { code: 'AGENT_NOT_FOLLOWED', message: '请先关注或选择自己创建的 Agent' }
     let targetAgentId = agentId
     if (agent.isTemplate) {
       agent = await this.cloneAgentTemplate(agentId, addedBy, { roomId })
@@ -410,8 +426,12 @@ export class AgentService {
   }
 
   async canUseAgent(agentId: string, userId: string): Promise<boolean> {
-    const row = db.prepare('SELECT owner_id FROM agents WHERE id = ?').get(agentId) as any
-    return !!row && row.owner_id === userId
+    const row = db.prepare('SELECT owner_id, is_template, status, config FROM agents WHERE id = ?').get(agentId) as any
+    if (!row || row.status === 'inactive') return false
+    if (row.owner_id === userId) return true
+    if (String(row.config || '').includes('"builtInKey":"default_assistant"')) return true
+    if (!row.is_template || String(row.config || '').includes('"defaultRoomAssistant":true')) return false
+    return !!db.prepare('SELECT 1 FROM market_follows WHERE user_id = ? AND target_type = ? AND target_id = ?').get(userId, 'agent', agentId)
   }
 
   async canEditRoomAgents(roomId: string, userId: string): Promise<boolean> {
@@ -664,9 +684,18 @@ export class AgentService {
     return { roomMd, membersMd }
   }
 
+  async ensurePackageWorkspaces(): Promise<void> {
+    await agentPackageService.ensureSystemSkills().catch((err) => console.error('[agent-package] bootstrap system skills failed', err))
+    const agents = (db.prepare(`SELECT a.*, COALESCE(u.nickname, u.username) owner_name FROM agents a LEFT JOIN users u ON u.id = a.owner_id WHERE a.status != 'inactive'`).all() as AgentRow[]).map(rowToAgent)
+    for (const agent of agents) await agentPackageService.ensureAgentPackage(agent).catch((err) => console.error('[agent-package] bootstrap agent failed', agent.id, err))
+    const rooms = db.prepare('SELECT id, name, description, created_by FROM rooms').all() as any[]
+    for (const room of rooms) await agentPackageService.ensureRoomWorkspace(room.id, room).catch((err) => console.error('[agent-package] bootstrap room failed', room.id, err))
+  }
+
   async refreshRoomAgentContext(roomId: string): Promise<void> {
     const agents = await this.getRoomAgents(roomId)
-    const rootMetaDir = join(config.workspace.root, roomId, '.freechat')
+    await agentPackageService.ensureRoomWorkspace(roomId)
+    const rootMetaDir = join(agentPackageService.roomDir(roomId), '.freechat')
     await mkdir(rootMetaDir, { recursive: true })
     const rootCtx = await this.buildRoomContextFiles(roomId)
     await writeFile(join(rootMetaDir, 'ROOM.md'), rootCtx.roomMd, 'utf8')
@@ -674,7 +703,8 @@ export class AgentService {
     await tabFilesMapService.writeRoomMap(roomId)
 
     for (const agent of agents) {
-      const metaDir = join(config.workspace.root, roomId, 'agents', agent.id, '.freechat')
+      await agentPackageService.ensureRoomAgentWorkspace(roomId, agent)
+      const metaDir = join(agentPackageService.roomAgentDir(roomId, agent.id), '.freechat')
       await mkdir(metaDir, { recursive: true })
       const ctx = await this.buildRoomContextFiles(roomId, agent)
       await writeFile(join(metaDir, 'ROOM.md'), ctx.roomMd, 'utf8')
@@ -684,7 +714,8 @@ export class AgentService {
   }
 
   async prepareAgentWorkspace(roomId: string, agent: Agent, actorUserId?: string): Promise<string> {
-    const workspaceDir = join(config.workspace.root, roomId, 'agents', agent.id)
+    const workspaceDir = await agentPackageService.ensureRoomAgentWorkspace(roomId, agent)
+    const packageDir = await agentPackageService.ensureAgentPackage(agent)
     const metaDir = join(workspaceDir, '.freechat')
     const skillsDir = join(workspaceDir, 'skills')
     const resDir = join(workspaceDir, 'res')
@@ -706,13 +737,17 @@ export class AgentService {
     await writeFile(cliCjsPath, renderAgentCliCjs({ apiUrl: toolApiUrl, roomId, token: toolToken }), 'utf8')
     await chmod(cliCjsPath, 0o700)
 
-    const agentGuide = renderAgentGuide(agent)
+    const agentGuide = `${renderAgentGuide(agent)}\n\n## Agent Package\n\n- 模板目录: ${packageDir}\n- 模板说明: ${join(packageDir, 'AGENT.md')}\n- 模板资源库: ${join(packageDir, 'res')}\n- 模板 Skills: ${join(packageDir, 'skills')}\n\n运行时必须先理解模板 AGENT.md；需要能力时读取对应 skills/<name>/SKILL.md。模板目录运行时只读，房间产物写入当前房间目录。系统公共 Skills 会自动挂载到当前 skills/，包括 pdf-reader、excel-reader、word-reader。\n\n## Room Workspace\n\n- 房间目录: ${agentPackageService.roomDir(roomId)}\n- 共享资料: ${join(agentPackageService.roomDir(roomId), 'shared')}\n- 产物目录: ${join(agentPackageService.roomDir(roomId), 'artifacts')}\n- 当前 Agent 工作区: ${workspaceDir}\n- 当前 Agent 私有工作目录: ${join(workspaceDir, 'workspace')}\n\n你可以读写房间 shared、artifacts、当前 Agent workspace/res/scripts/skills；不要修改其他 Agent 工作区。`
 
     const safeName = (name: string) => String(name || 'item').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'item'
     const skills = agentCapabilityService.listSkills(agent.id).filter((skill) => skill.enabled)
     for (const skill of skills) {
-      await writeFile(join(skillsDir, `${safeName(skill.name)}.md`), skill.content || `# ${skill.name}\n\n${skill.description || ''}\n`, 'utf8')
+      const skillDir = join(skillsDir, safeName(skill.name))
+      await mkdir(join(skillDir, 'res'), { recursive: true })
+      await mkdir(join(skillDir, 'scripts'), { recursive: true })
+      await writeFile(join(skillDir, 'SKILL.md'), skill.content || `# ${skill.name}\n\n## Description\n\n${skill.description || ''}\n`, 'utf8')
     }
+    await agentPackageService.mountSystemSkills(skillsDir)
     const scripts = agentCapabilityService.listScripts(agent.id).filter((script) => script.enabled)
     for (const script of scripts) {
       const ext = script.language === 'python' ? 'py' : script.language === 'typescript' ? 'ts' : script.language === 'javascript' ? 'js' : script.language === 'bash' ? 'sh' : 'txt'

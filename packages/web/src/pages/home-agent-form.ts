@@ -6,6 +6,7 @@ export interface AgentFormState {
   description: string
   specialties: string
   systemPrompt: string
+  agentMarkdown: string
   tools: Record<AgentToolKey, boolean>
 }
 
@@ -18,6 +19,7 @@ export function emptyAgentForm(): AgentFormState {
     description: '',
     specialties: '',
     systemPrompt: '',
+    agentMarkdown: '',
     tools: { chat: true, task: true, file: true, tab: true, interaction: true, members: true },
   }
 }
@@ -29,6 +31,7 @@ export function agentToForm(agent: any): AgentFormState {
     description: agent.description || '',
     specialties: (agent.specialties || []).join(', '),
     systemPrompt: agent.config?.systemPrompt || '',
+    agentMarkdown: agent.agentMarkdown || agent.config?.agentMarkdown || '',
     tools: { ...emptyAgentForm().tools, ...(agent.config?.tools || {}) },
   }
 }
@@ -42,6 +45,7 @@ export function buildAgentPayload(form: AgentFormState) {
     specialties: form.specialties.split(',').map((s) => s.trim()).filter(Boolean),
     config: {
       systemPrompt: form.systemPrompt,
+      agentMarkdown: form.agentMarkdown,
       behavior: { replyMode: form.roleType === 'assistant' ? 'auto_when_relevant' : 'mention_only', silentAllowed: true },
       tools: form.tools,
     },

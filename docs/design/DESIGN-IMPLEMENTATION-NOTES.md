@@ -64,14 +64,14 @@ Agent 状态展示规则：
 - @弹窗需要支持中文昵称，不能只匹配英文/数字。
 - 选中候选后替换输入框中最后一个 `@...` 片段。
 
-### 5. 项目硬删除
+### 5. 项目逻辑删除
 
-项目删除采用硬删除，不做软删除。
+项目删除采用逻辑删除，不做物理删除。后端设置 `rooms.deleted_at/deleted_by`，普通项目列表隐藏已删除项目，但保留 `rooms.id/name`，保证账单、运行记录和历史流水仍能关联原始房间。
 
 删除入口：
 
 1. 首页项目卡片右上角「删除」
-2. 房间设置页「危险操作 / 永久删除项目」
+2. 房间设置页「危险操作 / 删除项目」
 
 权限：
 
@@ -79,9 +79,8 @@ Agent 状态展示规则：
 
 删除范围：
 
-- `rooms`
-- `room_members`
-- `messages`
+- `rooms.deleted_at/deleted_by` 标记
+- 不级联删除 `room_members/messages/tasks/tabs/agent_runs/billing_ledger_entries` 等历史数据
 - `tasks`
 - `tabs`
 - `room_agents`

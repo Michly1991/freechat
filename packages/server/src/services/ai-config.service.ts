@@ -108,16 +108,16 @@ class AIConfigService {
       const data = await response.json() as any
 
       if (response.ok) {
-        return { success: true, message: `✅ 连接成功！模型: ${testModel}`, latency }
+        return { success: true, message: `连接成功！模型: ${testModel}`, latency }
       } else {
         return { 
           success: false, 
-          message: `❌ ${response.status}: ${data.message || data.code || 'Unknown error'}`,
+          message: `${response.status}: ${data.message || data.code || 'Unknown error'}`,
           latency 
         }
       }
     } catch (err: any) {
-      return { success: false, message: `❌ 网络错误: ${err.message}` }
+      return { success: false, message: `网络错误: ${err.message}` }
     }
   }
 

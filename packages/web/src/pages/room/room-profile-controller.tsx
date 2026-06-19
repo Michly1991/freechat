@@ -21,6 +21,7 @@ export function createRoomProfileController({ members, roomAgents, setSelectedPr
         avatar: getMemberAvatar(target),
         subtitle: target.username ? `@${target.username}` : '项目成员',
         status: '在线',
+        roomRole: target.role,
       })
     } else {
       setSelectedProfile({

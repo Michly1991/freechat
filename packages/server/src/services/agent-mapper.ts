@@ -26,6 +26,7 @@ export interface AgentRow {
   source_template_id?: string | null
   source_template_version?: number | null
   is_modified?: number | null
+  market_listed?: number | null
 }
 
 export function mergeAgentConfig(roleType: 'assistant' | 'specialist', config?: AgentRuntimeConfig): AgentRuntimeConfig {
@@ -82,6 +83,7 @@ export function rowToAgent(row: AgentRow): Agent {
     isModified: row.is_modified !== undefined && row.is_modified !== null ? !!row.is_modified : undefined,
     isBuiltIn,
     builtInKey,
+    marketListed: row.market_listed !== undefined && row.market_listed !== null ? !!row.market_listed : false,
     canDelete: !isBuiltIn,
   } as Agent
 }

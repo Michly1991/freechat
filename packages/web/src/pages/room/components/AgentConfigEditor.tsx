@@ -3,17 +3,15 @@ import { api } from '../../../lib/api'
 import { TemplatePermissionPanel } from './TemplatePermissionPanel'
 
 const TOOL_KEYS = ['chat', 'task', 'file', 'tab', 'interaction', 'members']
+function fmtCredit(n: any) { return Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 
 function formatAgentPrice(agent: any, rule: any | null) {
   if (agent?.builtInKey === 'default_assistant') return '免费（系统内置助理，模型费另计）'
   if (!rule) return '暂无定价'
   if (rule.billingMode === 'free') return '免费'
-  const parts = []
-  if (rule.fixedCreditsPerRun) parts.push(`固定 ${rule.fixedCreditsPerRun} credits/次`)
-  if (rule.tokenMultiplier) parts.push(`模型费 × ${rule.tokenMultiplier}`)
-  if (rule.inputCreditPerMillion) parts.push(`输入 ${rule.inputCreditPerMillion}/百万 tokens`)
-  if (rule.outputCreditPerMillion) parts.push(`输出 ${rule.outputCreditPerMillion}/百万 tokens`)
-  return parts.length ? parts.join('，') : '暂无定价'
+  const input = fmtCredit(rule.inputCreditPerMillion)
+  const output = fmtCredit(rule.outputCreditPerMillion)
+  return `按 token：输入 ${input} / 输出 ${output} credits/百万 token`
 }
 
 interface Props {
@@ -34,7 +32,7 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null)
   const [scriptForm, setScriptForm] = useState({ name: '', description: '', language: 'bash', content: '', enabled: true, runPolicy: 'manual_only' })
   const [billingRule, setBillingRule] = useState<any | null>(null)
-  const [billingForm, setBillingForm] = useState<any>({ billingMode: 'token_multiplier', tokenMultiplier: 0, fixedCreditsPerRun: 0, inputCreditPerMillion: 0, outputCreditPerMillion: 0 })
+  const [billingForm, setBillingForm] = useState<any>({ billingMode: 'per_token', inputCreditPerMillion: 0, outputCreditPerMillion: 0, cacheWriteCreditPerMillion: 0, cacheReadCreditPerMillion: 0 })
 
   useEffect(() => {
     if (!agentId) { setDetail(null); return }
@@ -50,7 +48,7 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
       try {
         const br = await api.getAgentBillingRule(id)
         setBillingRule(br.rule)
-        setBillingForm({ billingMode: br.rule?.billingMode || 'token_multiplier', tokenMultiplier: br.rule?.tokenMultiplier || 0, fixedCreditsPerRun: br.rule?.fixedCreditsPerRun || 0, inputCreditPerMillion: br.rule?.inputCreditPerMillion || 0, outputCreditPerMillion: br.rule?.outputCreditPerMillion || 0 })
+        setBillingForm({ billingMode: br.rule?.billingMode || 'per_token', inputCreditPerMillion: br.rule?.inputCreditPerMillion || 0, outputCreditPerMillion: br.rule?.outputCreditPerMillion || 0, cacheWriteCreditPerMillion: br.rule?.cacheWriteCreditPerMillion || 0, cacheReadCreditPerMillion: br.rule?.cacheReadCreditPerMillion || 0 })
       } catch { setBillingRule(null) }
       setEditingProfile(false)
       setEditingSkillId(null)
@@ -185,8 +183,8 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
 
     {canEdit && <>
     <section className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
-      <div className="flex items-center justify-between gap-2 mb-3"><div><h3 className="font-semibold text-gray-900">Agent 服务计费</h3><p className="text-xs text-gray-400 mt-1">作为 Agent 提供方的收入规则；使用方消费 = 模型费用 + Agent 服务费。</p></div>{billingRule && <span className="text-xs rounded-full bg-green-50 px-2 py-1 text-green-600">已配置</span>}</div>
-      {canEdit ? <div className="grid gap-2 sm:grid-cols-5"><select value={billingForm.billingMode} onChange={(e) => setBillingForm({ ...billingForm, billingMode: e.target.value })} className="rounded-lg border border-gray-300 px-3 py-2 text-sm"><option value="token_multiplier">模型费倍率</option><option value="free">免费</option></select><input type="number" step="0.01" value={billingForm.tokenMultiplier} onChange={(e) => setBillingForm({ ...billingForm, tokenMultiplier: Number(e.target.value) })} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="倍率" /><input type="number" value={billingForm.fixedCreditsPerRun} onChange={(e) => setBillingForm({ ...billingForm, fixedCreditsPerRun: Number(e.target.value) })} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="固定/次" /><input type="number" value={billingForm.inputCreditPerMillion} onChange={(e) => setBillingForm({ ...billingForm, inputCreditPerMillion: Number(e.target.value) })} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="前token/百万" /><button onClick={saveBillingRule} className="rounded-lg bg-gray-900 px-3 py-2 text-sm text-white">保存</button></div> : <p className="text-sm text-gray-400">只有 Agent owner/admin 可以修改计费规则。</p>}
+      <div className="flex items-center justify-between gap-2 mb-3"><div><h3 className="font-semibold text-gray-900">Agent 服务计费</h3><p className="text-xs text-gray-400 mt-1">Agent 服务费按 token 收取；添加/关注不扣费，实际运行时结算。模型费另计。</p></div>{billingRule && <span className="text-xs rounded-full bg-green-50 px-2 py-1 text-green-600">已配置</span>}</div>
+      {canEdit ? <div className="grid gap-2 sm:grid-cols-6"><select value={billingForm.billingMode} onChange={(e) => setBillingForm({ ...billingForm, billingMode: e.target.value })} className="rounded-lg border border-gray-300 px-3 py-2 text-sm"><option value="per_token">按 token</option><option value="free">免费</option></select><input type="number" step="0.01" value={billingForm.inputCreditPerMillion} onChange={(e) => setBillingForm({ ...billingForm, inputCreditPerMillion: Number(e.target.value) })} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="输入/百万" /><input type="number" step="0.01" value={billingForm.outputCreditPerMillion} onChange={(e) => setBillingForm({ ...billingForm, outputCreditPerMillion: Number(e.target.value) })} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="输出/百万" /><input type="number" step="0.01" value={billingForm.cacheWriteCreditPerMillion} onChange={(e) => setBillingForm({ ...billingForm, cacheWriteCreditPerMillion: Number(e.target.value) })} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="缓存写/百万" /><input type="number" step="0.01" value={billingForm.cacheReadCreditPerMillion} onChange={(e) => setBillingForm({ ...billingForm, cacheReadCreditPerMillion: Number(e.target.value) })} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" placeholder="缓存读/百万" /><button onClick={saveBillingRule} className="rounded-lg bg-gray-900 px-3 py-2 text-sm text-white">保存</button></div> : <p className="text-sm text-gray-400">只有 Agent owner/admin 可以修改计费规则。</p>}
     </section>
 
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

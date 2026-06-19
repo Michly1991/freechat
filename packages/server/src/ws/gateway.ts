@@ -23,7 +23,7 @@ export class WebSocketGateway {
     })
     this.wss = new WebSocketServer({ server, path: '/ws' })
     this.wss.on('connection', (ws, req) => this.handleConnection(ws, req))
-    console.log('✓ WebSocket gateway initialized')
+    console.log('WebSocket gateway initialized')
   }
 
   private handleConnection(ws: WebSocket, req: any) {

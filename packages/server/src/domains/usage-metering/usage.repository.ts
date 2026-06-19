@@ -79,7 +79,7 @@ export class UsageRepository {
       room_id: run.room_id,
       agent_id: run.agent_id,
       agent_template_id: templateId,
-      payer_user_id: room?.created_by || agent?.owner_id || 'system',
+      payer_user_id: run.payer_user_id || room?.created_by || agent?.owner_id || 'system',
       agent_provider_user_id: template?.owner_id || agent?.owner_id || null,
       model_provider_user_id: binding?.model_provider_user_id || platformProfile?.model_provider_user_id || null,
       model_profile_id: profileId,

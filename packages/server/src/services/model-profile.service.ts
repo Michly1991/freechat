@@ -1,6 +1,7 @@
 import { modelProfileRepository } from '../domains/model-provider/model-profile.repository.js'
 import db from '../storage/db.js'
 import { encryptSecret } from './secret-crypto.js'
+import { microToCredit } from '../domains/billing/money.js'
 
 function last4(value?: string | null): string | null {
   const text = String(value || '')
@@ -25,14 +26,20 @@ function hostOf(url?: string | null): string | null {
   try { return new URL(url).host } catch { return String(url).replace(/^https?:\/\//, '').split('/')[0] || null }
 }
 
+function fmtCredit(value: any): string {
+  return Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 function priceSummary(profileId: string): string {
   const rows = db.prepare('SELECT * FROM model_billing_rules WHERE model_profile_id = ? AND enabled = 1 ORDER BY model ASC').all(profileId) as any[]
   if (!rows.length) return '暂无定价'
-  return rows.slice(0, 2).map((r) => `${r.model}: 输入${r.input_credit_per_million || 0}/百万，输出${r.output_credit_per_million || 0}/百万${r.min_credits_per_run ? `，最低${r.min_credits_per_run}/次` : ''}`).join('；') + (rows.length > 2 ? ` 等${rows.length}个模型` : '')
+  return rows.slice(0, 2).map((r) => `${r.model}: 输入${fmtCredit(microToCredit(r.input_credit_per_million))}/百万，输出${fmtCredit(microToCredit(r.output_credit_per_million))}/百万${r.min_credits_per_run ? `，最低${fmtCredit(microToCredit(r.min_credits_per_run))}/次` : ''}`).join('；') + (rows.length > 2 ? ` 等${rows.length}个模型` : '')
 }
 
 function publicProfile(row: any, viewer?: { id: string; role?: string }) {
   const canEdit = !!viewer && (row.owner_id === viewer.id || viewer.role === 'admin')
+  const isFollowing = !!viewer && !!db.prepare('SELECT 1 FROM market_follows WHERE user_id = ? AND target_type = ? AND target_id = ?').get(viewer.id, 'model', row.id)
+  const isOwner = !!viewer && row.owner_id === viewer.id
   const owner = db.prepare('SELECT nickname, username FROM users WHERE id = ?').get(row.owner_id) as any
   return {
     id: row.id,
@@ -41,6 +48,9 @@ function publicProfile(row: any, viewer?: { id: string; role?: string }) {
     providerType: row.provider_type,
     ownerName: owner?.nickname || owner?.username || row.owner_id,
     canEdit,
+    isOwner,
+    isFollowing,
+    canUse: isOwner || isFollowing || row.visibility === 'platform' || canEdit,
     baseUrl: canEdit ? row.base_url : undefined,
     baseUrlHost: hostOf(row.base_url),
     apiKeyLast4: canEdit ? row.api_key_last4 : undefined,

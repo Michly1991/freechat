@@ -6,6 +6,7 @@ import db from '../storage/db.js'
 import { aiConfigService } from './ai-config.service.js'
 import type { TokenUsage } from './room-analytics.service.js'
 import { creditWalletService } from './credit-wallet.service.js'
+import { ceilMicro, microToCredit, toInt } from '../domains/billing/money.js'
 
 export type BillingStatus = 'not_billable' | 'billed' | 'price_missing' | 'billing_failed'
 
@@ -17,34 +18,14 @@ export type BillingPreflightResult = {
   reason?: 'INSUFFICIENT_CREDITS'
 }
 
-type ModelRule = {
+type TokenRule = {
   id: string
+  billing_mode?: string | null
   input_credit_per_million?: number | null
   output_credit_per_million?: number | null
   cache_write_credit_per_million?: number | null
   cache_read_credit_per_million?: number | null
   min_credits_per_run?: number | null
-}
-
-type AgentRule = {
-  id: string
-  billing_mode?: string | null
-  token_multiplier?: number | null
-  fixed_credits_per_run?: number | null
-  input_credit_per_million?: number | null
-  output_credit_per_million?: number | null
-  cache_write_credit_per_million?: number | null
-  cache_read_credit_per_million?: number | null
-  revenue_share_rate?: number | null
-}
-
-function toInt(value: any): number {
-  const n = Number(value || 0)
-  return Number.isFinite(n) ? Math.trunc(n) : 0
-}
-
-function ceilCredits(value: number): number {
-  return Number.isFinite(value) && value > 0 ? Math.ceil(value) : 0
 }
 
 function chargeByTokens(usage: TokenUsage, rule: {
@@ -58,7 +39,7 @@ function chargeByTokens(usage: TokenUsage, rule: {
     (toInt(usage.outputTokens) * Number(rule.output_credit_per_million || 0) / 1_000_000) +
     (toInt(usage.cacheCreationInputTokens) * Number(rule.cache_write_credit_per_million || 0) / 1_000_000) +
     (toInt(usage.cacheReadInputTokens) * Number(rule.cache_read_credit_per_million || 0) / 1_000_000)
-  return ceilCredits(amount)
+  return ceilMicro(amount)
 }
 
 export class BillingService {
@@ -71,16 +52,27 @@ export class BillingService {
 
       const charge = this.calculateCharge(event)
       const tx = db.transaction(() => {
-        if (charge.totalCharge > 0) {
+        if (charge.modelCharge > 0) {
           const entry = billingLedgerRepository.createEntry(event, {
             accountUserId: event.payerUserId,
             accountRole: 'payer',
             direction: 'debit',
-            entryType: 'usage_charge',
-            amount: charge.totalCharge,
+            entryType: 'model_usage_charge',
+            amount: charge.modelCharge,
             ruleSnapshot: charge.snapshot,
           })
-          creditWalletService.apply(event.payerUserId, -charge.totalCharge, 'usage_charge', { runId, ledgerId: entry.id, note: `Agent run ${runId}` })
+          creditWalletService.apply(event.payerUserId, -charge.modelCharge, 'model_usage_charge', { runId, ledgerId: entry.id, note: `Model usage ${runId}` })
+        }
+        if (charge.agentCharge > 0) {
+          const entry = billingLedgerRepository.createEntry(event, {
+            accountUserId: event.payerUserId,
+            accountRole: 'payer',
+            direction: 'debit',
+            entryType: 'agent_usage_charge',
+            amount: charge.agentCharge,
+            ruleSnapshot: charge.snapshot,
+          })
+          creditWalletService.apply(event.payerUserId, -charge.agentCharge, 'agent_usage_charge', { runId, ledgerId: entry.id, note: `Agent service ${runId}` })
         }
         if (charge.modelCharge > 0 && event.modelProviderUserId) {
           const entry = billingLedgerRepository.createEntry(event, {
@@ -102,35 +94,34 @@ export class BillingService {
             amount: charge.agentCharge,
             ruleSnapshot: charge.snapshot,
           })
-          creditWalletService.apply(event.agentProviderUserId, charge.agentCharge, 'agent_income', { runId, ledgerId: entry.id, note: `Agent template ${event.agentTemplateId || ''}` })
+          creditWalletService.apply(event.agentProviderUserId, charge.agentCharge, 'agent_income', { runId, ledgerId: entry.id, note: `Agent service ${event.agentTemplateId || event.agentId}` })
         }
         usageRepository.markStatus(event.id, charge.status === 'billed' ? 'charged' : 'ignored')
       })
       tx()
       return charge.status
-    } catch {
+    } catch (error) {
+      console.error('[billing] billRun failed', { runId, error })
       return 'billing_failed'
     }
   }
 
   checkRoomAgentInvocation(roomId: string, agentId: string): BillingPreflightResult {
     const room = db.prepare('SELECT created_by FROM rooms WHERE id = ?').get(roomId) as any
-    const agent = db.prepare('SELECT owner_id, source_template_id FROM agents WHERE id = ?').get(agentId) as any
+    const agent = db.prepare('SELECT owner_id FROM agents WHERE id = ?').get(agentId) as any
     const payerUserId = room?.created_by || agent?.owner_id || 'system'
     const binding = this.resolveRoomAgentModelBinding(roomId, agentId)
     const modelRule = binding.modelProfileId && binding.model
       ? this.getModelRule(binding.modelProfileId, binding.model)
       : undefined
-    const templateId = agent?.source_template_id || agentId
-    const agentRule = templateId && !this.isNativeFreeAssistant(templateId, agentId) ? this.getAgentRule(templateId) : undefined
-    const estimatedMinCredits = toInt(modelRule?.min_credits_per_run) + toInt(agentRule?.fixed_credits_per_run)
+    const estimatedMinMicrocredits = toInt(modelRule?.min_credits_per_run)
     const account = creditWalletService.getAccount(payerUserId)
-    const allowed = estimatedMinCredits <= 0 || account.balance >= estimatedMinCredits
+    const allowed = estimatedMinMicrocredits <= 0 || account.balance >= estimatedMinMicrocredits
     return {
       allowed,
       payerUserId,
-      estimatedMinCredits,
-      balance: account.balance,
+      estimatedMinCredits: microToCredit(estimatedMinMicrocredits),
+      balance: microToCredit(account.balance),
       reason: allowed ? undefined : 'INSUFFICIENT_CREDITS',
     }
   }
@@ -143,11 +134,13 @@ export class BillingService {
       cacheReadInputTokens: event.cacheReadTokens,
     }
     const modelRule = event.modelProfileId && event.model ? this.getModelRule(event.modelProfileId, event.model) : undefined
-    const agentRule = event.agentTemplateId && !this.isNativeFreeAssistant(event.agentTemplateId, event.agentId) ? this.getAgentRule(event.agentTemplateId) : undefined
+    const agentRule = event.agentTemplateId ? this.getAgentRule(event.agentTemplateId) : undefined
     const modelCharge = modelRule ? Math.max(chargeByTokens(usage, modelRule), toInt(modelRule.min_credits_per_run)) : 0
-    const agentCharge = this.calculateAgentCharge(usage, modelCharge, agentRule)
+    const chargeAgent = !!agentRule && agentRule.billing_mode !== 'free' && event.agentProviderUserId && event.agentProviderUserId !== event.payerUserId
+    const agentCharge = chargeAgent ? chargeByTokens(usage, agentRule) : 0
     const totalCharge = modelCharge + agentCharge
-    const status: BillingStatus = totalCharge > 0 ? 'billed' : (modelRule || agentRule ? 'not_billable' : 'price_missing')
+    const hasAnyRule = !!modelRule || !!agentRule
+    const status: BillingStatus = totalCharge > 0 ? 'billed' : (hasAnyRule ? 'not_billable' : 'price_missing')
     return {
       modelCharge,
       agentCharge,
@@ -157,40 +150,20 @@ export class BillingService {
     }
   }
 
-  private getModelRule(modelProfileId: string, model: string): ModelRule | undefined {
+  private getModelRule(modelProfileId: string, model: string): TokenRule | undefined {
     return db.prepare(`
       SELECT * FROM model_billing_rules
       WHERE model_profile_id = ? AND model = ? AND enabled = 1
       LIMIT 1
-    `).get(modelProfileId, model) as ModelRule | undefined
+    `).get(modelProfileId, model) as TokenRule | undefined
   }
 
-  private getAgentRule(agentTemplateId: string): AgentRule | undefined {
+  private getAgentRule(agentTemplateId: string): TokenRule | undefined {
     return db.prepare(`
       SELECT * FROM agent_billing_rules
       WHERE agent_template_id = ? AND enabled = 1
       LIMIT 1
-    `).get(agentTemplateId) as AgentRule | undefined
-  }
-
-  private isNativeFreeAssistant(templateId?: string | null, agentId?: string | null): boolean {
-    const ids = [templateId, agentId].filter(Boolean)
-    for (const id of ids) {
-      const row = db.prepare('SELECT role_type, config FROM agents WHERE id = ?').get(id) as any
-      if (!row || row.role_type !== 'assistant') continue
-      const config = String(row.config || '')
-      if (config.includes('"builtInKey":"default_assistant"') || config.includes('"defaultRoomAssistant":true')) return true
-    }
-    return false
-  }
-
-  private calculateAgentCharge(usage: TokenUsage, modelCharge: number, rule?: AgentRule): number {
-    if (!rule) return 0
-    if (rule.billing_mode === 'free') return 0
-    const fixed = toInt(rule.fixed_credits_per_run)
-    const tokenCharge = chargeByTokens(usage, rule)
-    const multiplierCharge = ceilCredits(modelCharge * Number(rule.token_multiplier || 0))
-    return fixed + tokenCharge + multiplierCharge
+    `).get(agentTemplateId) as TokenRule | undefined
   }
 
   private resolveRoomAgentModelBinding(roomId: string, agentId: string): { modelProfileId: string | null; model: string | null } {

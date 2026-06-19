@@ -19,7 +19,7 @@ function mapRow(row: any): BillingLedgerEntry {
     direction: row.direction,
     entryType: row.entry_type,
     amount: toInt(row.amount),
-    currency: 'CREDIT',
+    currency: row.currency || 'MICRO_CREDIT',
     roomId: row.room_id,
     agentId: row.agent_id,
     agentTemplateId: row.agent_template_id,
@@ -66,7 +66,7 @@ export class BillingLedgerRepository {
         id, usage_event_id, run_id, account_user_id, account_role, direction, entry_type,
         amount, currency, room_id, agent_id, agent_template_id, model_profile_id, model,
         token_snapshot_json, rule_snapshot_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CREDIT', ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'MICRO_CREDIT', ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, event.id, event.runId, input.accountUserId, input.accountRole, input.direction, input.entryType, input.amount, event.roomId, event.agentId, event.agentTemplateId || null, event.modelProfileId || null, event.model || null, tokenSnapshot, input.ruleSnapshot, Date.now())
     return mapRow(db.prepare('SELECT * FROM billing_ledger_entries WHERE id = ?').get(id))
   }

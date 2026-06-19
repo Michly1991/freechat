@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react'
-import { Bot, Compass, Map, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import { Bot, Compass, Cpu, Map, Pencil, Plus, Trash2, Upload } from 'lucide-react'
 import { api } from '../../lib/api'
-import { AGENT_TOOL_KEYS } from '../home-agent-form'
+import { AGENT_TOOL_KEYS, agentToForm } from '../home-agent-form'
 import type { ContactsSectionProps } from './types'
 import { AgentConfigEditor } from '../room/components/AgentConfigEditor'
 import { TemplatePermissionPanel } from '../room/components/TemplatePermissionPanel'
 
 export function ContactsSection(props: ContactsSectionProps) {
   const {
+    contactKind,
+    setContactKind,
     searchQ,
     setSearchQ,
     searchResults,
@@ -18,14 +20,31 @@ export function ContactsSection(props: ContactsSectionProps) {
     acceptFriendRequest,
     rejectFriendRequest,
     openDm,
+    agents,
+    scenes,
+    reloadScenes,
+    reloadAgents,
+    showCreateAgent,
+    editingAgentId,
+    agentForm,
+    setAgentForm,
+    toggleAgentTool,
+    createAgentFromContacts,
+    resetAgentEditor,
+    openCreateAgent,
+    openEditAgent,
+    deleteAgentFromContacts,
   } = props
 
   return (
     <section className="bg-white sm:rounded-xl sm:border border-gray-200 p-4 sm:p-5 mb-4 sm:mb-6">
       <div className="flex items-center justify-between gap-3 mb-3">
-        <h2 className="text-lg font-semibold text-gray-800">通讯录</h2>
+        <div><h2 className="text-lg font-semibold text-gray-800">通讯录</h2><p className="text-xs text-gray-400 mt-0.5">管理好友、已关注 Agent/模型和已购买场景。</p></div>
       </div>
-      <PeopleContacts
+      <div className="overflow-x-auto pb-1 mb-4"><div className="inline-flex min-w-max rounded-xl bg-gray-100 p-1">
+        {[['people', '人员'], ['agents', 'Agent'], ['models', '模型'], ['scenes', '场景']].map(([key, label]) => <button key={key} onClick={() => setContactKind(key as any)} className={`rounded-lg px-4 py-2 text-sm ${contactKind === key ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>{label}</button>)}
+      </div></div>
+      {contactKind === 'people' && <PeopleContacts
         searchQ={searchQ}
         setSearchQ={setSearchQ}
         searchResults={searchResults}
@@ -36,7 +55,10 @@ export function ContactsSection(props: ContactsSectionProps) {
         acceptFriendRequest={acceptFriendRequest}
         rejectFriendRequest={rejectFriendRequest}
         openDm={openDm}
-      />
+      />}
+      {contactKind === 'agents' && <AgentContacts agents={agents.filter((a: any) => a.canUse)} reloadAgents={reloadAgents} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} resetAgentEditor={resetAgentEditor} openCreateAgent={openCreateAgent} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />}
+      {contactKind === 'models' && <ModelContacts />}
+      {contactKind === 'scenes' && <SceneContacts scenes={scenes.filter((s: any) => s.canUse)} agents={agents.filter((a: any) => a.canUse)} reloadScenes={reloadScenes} />}
     </section>
   )
 }
@@ -113,16 +135,45 @@ function PeopleContacts({ searchQ, setSearchQ, searchResults, friends, friendReq
   )
 }
 
-type AgentProps = Pick<ContactsSectionProps,
-  'agents' | 'showCreateAgent' | 'editingAgentId' | 'agentForm' | 'setAgentForm' | 'toggleAgentTool' |
-  'createAgentFromContacts' | 'resetAgentEditor' | 'openCreateAgent' | 'openEditAgent' | 'deleteAgentFromContacts'
->
+function ModelContacts() {
+  const [models, setModels] = useState<any[]>([])
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [form, setForm] = useState({ name: '', baseUrl: '', apiKey: '', defaultModel: '', models: '', visibility: 'private' })
+  const load = async () => { const data = await api.getModelProfiles(); setModels((data.profiles || []).filter((m: any) => m.canUse)) }
+  useEffect(() => { void load() }, [])
+  const beginNew = () => { setEditingId('new'); setForm({ name: '我的模型服务', baseUrl: '', apiKey: '', defaultModel: '', models: '', visibility: 'private' }) }
+  const beginEdit = (model: any) => { if (!model.canEdit) return; setEditingId(model.id); setForm({ name: model.name || '', baseUrl: model.baseUrl || '', apiKey: '', defaultModel: model.defaultModel || '', models: (model.models || []).join(','), visibility: model.visibility || 'private' }) }
+  const save = async () => {
+    if (!form.name.trim()) return
+    if (editingId === 'new') await api.createModelProfile(form)
+    else if (editingId) await api.updateModelProfile(editingId, form)
+    setEditingId(null); await load()
+  }
+  const toggleFollow = async (model: any) => {
+    if (model.isOwner || model.visibility === 'platform') return
+    if (model.isFollowing) await api.unfollowMarketTarget('model', model.id)
+    else await api.followMarketTarget('model', model.id)
+    await load()
+  }
+  const toggleList = async (model: any) => { await api.updateModelProfile(model.id, { visibility: model.visibility === 'shared' ? 'private' : 'shared' }); await load() }
+  return <div className="space-y-4"><ContactCreateHeader title="模型" description="管理自己创建或已关注的模型服务；上架后才会出现在别人的市场。" buttonLabel="新增模型" onCreate={beginNew} />
+    {editingId && <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 space-y-3"><p className="text-sm font-semibold text-gray-700">{editingId === 'new' ? '新增模型服务' : '编辑模型服务'}</p><div className="grid sm:grid-cols-2 gap-2"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" placeholder="服务名称" /><input value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" placeholder="Base URL" /><input value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" placeholder="API Key（留空不改）" /><input value={form.defaultModel} onChange={(e) => setForm({ ...form, defaultModel: e.target.value })} className="px-3 py-2 border rounded-lg text-sm" placeholder="默认模型" /><input value={form.models} onChange={(e) => setForm({ ...form, models: e.target.value })} className="px-3 py-2 border rounded-lg text-sm sm:col-span-2" placeholder="支持模型，逗号分隔" /></div><div className="flex justify-end gap-2"><button onClick={() => setEditingId(null)} className="px-3 py-2 rounded-lg bg-gray-100 text-sm text-gray-600">取消</button><button onClick={save} className="px-3 py-2 rounded-lg bg-blue-600 text-sm text-white">保存</button></div></div>}
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{models.length === 0 ? <p className="text-sm text-gray-400">暂无可用模型，先新增或去市场关注一个。</p> : models.map((m) => <div key={m.id} className="rounded-xl border border-gray-100 p-3 bg-white flex items-start gap-3"><span className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-blue-500 text-white flex items-center justify-center shrink-0"><Cpu className="w-5 h-5" /></span><div className="min-w-0 flex-1"><div className="flex items-center gap-2 flex-wrap"><p className="text-sm font-medium text-gray-800 truncate">{m.name}</p><span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">{m.visibility === 'platform' ? '平台' : m.isOwner ? '我的' : '已关注'}</span>{m.visibility === 'shared' && <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600">已上架</span>}</div><p className="text-xs text-gray-500 mt-1">默认模型：{m.defaultModel || '未配置'}</p><p className="text-xs text-gray-400 mt-1">价格：{m.priceSummary || '暂无定价'}</p><div className="mt-2 flex flex-wrap gap-2">{m.canEdit && <button onClick={() => beginEdit(m)} className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs text-blue-600">编辑</button>}{m.canEdit && m.visibility !== 'platform' && <button onClick={() => toggleList(m)} className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs text-gray-600">{m.visibility === 'shared' ? '下架' : '上架'}</button>}{!m.isOwner && m.visibility !== 'platform' && <button onClick={() => toggleFollow(m)} className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs text-gray-600">取消关注</button>}</div></div></div>)}</div>
+  </div>
+}
 
-export function AgentContacts({ agents, showCreateAgent, editingAgentId, agentForm, setAgentForm, toggleAgentTool, createAgentFromContacts, resetAgentEditor, openCreateAgent, openEditAgent, deleteAgentFromContacts }: AgentProps) {
+type AgentProps = Pick<ContactsSectionProps,
+  'agents' | 'reloadAgents' | 'showCreateAgent' | 'editingAgentId' | 'agentForm' | 'setAgentForm' | 'toggleAgentTool' |
+  'createAgentFromContacts' | 'resetAgentEditor' | 'openCreateAgent' | 'openEditAgent' | 'deleteAgentFromContacts'
+> & { mode?: 'contacts' | 'market' }
+
+export function AgentContacts({ mode = 'contacts', agents, reloadAgents, showCreateAgent, editingAgentId, agentForm, setAgentForm, toggleAgentTool, createAgentFromContacts, resetAgentEditor, openCreateAgent, openEditAgent, deleteAgentFromContacts }: AgentProps) {
   const [skills, setSkills] = useState<any[]>([])
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null)
   const [skillForm, setSkillForm] = useState({ name: '', description: '', content: '', enabled: true })
   const [skillSaving, setSkillSaving] = useState(false)
+  const [packageUploading, setPackageUploading] = useState(false)
+  const packageInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     setEditingSkillId(null)
@@ -132,7 +183,7 @@ export function AgentContacts({ agents, showCreateAgent, editingAgentId, agentFo
   }, [showCreateAgent, editingAgentId])
 
   const loadAgentSkills = async (agentId: string) => {
-    try { const detail = await api.getAgentDetail(agentId); setSkills(detail.skills || []) } catch (err) { console.error(err) }
+    try { const detail = await api.getAgentDetail(agentId); setSkills(detail.skills || []); if (detail.agent) setAgentForm(agentToForm(detail.agent)) } catch (err) { console.error(err) }
   }
 
   const startNewSkill = () => {
@@ -163,52 +214,85 @@ export function AgentContacts({ agents, showCreateAgent, editingAgentId, agentFo
     await loadAgentSkills(editingAgentId)
   }
 
+  const toggleFollowAgent = async (agent: any) => {
+    if (agent.isOwner) return
+    if (agent.isFollowing) await api.unfollowMarketTarget('agent', agent.id)
+    else await api.followMarketTarget('agent', agent.id)
+    reloadAgents()
+  }
+
+  const uploadAgentPackage = async (file?: File | null) => {
+    if (!file) return
+    try {
+      setPackageUploading(true)
+      const result = await api.uploadAgentPackage(file)
+      alert(`Agent 包已${result.mode === 'create' ? '导入' : '更新'}并上架：${result.agent?.name || result.package?.name}`)
+      await reloadAgents()
+    } catch (err: any) {
+      alert(err?.message || '上传 Agent 包失败')
+    } finally {
+      setPackageUploading(false)
+      if (packageInputRef.current) packageInputRef.current.value = ''
+    }
+  }
+
   const currentAgent = editingAgentId ? agents.find((agent) => agent.id === editingAgentId) : null
-  const canEditCurrent = !editingAgentId || currentAgent?.canEdit !== false
+  const canEditCurrent = mode === 'contacts' && (!editingAgentId || currentAgent?.canEdit !== false)
+
+  const toggleListAgent = async (agent: any) => {
+    await api.updateAgent(agent.id, { marketListed: !agent.marketListed })
+    await reloadAgents()
+  }
+
+  const agentEditorPanel = (
+    <div className="p-4 border border-blue-100 bg-blue-50/50 rounded-2xl space-y-3 sm:col-span-2">
+      <div className="text-sm font-semibold text-gray-700">{editingAgentId ? (canEditCurrent ? '编辑 AI' : '查看 AI') : '新建 AI'}</div>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <input value={agentForm.name} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, name: e.target.value })} className="px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500" placeholder="AI 名称，例如：需求分析师" />
+        <select value={agentForm.roleType} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, roleType: e.target.value as any })} className="px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500"><option value="assistant">业务助理</option><option value="specialist">业务专家</option></select>
+      </div>
+      <input value={agentForm.description} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, description: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500" placeholder="职责描述" />
+      <input value={agentForm.specialties} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, specialties: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500" placeholder="专长，逗号分隔" />
+      <textarea value={agentForm.systemPrompt} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, systemPrompt: e.target.value })} rows={4} className="w-full px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500" placeholder="系统提示词" />
+      <textarea value={agentForm.agentMarkdown} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, agentMarkdown: e.target.value })} rows={6} className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono disabled:bg-gray-50 disabled:text-gray-500" placeholder="AGENT.md：Agent 介绍、Description、明细、资源/Skill 使用说明（留空则自动生成）" />
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
+        {AGENT_TOOL_KEYS.map((key) => <label key={key} className="flex items-center gap-2 bg-white border border-gray-200 rounded px-3 py-2"><input type="checkbox" disabled={!canEditCurrent} checked={agentForm.tools[key]} onChange={() => toggleAgentTool(key)} />{key}</label>)}
+      </div>
+      {editingAgentId && (
+        <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-3">
+          <div className="flex items-center justify-between"><div><p className="text-sm font-semibold text-gray-700">Skills</p><p className="text-xs text-gray-400">维护这个 AI 的技能说明，运行时会写入 skills/。</p></div>{canEditCurrent && <button onClick={startNewSkill} className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-xs text-blue-600 hover:bg-blue-100">+ 新建 Skill</button>}</div>
+          {skills.length === 0 && editingSkillId !== 'new' && <p className="text-xs text-gray-400 border border-dashed border-gray-200 rounded-lg p-3">暂无 Skill。</p>}
+          <div className="space-y-2">{skills.map((skill) => <div key={skill.id} className="border border-gray-100 rounded-lg p-2"><div className="flex items-center justify-between gap-2"><div className="min-w-0"><p className="text-sm font-medium text-gray-700 truncate">{skill.name}</p>{skill.description && <p className="text-xs text-gray-400 truncate">{skill.description}</p>}</div>{canEditCurrent && <div className="flex gap-2 shrink-0"><button onClick={() => startEditSkill(skill)} className="text-xs text-blue-600">编辑</button><button onClick={() => removeSkill(skill.id)} className="text-xs text-red-500">删除</button></div>}</div></div>)}</div>
+          {editingSkillId && <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 space-y-2"><input value={skillForm.name} onChange={(e) => setSkillForm({ ...skillForm, name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm" placeholder="Skill 名称" /><input value={skillForm.description} onChange={(e) => setSkillForm({ ...skillForm, description: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm" placeholder="Skill 描述" /><label className="text-xs text-gray-500 flex items-center gap-2"><input type="checkbox" checked={skillForm.enabled} onChange={(e) => setSkillForm({ ...skillForm, enabled: e.target.checked })} />启用</label><textarea value={skillForm.content} onChange={(e) => setSkillForm({ ...skillForm, content: e.target.value })} rows={8} className="w-full px-3 py-2 border border-gray-300 rounded text-xs font-mono" placeholder="SKILL.md 内容" /><div className="flex gap-2 justify-end"><button onClick={() => setEditingSkillId(null)} className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs">取消</button><button onClick={saveSkill} disabled={skillSaving || !skillForm.name.trim()} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs disabled:opacity-60">{skillSaving ? '保存中...' : '保存 Skill'}</button></div></div>}
+        </div>
+      )}
+      <div className="flex gap-2">{canEditCurrent && <button onClick={createAgentFromContacts} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">{editingAgentId ? '保存修改' : '保存 AI'}</button>}<button onClick={resetAgentEditor} className="bg-gray-100 text-gray-600 px-4 py-2 rounded-lg text-sm hover:bg-gray-200">{canEditCurrent ? '取消' : '关闭'}</button></div>
+    </div>
+  )
 
   return (
     <div className="space-y-4">
-      <ContactCreateHeader title="AI市场" description="管理全局共享 AI 模板；创建项目时会克隆为项目副本。" buttonLabel="新增 AI" onCreate={() => showCreateAgent && !editingAgentId ? resetAgentEditor() : openCreateAgent()} />
-      {showCreateAgent && (
-        <div className="p-4 border border-blue-100 bg-blue-50/50 rounded-xl space-y-3">
-          <div className="text-sm font-semibold text-gray-700">{editingAgentId ? (canEditCurrent ? '编辑 AI' : '查看 AI') : '新建 AI'}</div>
-          <div className="grid sm:grid-cols-2 gap-3">
-            <input value={agentForm.name} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, name: e.target.value })} className="px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500" placeholder="AI 名称，例如：需求分析师" />
-            <select value={agentForm.roleType} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, roleType: e.target.value as any })} className="px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500"><option value="assistant">业务助理</option><option value="specialist">业务专家</option></select>
-          </div>
-          <input value={agentForm.description} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, description: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500" placeholder="职责描述" />
-          <input value={agentForm.specialties} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, specialties: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500" placeholder="专长，逗号分隔" />
-          <textarea value={agentForm.systemPrompt} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, systemPrompt: e.target.value })} rows={4} className="w-full px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500" placeholder="系统提示词" />
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
-            {AGENT_TOOL_KEYS.map((key) => <label key={key} className="flex items-center gap-2 bg-white border border-gray-200 rounded px-3 py-2"><input type="checkbox" disabled={!canEditCurrent} checked={agentForm.tools[key]} onChange={() => toggleAgentTool(key)} />{key}</label>)}
-          </div>
-          {editingAgentId && (
-            <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-3">
-              <div className="flex items-center justify-between"><div><p className="text-sm font-semibold text-gray-700">Skills</p><p className="text-xs text-gray-400">维护这个 AI 的技能说明，运行时会写入 skills/。</p></div>{canEditCurrent && <button onClick={startNewSkill} className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-xs text-blue-600 hover:bg-blue-100">+ 新建 Skill</button>}</div>
-              {skills.length === 0 && editingSkillId !== 'new' && <p className="text-xs text-gray-400 border border-dashed border-gray-200 rounded-lg p-3">暂无 Skill。</p>}
-              <div className="space-y-2">{skills.map((skill) => <div key={skill.id} className="border border-gray-100 rounded-lg p-2"><div className="flex items-center justify-between gap-2"><div className="min-w-0"><p className="text-sm font-medium text-gray-700 truncate">{skill.name}</p>{skill.description && <p className="text-xs text-gray-400 truncate">{skill.description}</p>}</div>{canEditCurrent && <div className="flex gap-2 shrink-0"><button onClick={() => startEditSkill(skill)} className="text-xs text-blue-600">编辑</button><button onClick={() => removeSkill(skill.id)} className="text-xs text-red-500">删除</button></div>}</div></div>)}</div>
-              {editingSkillId && <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 space-y-2"><input value={skillForm.name} onChange={(e) => setSkillForm({ ...skillForm, name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm" placeholder="Skill 名称" /><input value={skillForm.description} onChange={(e) => setSkillForm({ ...skillForm, description: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm" placeholder="Skill 描述" /><label className="text-xs text-gray-500 flex items-center gap-2"><input type="checkbox" checked={skillForm.enabled} onChange={(e) => setSkillForm({ ...skillForm, enabled: e.target.checked })} />启用</label><textarea value={skillForm.content} onChange={(e) => setSkillForm({ ...skillForm, content: e.target.value })} rows={8} className="w-full px-3 py-2 border border-gray-300 rounded text-xs font-mono" placeholder="SKILL.md 内容" /><div className="flex gap-2 justify-end"><button onClick={() => setEditingSkillId(null)} className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs">取消</button><button onClick={saveSkill} disabled={skillSaving || !skillForm.name.trim()} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs disabled:opacity-60">{skillSaving ? '保存中...' : '保存 Skill'}</button></div></div>}
-            </div>
-          )}
-          <div className="flex gap-2">{canEditCurrent && <button onClick={createAgentFromContacts} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">{editingAgentId ? '保存修改' : '保存 AI'}</button>}<button onClick={resetAgentEditor} className="bg-gray-100 text-gray-600 px-4 py-2 rounded-lg text-sm hover:bg-gray-200">{canEditCurrent ? '取消' : '关闭'}</button></div>
-        </div>
-      )}
+      {mode === 'contacts' ? <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="font-semibold text-gray-800">Agent</h3><p className="text-sm text-gray-500 mt-1">管理自己创建或已关注的 Agent；上传 npm tgz 包会校验并直接上架市场。</p></div><div className="flex flex-wrap gap-2"><button onClick={() => showCreateAgent && !editingAgentId ? resetAgentEditor() : openCreateAgent()} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"><Plus className="w-4 h-4" />新增 AI</button><button disabled={packageUploading} onClick={() => packageInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"><Upload className="w-4 h-4" />{packageUploading ? '上传中...' : '上传并上架包'}</button><input ref={packageInputRef} type="file" accept=".tgz,.tar.gz" className="hidden" onChange={(e) => uploadAgentPackage(e.target.files?.[0])} /></div></div> : <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-emerald-800"><p className="font-semibold text-emerald-900">AI 市场</p><p className="mt-0.5">这里用于发现和关注已上架 Agent；新增和编辑请到通讯录。</p></div>}
+      {showCreateAgent && !editingAgentId && mode === 'contacts' && agentEditorPanel}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {agents.length === 0 ? <p className="text-sm text-gray-400">AI市场暂无内容，点击右上角新建一个。</p> : [...agents].sort((a, b) => (a.builtInKey === 'default_assistant' ? -1 : 0) - (b.builtInKey === 'default_assistant' ? -1 : 0)).map((a) => (
-          <div key={a.id} className="p-3 rounded-xl border border-gray-100 flex items-start justify-between gap-3">
+          <Fragment key={a.id}>
+          <div className="p-3 sm:p-3.5 rounded-2xl border border-gray-100 bg-white shadow-sm flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-start gap-3 min-w-0">
               <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-400 to-blue-500 text-white flex items-center justify-center shrink-0"><Bot className="w-5 h-5" /></span>
               <div className="min-w-0"><div className="flex items-center gap-2 flex-wrap"><p className="text-sm font-medium truncate">{a.name}</p><span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-600">{a.roleType === 'assistant' ? '助理' : '专家'}</span>{a.builtInKey === 'default_assistant' && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">默认助理</span>}</div>{a.description && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{a.description}</p>}<p className="text-xs text-gray-400 mt-1 truncate">发布人：{a.ownerName || a.ownerId || '未知'}</p>{a.specialties?.length > 0 && <p className="text-xs text-gray-400 mt-1 truncate">{a.specialties.join('、')}</p>}</div>
             </div>
-            <div className="flex items-center gap-1 shrink-0">{a.canEdit !== false ? <><button onClick={() => openEditAgent(a)} className="text-blue-500 hover:text-blue-700 p-1" title="编辑 AI"><Pencil className="w-4 h-4" /></button>{a.canDelete !== false && <button onClick={() => deleteAgentFromContacts(a)} className="text-red-400 hover:text-red-600 p-1" title="删除 Agent"><Trash2 className="w-4 h-4" /></button>}</> : <button onClick={() => openEditAgent(a)} className="text-[10px] px-2 py-1 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200">查看</button>}</div>
+            <div className="flex w-full flex-row flex-wrap gap-2 border-t border-gray-100 pt-3 shrink-0 sm:w-auto sm:flex-col sm:items-end sm:border-t-0 sm:pt-0">{mode === 'contacts' && a.canEdit !== false ? <div className="flex gap-1"><button onClick={() => openEditAgent(a)} className="text-blue-500 hover:text-blue-700 p-1" title="编辑 AI"><Pencil className="w-4 h-4" /></button>{a.canDelete !== false && <button onClick={() => deleteAgentFromContacts(a)} className="text-red-400 hover:text-red-600 p-1" title="删除 Agent"><Trash2 className="w-4 h-4" /></button>}</div> : <button onClick={() => openEditAgent(a)} className="flex min-h-10 flex-1 items-center justify-center rounded-xl bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 active:scale-[0.98] sm:min-h-0 sm:flex-none sm:rounded-full sm:px-2 sm:py-1 sm:text-[10px]">查看</button>}{mode === 'contacts' && a.isOwner && a.builtInKey !== 'default_assistant' && <button onClick={() => toggleListAgent(a)} className={`flex min-h-10 flex-1 items-center justify-center rounded-xl px-4 py-2 text-sm font-medium active:scale-[0.98] sm:min-h-0 sm:flex-none sm:rounded-full sm:px-2 sm:py-1 sm:text-[10px] ${a.marketListed ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-600'}`}>{a.marketListed ? '已上架' : '上架'}</button>}{!a.isOwner && a.builtInKey !== 'default_assistant' && <button onClick={() => toggleFollowAgent(a)} className={`flex min-h-10 flex-1 items-center justify-center rounded-xl px-4 py-2 text-sm font-medium active:scale-[0.98] sm:min-h-0 sm:flex-none sm:rounded-full sm:px-2 sm:py-1 sm:text-[10px] ${a.isFollowing ? 'bg-gray-100 text-gray-600' : 'bg-blue-600 text-white shadow-sm sm:bg-blue-50 sm:text-blue-600 sm:shadow-none'}`}>{a.isFollowing ? '已关注' : '关注'}</button>}</div>
           </div>
+          {showCreateAgent && editingAgentId === a.id && agentEditorPanel}
+          </Fragment>
         ))}
       </div>
     </div>
   )
 }
 
-export function SceneContacts({ scenes, agents, reloadScenes }: { scenes: any[]; agents: any[]; reloadScenes: () => void }) {
+export function SceneContacts({ mode = 'contacts', scenes, agents, reloadScenes }: { mode?: 'contacts' | 'market'; scenes: any[]; agents: any[]; reloadScenes: () => void }) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<{ name: string; description: string; agents: any[] }>({ name: '', description: '', agents: [] })
   const [selectedGlobalAgentId, setSelectedGlobalAgentId] = useState('')
@@ -227,6 +311,18 @@ export function SceneContacts({ scenes, agents, reloadScenes }: { scenes: any[];
     setForm({ name: scene.name || '', description: scene.description || '', agents: (scene.agents || []).map((agent: any) => ({ ...agent })) })
     setBillingForm({ billingMode: scene.billingRule?.billingMode || (scene.priceSummary?.includes('买断') ? 'fixed' : 'free'), fixedCreditsPerPurchase: scene.billingRule?.fixedCreditsPerPurchase || 0 })
     setSelectedGlobalAgentId(scene.agents?.[0]?.agentId || '')
+  }
+
+  const purchaseScene = async (scene: any) => {
+    const ok = window.confirm(`确认购买场景「${scene.name}」？价格：${scene.priceSummary || '以结算为准'}。`)
+    if (!ok) return
+    await api.purchaseScene(scene.id, true)
+    reloadScenes()
+  }
+
+  const toggleListScene = async (scene: any) => {
+    await api.updateScene(scene.id, { marketListed: !scene.marketListed })
+    reloadScenes()
   }
 
   const saveScene = async () => {
@@ -252,12 +348,12 @@ export function SceneContacts({ scenes, agents, reloadScenes }: { scenes: any[];
 
   return (
     <div className="space-y-3">
-      <ContactCreateHeader title="场景市场" description="管理全局共享场景模板；别人只能看到摘要、包含的 AI 和售价。" buttonLabel="新增场景" onCreate={beginNew} />
+      {mode === 'contacts' ? <ContactCreateHeader title="场景" description="管理自己创建或已购买的场景模板；上架后才会出现在别人的市场。" buttonLabel="新增场景" onCreate={beginNew} /> : <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-emerald-800"><p className="font-semibold text-emerald-900">场景市场</p><p className="mt-0.5">这里只能购买已上架场景；新增和编辑请到通讯录。</p></div>}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {(scenes.length === 0 && editingId !== 'new') ? <p className="text-sm text-gray-400">暂无场景。</p> : (editingId === 'new' ? [{ id: 'new', name: '新场景', description: '', agents: [], canEdit: true }, ...scenes] : scenes).map((scene) => {
           const editing = editingId === scene.id
           return (
-            <div key={scene.id} className={`p-4 rounded-xl border bg-white ${editing ? 'sm:col-span-2 border-blue-200 ring-2 ring-blue-50' : 'border-gray-100'}`}>
+            <div key={scene.id} className={`p-4 rounded-2xl border bg-white shadow-sm ${editing ? 'sm:col-span-2 border-blue-200 ring-2 ring-blue-50' : 'border-gray-100'}`}>
               <div className="flex items-start gap-3">
                 <span className="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-300 to-orange-500 text-white flex items-center justify-center shrink-0">{scene.icon === 'compass' ? <Compass className="w-5 h-5" /> : <Map className="w-5 h-5" />}</span>
                 <div className="min-w-0 flex-1">
@@ -272,7 +368,7 @@ export function SceneContacts({ scenes, agents, reloadScenes }: { scenes: any[];
                         <label className="text-xs text-gray-500 space-y-1"><span>场景描述</span><textarea value={form.description} disabled={scene.isBuiltIn && editingId !== 'new'} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-800 disabled:bg-gray-100 disabled:text-gray-400" placeholder="场景描述" /></label>
                       </div>
                       {scene.isBuiltIn && editingId !== 'new' && <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">Agent 管理是系统内置项目，不能删除，也不能作为普通场景重复创建；这里仅维护它关联的全局 Agent 配置。</p>}
-                      {editingId !== 'new' && <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 space-y-2"><p className="text-sm font-medium text-gray-700">场景买断价</p><p className="text-xs text-gray-500">场景只收一次买断费；后续运行按场景内 AI / 模型继续计费。</p><div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><select value={billingForm.billingMode} onChange={(e) => setBillingForm({ ...billingForm, billingMode: e.target.value })} className="px-3 py-2 border rounded-lg text-sm"><option value="free">🎁 免费</option><option value="fixed">一次性买断</option></select><input type="number" value={billingForm.fixedCreditsPerPurchase} onChange={(e) => setBillingForm({ ...billingForm, fixedCreditsPerPurchase: Number(e.target.value) })} className="px-3 py-2 border rounded-lg text-sm" placeholder="credits 买断" /></div></div>}
+                      {editingId !== 'new' && <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 space-y-2"><p className="text-sm font-medium text-gray-700">场景买断价</p><p className="text-xs text-gray-500">场景只收一次买断费；后续运行按场景内 AI / 模型继续计费。</p><div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><select value={billingForm.billingMode} onChange={(e) => setBillingForm({ ...billingForm, billingMode: e.target.value })} className="px-3 py-2 border rounded-lg text-sm"><option value="free">免费</option><option value="fixed">一次性买断</option></select><input type="number" step="0.01" value={billingForm.fixedCreditsPerPurchase} onChange={(e) => setBillingForm({ ...billingForm, fixedCreditsPerPurchase: Number(e.target.value) })} className="px-3 py-2 border rounded-lg text-sm" placeholder="credits 买断" /></div></div>}
                       {editingId !== 'new' && <TemplatePermissionPanel targetType="scene" targetId={scene.id} canEdit={scene.canEdit !== false} feedback={{ error: alert, success: () => {} }} />}
                       <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 space-y-3">
                         <div className="flex items-center justify-between"><div><p className="text-sm font-medium text-gray-700">全局 Agent</p><p className="text-xs text-gray-400">选择场景包含的全局 Agent，并可直接配置模板。</p></div><button onClick={() => { const first = agents.find((item) => !form.agents.some((a) => a.agentId === item.id)); setForm({ ...form, agents: [...form.agents, { agentId: first?.id || '', name: first?.name || '', roleType: first?.roleType, autoEnabled: false, priority: form.agents.length }] }); if (first?.id) setSelectedGlobalAgentId(first.id) }} className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-xs text-blue-600 hover:bg-blue-100">+ 添加</button></div>
@@ -291,7 +387,7 @@ export function SceneContacts({ scenes, agents, reloadScenes }: { scenes: any[];
                     </div>
                   ) : (
                     <div>
-                      <div className="flex items-start justify-between gap-2"><div><p className="font-semibold text-gray-800">{scene.name}{scene.isBuiltIn && <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-600">内置</span>}{scene.canEdit === false && <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">只读</span>}</p>{scene.description && <p className="text-xs text-gray-500 mt-1">{scene.description}</p>}<p className="text-xs text-gray-400 mt-1">发布人：{scene.ownerName || scene.ownerId || '未知'}</p><p className="text-xs text-blue-600 mt-1">价格：{scene.priceSummary || '暂无定价'}<span className="text-gray-400"> · 后续按 AI/模型计费</span></p></div>{scene.canEdit !== false && <button onClick={() => beginEdit(scene)} className="text-blue-500 hover:text-blue-700 p-1"><Pencil className="w-4 h-4" /></button>}</div>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="font-semibold text-gray-800">{scene.name}{scene.isBuiltIn && <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-600">内置</span>}{scene.marketListed && <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600">已上架</span>}{scene.canEdit === false && <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">只读</span>}</p>{scene.description && <p className="text-xs text-gray-500 mt-1">{scene.description}</p>}<p className="text-xs text-gray-400 mt-1">发布人：{scene.ownerName || scene.ownerId || '未知'}</p><p className="text-xs text-blue-600 mt-1">价格：{scene.priceSummary || '暂无定价'}<span className="text-gray-400"> · 后续按 AI/模型计费</span></p></div><div className="flex w-full flex-row flex-wrap gap-2 border-t border-gray-100 pt-3 sm:w-auto sm:flex-col sm:items-end sm:border-t-0 sm:pt-0">{mode === 'contacts' && scene.canEdit !== false && <button onClick={() => beginEdit(scene)} className="flex min-h-10 flex-1 items-center justify-center rounded-xl bg-blue-50 px-4 py-2 text-sm font-medium text-blue-600 active:scale-[0.98] sm:min-h-0 sm:flex-none sm:bg-transparent sm:p-1"><Pencil className="w-4 h-4" /><span className="ml-1 sm:hidden">编辑</span></button>}{mode === 'contacts' && scene.canEdit !== false && !scene.isBuiltIn && <button onClick={() => toggleListScene(scene)} className={`flex min-h-10 flex-1 items-center justify-center rounded-xl px-4 py-2 text-sm font-medium active:scale-[0.98] sm:min-h-0 sm:flex-none sm:rounded-lg sm:px-2 sm:py-1 sm:text-[10px] ${scene.marketListed ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-600'}`}>{scene.marketListed ? '已上架' : '上架'}</button>}{!scene.canUse && <button onClick={() => purchaseScene(scene)} className="flex min-h-10 flex-1 items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm active:scale-[0.98] sm:min-h-0 sm:flex-none sm:rounded-lg sm:bg-emerald-50 sm:px-3 sm:py-1.5 sm:text-xs sm:text-emerald-600 sm:shadow-none">购买</button>}{scene.canUse && !scene.canEdit && <span className="flex min-h-10 flex-1 items-center justify-center rounded-xl bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-600 sm:min-h-0 sm:flex-none sm:rounded-full sm:px-2 sm:py-1 sm:text-[10px]">已拥有</span>}</div></div>
                       <div className="mt-3 flex flex-wrap gap-1">{(scene.agents || []).map((agent: any) => <span key={agent.agentId} className="text-[10px] px-2 py-1 rounded-full bg-violet-50 text-violet-600">{agent.name}{agent.autoEnabled ? ' · 自动' : ''}</span>)}</div>
                     </div>
                   )}

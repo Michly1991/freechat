@@ -26,6 +26,7 @@ import { registerNotificationRoutes } from './routes/notifications.js'
 import { registerModelProfileRoutes } from './routes/model-profiles.js'
 import { registerBillingRoutes } from './routes/billing.js'
 import { registerBillingRuleRoutes } from './routes/billing-rules.js'
+import { registerMarketRoutes } from './routes/market.js'
 import { authenticate } from './auth/middleware.js'
 import { initDatabase } from './storage/db.js'
 import { initWebSocket } from './ws/gateway.js'
@@ -65,7 +66,7 @@ async function buildApp() {
   // Multipart uploads
   await app.register(multipart, {
     limits: {
-      fileSize: 10 * 1024 * 1024
+      fileSize: 50 * 1024 * 1024
     }
   })
 
@@ -73,6 +74,7 @@ async function buildApp() {
   systemAdminService.ensureSystemAdmin()
   platformModelBootstrapService.ensurePlatformUserAndModels()
   marketPricingBootstrapService.ensureDefaultMarketPricing()
+  void agentService.ensurePackageWorkspaces()
   agentService.recoverStaleRuns()
   void agentService.recoverInterruptedTaskRuns()
 
@@ -89,8 +91,9 @@ async function buildApp() {
 
   // Protected routes (auth required)
   app.addHook('preHandler', async (request, reply) => {
-    const url = request.url
-    if (url.startsWith('/api/') && !url.startsWith('/api/auth/') && !url.startsWith('/api/agent-tools/') && url !== '/api/health') {
+    const path = request.url.split('?')[0]
+    const publicApiPaths = new Set(['/api/health', '/api/auth/register', '/api/auth/login'])
+    if (path.startsWith('/api/') && !publicApiPaths.has(path) && !path.startsWith('/api/agent-tools/')) {
       await authenticate(request, reply)
     }
   })
@@ -117,6 +120,7 @@ async function buildApp() {
   await registerModelProfileRoutes(app)
   await registerBillingRoutes(app)
   await registerBillingRuleRoutes(app)
+  await registerMarketRoutes(app)
   await registerAgentToolRoutes(app)
 
   // Error handler
@@ -142,7 +146,7 @@ export async function startServer() {
     host: config.host
   })
 
-  console.log(`✓ Server running at ${server}`)
+  console.log(`Server running at ${server}`)
 
   // Initialize WebSocket
   initWebSocket(app.server)

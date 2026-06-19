@@ -2,11 +2,9 @@ import db from '../storage/db.js'
 import { v4 as uuidv4 } from 'uuid'
 import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
-import { rm } from 'fs/promises'
-import { join } from 'path'
-import { config } from '../config.js'
 import type { Room, RoomMember, RoomAgentRole } from '@freechat/shared'
 import { SYSTEM_ADMIN_USER_ID } from './system-admin.service.js'
+import { agentPackageService } from './agent-package.service.js'
 
 interface InitialRoomAgent {
   agentId: string
@@ -105,6 +103,8 @@ export class RoomService {
 
     create()
 
+    await agentPackageService.ensureRoomWorkspace(id, { id, name, description, created_by: userId })
+
     return this.getRoom(id)
   }
 
@@ -129,7 +129,7 @@ export class RoomService {
     const rows: any[] = db.prepare(`
       SELECT r.*, rm.role as member_role FROM rooms r
       INNER JOIN room_members rm ON r.id = rm.room_id
-      WHERE rm.user_id = ?
+      WHERE rm.user_id = ? AND r.deleted_at IS NULL
       ORDER BY r.last_active_at DESC
     `).all(userId)
 
@@ -182,32 +182,11 @@ export class RoomService {
       : null
 
     if (userId && member?.role !== 'owner') {
-      throw { code: 'FORBIDDEN', message: '你没有权限永久删除该项目' }
+      throw { code: 'FORBIDDEN', message: '你没有权限删除该项目' }
     }
 
-    const defaultAssistantRows: any[] = db.prepare(`
-      SELECT a.id FROM agents a
-      INNER JOIN room_agents ra ON a.id = ra.agent_id
-      WHERE ra.room_id = ?
-        AND a.role_type = 'assistant'
-        AND a.config LIKE ?
-    `).all(roomId, `%"defaultRoomAssistant":true%`)
-
-    const hardDelete = db.transaction(() => {
-      // Delete room first. Foreign keys cascade room_members/messages/tasks/tabs/room_agents/profiles/sessions/invites.
-      db.prepare('DELETE FROM rooms WHERE id = ?').run(roomId)
-
-      // Remove only the auto-created default assistant for this room.
-      // Manually added reusable agents are kept.
-      for (const row of defaultAssistantRows) {
-        db.prepare('DELETE FROM agents WHERE id = ?').run(row.id)
-      }
-    })
-
-    hardDelete()
-
-    // Remove room workspace files after DB delete. Missing directories are fine.
-    await rm(join(config.workspace.root, roomId), { recursive: true, force: true })
+    const now = Date.now()
+    db.prepare('UPDATE rooms SET deleted_at = ?, deleted_by = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL').run(now, userId || null, now, roomId)
   }
 
   async getRoomMembers(roomId: string): Promise<RoomMember[]> {
@@ -242,12 +221,12 @@ export class RoomService {
   }
 
   async isMember(roomId: string, userId: string): Promise<boolean> {
-    const row = db.prepare('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, userId)
+    const row = db.prepare('SELECT 1 FROM room_members rm INNER JOIN rooms r ON r.id = rm.room_id WHERE rm.room_id = ? AND rm.user_id = ? AND r.deleted_at IS NULL').get(roomId, userId)
     return !!row
   }
 
   async updateLastActive(roomId: string): Promise<void> {
-    db.prepare('UPDATE rooms SET last_active_at = ? WHERE id = ?').run(Date.now(), roomId)
+    db.prepare('UPDATE rooms SET last_active_at = ? WHERE id = ? AND deleted_at IS NULL').run(Date.now(), roomId)
   }
 }
 

@@ -494,10 +494,12 @@ private resolveRuntimeModel(roomId: string, agentId: string): ResolvedRuntimeMod
 
 private createAgentRun(roomId: string, agentId: string, input: string, actorUserId?: string, context: AgentRunContext = {}): string {
   const id = `arun_${uuidv4()}`
+  const room = db.prepare('SELECT created_by FROM rooms WHERE id = ?').get(roomId) as any
+  const payerUserId = room?.created_by || actorUserId || null
   db.prepare(`
-    INSERT INTO agent_runs (id, room_id, agent_id, status, input, actor_user_id, run_source, task_id, subtask_id, parent_run_id, resume_attempt, started_at)
-    VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, roomId, agentId, input, actorUserId || null, context.runSource || null, context.taskId || null, context.subtaskId || null, context.parentRunId || null, context.resumeAttempt || 0, Date.now())
+    INSERT INTO agent_runs (id, room_id, agent_id, status, input, actor_user_id, payer_user_id, run_source, task_id, subtask_id, parent_run_id, resume_attempt, started_at)
+    VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, roomId, agentId, input, actorUserId || null, payerUserId, context.runSource || null, context.taskId || null, context.subtaskId || null, context.parentRunId || null, context.resumeAttempt || 0, Date.now())
   return id
 }
 

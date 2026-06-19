@@ -79,7 +79,7 @@ export async function registerTabRoutes(app: FastifyInstance) {
     db.prepare(`
       INSERT INTO tabs (id, room_id, title, content, icon, sort_order, created_by, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(tabId, roomId, String(title).trim(), content || '', icon || '📄', (maxOrder?.max_order ?? -1) + 1, user.id, now, now)
+    `).run(tabId, roomId, String(title).trim(), content || '', icon || 'file', (maxOrder?.max_order ?? -1) + 1, user.id, now, now)
 
     if (makeDefault === true) setDefaultTab(roomId, tabId, user.id)
     const defaultTabId = ensureDefaultTab(roomId, user.id)

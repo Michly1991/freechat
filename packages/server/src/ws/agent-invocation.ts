@@ -11,6 +11,7 @@ import { buildAssistantAutoPrompt, shouldConsiderAssistantAutoReply } from './as
 import type { BroadcastToRoom, InvokeReason } from './gateway-types.js'
 import { clearActiveAgentStream, setActiveAgentStream } from './agent-stream-events.js'
 import { agentStreamService } from '../services/agent-stream.service.js'
+import db from '../storage/db.js'
 
 export class AgentInvocationHandler {
   private assistantAutoReplyCooldowns: Map<string, number> = new Map()
@@ -69,7 +70,26 @@ export class AgentInvocationHandler {
     return true
   }
 
+  private getRoomCreator(roomId: string): string | null {
+    const row = db.prepare('SELECT created_by FROM rooms WHERE id = ?').get(roomId) as any
+    return row?.created_by || null
+  }
+
+  private isCreatorCommand(roomId: string, actorUserId?: string): boolean {
+    const creatorId = this.getRoomCreator(roomId)
+    return !!creatorId && !!actorUserId && actorUserId === creatorId
+  }
+
+  private async sendCommandDenied(roomId: string, actorUserId?: string) {
+    const creatorId = this.getRoomCreator(roomId)
+    const creator = creatorId ? db.prepare('SELECT nickname, username FROM users WHERE id = ?').get(creatorId) as any : null
+    const creatorName = creator?.nickname || creator?.username || '项目创建人'
+    const msg = await messageService.createMessage(roomId, 'system', '系统', 'ai', `只有项目创建人「${creatorName}」可以指挥 Agent；本项目的 Agent 和模型运行费用也由创建人承担。`, undefined, undefined, 'system_notice', { reason: 'creator_only_agent_command', actorUserId, payerUserId: creatorId })
+    this.broadcastToRoom(roomId, { msgId: msg.id, roomId, type: 'broadcast', action: 'chat.message', payload: msg, timestamp: Date.now() })
+  }
+
   async maybeAutoInvokeAssistant(roomId: string, actorName: string, content: string, mentions: any[] = [], actorUserId?: string) {
+    if (!this.isCreatorCommand(roomId, actorUserId)) return
     const pendingInteractions = interactionService.list(roomId, { status: 'pending' }).slice(0, 5)
     const pendingReplyText = pendingInteractions.length > 0 && /^(确认|可以|同意|开始|继续|取消|不要|不用|否|好|好的|ok|OK|yes|no)[。.!！?？]*$/.test(String(content || '').trim())
     if (!shouldConsiderAssistantAutoReply(content, { hasPendingInteraction: pendingInteractions.length > 0 })) return
@@ -119,6 +139,10 @@ export class AgentInvocationHandler {
   async invokeMentionedAgents(roomId: string, content: string, mentions: any[], receiptReason: InvokeReason = 'mention', actorUserId?: string) {
     const agentMentions = mentions.filter((m) => m?.role === 'ai' && m?.id)
     if (agentMentions.length === 0) return
+    if (!this.isCreatorCommand(roomId, actorUserId)) {
+      if (receiptReason === 'mention') await this.sendCommandDenied(roomId, actorUserId)
+      return
+    }
 
     const uniqueAgentIds = Array.from(new Set(agentMentions.map((m) => m.id)))
     const roomAgents = await agentService.getRoomAgents(roomId)
@@ -200,7 +224,7 @@ export class AgentInvocationHandler {
         })
 
         if (completed?.released?.length) for (const item of completed.released) {
-          if (item.assigneeType === 'agent' && item.assigneeId) void this.invokeMentionedAgents(roomId, `前置子任务已完成，你负责的子任务已解除阻塞，请立即处理。\n父任务ID: ${completed.task.id}\n父任务标题: ${completed.task.title}\n子任务ID: ${item.id}\n子任务标题: ${item.title}\n${item.description ? `子任务说明: ${item.description}` : ''}\n请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。`, [{ id: item.assigneeId, name: item.assigneeName || 'Agent', role: 'ai' }], 'task')
+          if (item.assigneeType === 'agent' && item.assigneeId) void this.invokeMentionedAgents(roomId, `前置子任务已完成，你负责的子任务已解除阻塞，请立即处理。\n父任务ID: ${completed.task.id}\n父任务标题: ${completed.task.title}\n子任务ID: ${item.id}\n子任务标题: ${item.title}\n${item.description ? `子任务说明: ${item.description}` : ''}\n请先用 ./freechat task subtask update 标记状态/进展，完成后在聊天中简短汇报。`, [{ id: item.assigneeId, name: item.assigneeName || 'Agent', role: 'ai' }], 'task', actorUserId)
         }
 
         if (result.silent || !result.response) {

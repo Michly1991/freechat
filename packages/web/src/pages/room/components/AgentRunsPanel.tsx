@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, X } from 'lucide-react'
 import { api } from '../../../lib/api'
 
 const nf = new Intl.NumberFormat('zh-CN')
@@ -114,7 +114,7 @@ export function AgentRunsPanel({ roomId, roomAgents, restartAgent, feedback }: a
 
     {detail && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" onClick={() => setDetail(null)}>
       <div className="max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-gray-900">运行详情</h3><p className="mt-1 text-xs text-gray-400">{detail.run.agentName} · {statusText(detail.run.status)} · {time(detail.run.startedAt)}</p></div><button onClick={() => setDetail(null)} className="rounded-full p-1 text-gray-400 hover:bg-gray-100">✕</button></div>
+        <div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold text-gray-900">运行详情</h3><p className="mt-1 text-xs text-gray-400">{detail.run.agentName} · {statusText(detail.run.status)} · {time(detail.run.startedAt)}</p></div><button onClick={() => setDetail(null)} className="rounded-full p-1 text-gray-400 hover:bg-gray-100" title="关闭"><X className="w-4 h-4" /></button></div>
         <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4"><MiniStat label="总 Token" value={n(detail.run.totalTokens)} /><MiniStat label="耗时" value={ms(detail.run.durationMs)} /><MiniStat label="工具" value={n(detail.run.toolCallCount)} /><MiniStat label="工具耗时" value={ms(detail.run.toolDurationMs)} /></div>
         <div className="mt-4 flex flex-wrap gap-2">{failedAgent && <button onClick={() => restartAgent?.(failedAgent)} className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700">软恢复 {failedAgent.name}</button>}{runningAgent && <button onClick={() => restartAgent?.(runningAgent, 'force')} className="rounded-lg bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-700">强制重启 {runningAgent.name}</button>}</div>
         <div className="mt-4"><div className="mb-1 text-xs text-gray-500">输入</div><pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-gray-50 p-3 text-xs text-gray-700">{detail.run.input || '-'}</pre></div>

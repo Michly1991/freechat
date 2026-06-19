@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { X } from 'lucide-react'
 import { api } from '../../lib/api'
 import { ms, n, pct, StatCard, time } from './analytics-format'
 
@@ -143,7 +144,7 @@ export default function PersonalAnalyticsPanel() {
 
     {detail && <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center" onClick={() => setDetail(null)}>
       <div className="bg-white w-full sm:max-w-3xl max-h-[85vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl p-5" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between"><h3 className="font-semibold">运行详情</h3><button onClick={() => setDetail(null)} className="text-gray-400">✕</button></div>
+        <div className="flex items-center justify-between"><h3 className="font-semibold">运行详情</h3><button onClick={() => setDetail(null)} className="text-gray-400"><X className="w-4 h-4" /></button></div>
         <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2"><StatCard label="总 Token" value={n(detail.run.totalTokens)} /><StatCard label="前 token" value={n(detail.run.inputTokens)} /><StatCard label="后 token" value={n(detail.run.outputTokens)} /><StatCard label="耗时" value={ms(detail.run.durationMs)} /></div>
         <div className="mt-4"><div className="text-xs text-gray-500 mb-1">输入</div><pre className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-xs bg-gray-50 rounded p-3 max-h-40 overflow-auto">{detail.run.input}</pre></div>
         <div className="mt-4"><div className="text-xs text-gray-500 mb-1">工具调用</div><div className="space-y-2">{detail.toolCalls.map((c: any) => <div key={c.id} className="rounded border border-gray-100 p-2 text-xs"><div className="flex justify-between gap-2"><b>{c.toolName}</b><span className={c.status === 'failed' ? 'text-red-600' : 'text-green-600'}>{c.status}</span></div><div className="text-gray-400 mt-1">耗时 {ms(c.durationMs)}</div>{c.errorMessage && <div className="text-red-600 mt-1 break-words [overflow-wrap:anywhere]">{c.errorCode}: {c.errorMessage}</div>}</div>)}</div></div>

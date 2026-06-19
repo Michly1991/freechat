@@ -25,7 +25,7 @@ class AgentGrowthSchedulerService {
     this.lastRunKey = key
     try {
       const reviews = agentGrowthService.runGrowthReview()
-      console.log(`✓ Agent growth review completed: ${reviews.length} rooms`)
+      console.log(`Agent growth review completed: ${reviews.length} rooms`)
     } catch (err) {
       console.error('Agent growth review failed:', err)
     }

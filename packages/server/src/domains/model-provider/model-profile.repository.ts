@@ -17,9 +17,14 @@ export class ModelProfileRepository {
   listVisible(userId: string, userRole?: string) {
     return db.prepare(`
       SELECT * FROM model_profiles
-      WHERE enabled = 1 AND (owner_id = ? OR visibility IN ('shared', 'platform') OR ? = 'admin')
+      WHERE enabled = 1 AND (
+        owner_id = ?
+        OR visibility IN ('shared', 'platform')
+        OR EXISTS (SELECT 1 FROM market_follows mf WHERE mf.user_id = ? AND mf.target_type = 'model' AND mf.target_id = model_profiles.id)
+        OR ? = 'admin'
+      )
       ORDER BY CASE WHEN owner_id = ? THEN 0 ELSE 1 END, updated_at DESC
-    `).all(userId, userRole || 'user', userId) as any[]
+    `).all(userId, userId, userRole || 'user', userId) as any[]
   }
 
   get(id: string) {

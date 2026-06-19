@@ -7,7 +7,7 @@ export class CreditWalletService {
 
   apply(userId: string, amount: number, type: string, opts: { runId?: string; ledgerId?: string; note?: string } = {}) {
     const account = this.ensureAccount(userId)
-    const isIncome = ['agent_income', 'model_income', 'platform_income'].includes(type)
+    const isIncome = ['agent_income', 'model_income', 'platform_income', 'scene_income'].includes(type)
     const nextBalance = isIncome ? account.balance : account.balance + amount
     const nextIncome = isIncome ? account.incomeBalance + amount : account.incomeBalance
     walletRepository.updateAccount(userId, { balance: nextBalance, incomeBalance: nextIncome })

@@ -12,6 +12,7 @@ import { AddFriendModal, CreateRoomModal, JoinRoomModal } from './home/HomeModal
 import { DesktopTabs, MobileNav } from './home/HomeTabs'
 import { MessagesSection } from './home/MessagesSection'
 import { SettingsSection } from './home/SettingsSection'
+import { BillingPanel } from '../features/settings/BillingPanel'
 import { isBrowserNotificationEnabled, showBrowserNotification } from '../features/notifications/browser-notifications'
 import { isStrongNotification, playNotificationSound, soundKindForNotification } from '../features/notifications/notification-sound'
 import type { ContactKind, HomeTab, MarketKind, SelectedAgent } from './home/types'
@@ -240,7 +241,13 @@ export default function HomePage() {
   }
 
   const toggleSelectedAgent = (agentId: string) => {
-    setSelectedAgents((prev) => prev.some((a) => a.agentId === agentId) ? prev.filter((a) => a.agentId !== agentId) : [...prev, { agentId, autoEnabled: false }])
+    const agent = agents.find((item) => item.id === agentId)
+    const shouldAuto = agent?.roleType === 'assistant'
+    setSelectedAgents((prev) => {
+      if (prev.some((a) => a.agentId === agentId)) return prev.filter((a) => a.agentId !== agentId)
+      const next = shouldAuto ? prev.map((a) => ({ ...a, autoEnabled: false })) : prev
+      return [...next, { agentId, autoEnabled: shouldAuto }]
+    })
   }
 
   const setAgentAutoEnabled = (agentId: string, autoEnabled: boolean) => {
@@ -250,6 +257,12 @@ export default function HomePage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
+      const selectedAgentDetails = selectedAgents.map((item) => agents.find((agent) => agent.id === item.agentId)).filter(Boolean)
+      const needsAgentFeeConfirm = !selectedSceneId && selectedAgentDetails.some((agent: any) => !agent.isOwner)
+      if (needsAgentFeeConfirm) {
+        const ok = await feedback.confirm({ title: '启用收费 Agent？', message: '所选 Agent 中包含非自有 Agent，Agent 实际运行时会按 token 收取服务费。确认继续？', confirmText: '确认创建' })
+        if (!ok) return
+      }
       const result = await api.createRoom({
         name: newName,
         description: newDesc,
@@ -297,10 +310,10 @@ export default function HomePage() {
   const handleDeleteRoom = async (room: any, e: React.MouseEvent) => {
     e?.stopPropagation()
     if (!room.canDelete && room.memberRole !== 'owner') {
-      feedback.warning('你没有权限永久删除该项目')
+      feedback.warning('你没有权限删除该项目')
       return
     }
-    const ok = await feedback.confirm({ title: `永久删除项目「${room.name}」？`, message: '这会硬删除房间、消息、任务、标签页、邀请、文件和默认助理 Agent，删除后不可恢复。', confirmText: '永久删除', danger: true })
+    const ok = await feedback.confirm({ title: `删除项目「${room.name}」？`, message: '项目会从列表隐藏，历史账单、流水和运行记录仍保留关联。', confirmText: '删除项目', danger: true })
     if (!ok) return
     try {
       setDeletingId(room.id)
@@ -333,15 +346,16 @@ export default function HomePage() {
           <MessagesSection conversations={conversations} deletingId={deletingId} openSwipeId={openSwipeId} setOpenSwipeId={setOpenSwipeId} loadConversations={loadConversations} getConversationActions={getConversationActions} toggleConversationPref={toggleConversationPref} deleteConversation={deleteConversation} navigateTo={navigate} />
         )}
         {activeHomeTab === 'contacts' && (
-          <ContactsSection contactKind={contactKind} setContactKind={setContactKind} searchQ={searchQ} setSearchQ={setSearchQ} searchResults={searchResults} friends={friends} agents={agents} scenes={scenes} reloadScenes={loadScenes} friendRequests={friendRequests} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} searchUsers={searchUsers} sendFriendRequest={sendFriendRequest} acceptFriendRequest={acceptFriendRequest} rejectFriendRequest={rejectFriendRequest} openDm={openDm} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />
+          <ContactsSection contactKind={contactKind} setContactKind={setContactKind} searchQ={searchQ} setSearchQ={setSearchQ} searchResults={searchResults} friends={friends} agents={agents} scenes={scenes} reloadScenes={loadScenes} reloadAgents={loadAgents} friendRequests={friendRequests} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} searchUsers={searchUsers} sendFriendRequest={sendFriendRequest} acceptFriendRequest={acceptFriendRequest} rejectFriendRequest={rejectFriendRequest} openDm={openDm} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />
         )}
-        {activeHomeTab === 'market' && <MarketSection marketKind={marketKind} setMarketKind={setMarketKind} agents={agents} scenes={scenes} reloadScenes={loadScenes} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />}
+        {activeHomeTab === 'market' && <MarketSection marketKind={marketKind} setMarketKind={setMarketKind} agents={agents} scenes={scenes} reloadScenes={loadScenes} reloadAgents={loadAgents} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />}
+        {activeHomeTab === 'billing' && <BillingPanel />}
         {activeHomeTab === 'settings' && <SettingsSection user={user} onLogout={handleLogout} />}
       </main>
       <MobileNav activeHomeTab={activeHomeTab} setActiveHomeTab={setActiveHomeTab} />
       <JoinRoomModal show={showJoin} inviteCode={inviteCode} joining={joining} setInviteCode={setInviteCode} setShowJoin={setShowJoin} handleJoinRoom={handleJoinRoom} />
       <AddFriendModal show={showAddFriend} searchQ={searchQ} searchResults={searchResults} setSearchQ={setSearchQ} setShowAddFriend={setShowAddFriend} searchUsers={searchUsers} sendFriendRequest={sendFriendRequest} />
-      <CreateRoomModal show={showCreate} newName={newName} newDesc={newDesc} friends={friends} agents={agents} scenes={scenes} selectedSceneId={selectedSceneId} setSelectedSceneId={setSelectedSceneId} selectedFriendIds={selectedFriendIds} selectedAgents={selectedAgents} setNewName={setNewName} setNewDesc={setNewDesc} setShowCreate={setShowCreate} setSelectedAgents={setSelectedAgents} handleCreate={handleCreate} toggleSelectedFriend={toggleSelectedFriend} toggleSelectedAgent={toggleSelectedAgent} setAgentAutoEnabled={setAgentAutoEnabled} />
+      <CreateRoomModal show={showCreate} newName={newName} newDesc={newDesc} friends={friends} agents={agents.filter((agent) => agent.canUse)} scenes={scenes.filter((scene) => scene.canUse)} selectedSceneId={selectedSceneId} setSelectedSceneId={setSelectedSceneId} selectedFriendIds={selectedFriendIds} selectedAgents={selectedAgents} setNewName={setNewName} setNewDesc={setNewDesc} setShowCreate={setShowCreate} setSelectedAgents={setSelectedAgents} handleCreate={handleCreate} toggleSelectedFriend={toggleSelectedFriend} toggleSelectedAgent={toggleSelectedAgent} setAgentAutoEnabled={setAgentAutoEnabled} />
     </div>
   )
 }

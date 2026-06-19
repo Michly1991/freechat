@@ -2,9 +2,9 @@ import type { Dispatch, FormEvent, MouseEvent, SetStateAction } from 'react'
 import type { SwipeAction } from '../../components/SwipeActionItem'
 import type { AgentFormState, AgentToolKey } from '../home-agent-form'
 
-export type HomeTab = 'messages' | 'contacts' | 'market' | 'settings'
-export type ContactKind = 'people'
-export type MarketKind = 'agents' | 'models' | 'scenes' | 'billing'
+export type HomeTab = 'messages' | 'contacts' | 'market' | 'billing' | 'settings'
+export type ContactKind = 'people' | 'agents' | 'models' | 'scenes'
+export type MarketKind = 'agents' | 'models' | 'scenes'
 export type SelectedAgent = { agentId: string; autoEnabled: boolean }
 
 export type HeaderProps = {
@@ -55,6 +55,7 @@ export type ContactsSectionProps = {
   agents: any[]
   scenes: any[]
   reloadScenes: () => void
+  reloadAgents: () => void
   friendRequests: { received: any[]; sent: any[] }
   showCreateAgent: boolean
   editingAgentId: string | null
@@ -79,6 +80,7 @@ export type MarketSectionProps = {
   agents: any[]
   scenes: any[]
   reloadScenes: () => void
+  reloadAgents: () => void
   showCreateAgent: boolean
   editingAgentId: string | null
   agentForm: AgentFormState

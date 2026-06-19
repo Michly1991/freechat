@@ -357,6 +357,7 @@ export function RoomPageImpl() {
           restartAgent={restartAgent}
           openModelConfig={setModelConfigAgent}
           roomId={roomId}
+          room={room}
           feedback={feedback}
           onMembersChanged={loadRoom}
         />
@@ -370,6 +371,7 @@ export function RoomPageImpl() {
         restartAgent={restartAgent}
         openModelConfig={setModelConfigAgent}
         roomId={roomId}
+        room={room}
         feedback={feedback}
         onMembersChanged={loadRoom}
       />

@@ -95,7 +95,7 @@ export async function materializeAgentCreateRequest(roomId: string, interaction:
   broadcast(roomId, 'room.members_update', { members, agents })
   const consumed = interactionService.consume(roomId, interaction.id, interaction.resolvedBy || ownerId)
   broadcast(roomId, 'interaction.updated', { interaction: consumed })
-  const msg = await messageService.createMessage(roomId, interaction.createdBy, 'Agent 创建', 'ai', `✅ 已创建并加入专家 Agent：${created.agent.name}`)
+  const msg = await messageService.createMessage(roomId, interaction.createdBy, 'Agent 创建', 'ai', `已创建并加入专家 Agent：${created.agent.name}`)
   broadcast(roomId, 'chat.message', msg)
 }
 
@@ -145,7 +145,7 @@ export async function materializeTaskPlan(roomId: string, interaction: any) {
   const consumed = interactionService.consume(roomId, interaction.id, interaction.resolvedBy || interaction.createdBy)
   broadcast(roomId, 'interaction.updated', { interaction: consumed })
   const createdCount = createdItems.filter((item) => item.createdAt >= interaction.createdAt).length
-  const msg = await messageService.createMessage(roomId, interaction.createdBy, '任务计划', 'ai', `✅ 已根据确认${reusable ? '复用/更新' : '创建'}任务：${task.title}\n子任务：${createdItems.length} 个${reusable ? `（新增 ${createdCount} 个）` : ''}`)
+  const msg = await messageService.createMessage(roomId, interaction.createdBy, '任务计划', 'ai', `已根据确认${reusable ? '复用/更新' : '创建'}任务：${task.title}\n子任务：${createdItems.length} 个${reusable ? `（新增 ${createdCount} 个）` : ''}`)
   broadcast(roomId, 'chat.message', msg)
 }
 

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Copy, FileText } from 'lucide-react'
+import { Check, Copy, FileText, X } from 'lucide-react'
 import type { FileNode, Message } from '../../room-page-model'
 import { getAgentStatusLabel, getMemberAvatar, getMemberDisplayName, renderAgentAvatar, renderAvatar, renderMessageContent } from '../room-ui-utils'
 
@@ -151,7 +151,7 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
           {filteredAgents.length > 0 && <><div className="px-3 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">AI Agents</div>{filteredAgents.map((a) => <div key={a.id} className="px-3 py-2.5 min-h-11 hover:bg-blue-50 cursor-pointer text-sm flex items-center gap-2" onClick={() => insertMention(a, 'agent')}>{renderAgentAvatar(a, 'w-6 h-6', 'w-4 h-4')}<span className="flex-1">{a.name}</span><span className="text-xs text-gray-400">{getAgentStatusLabel(a)}</span></div>)}</>}
           {filteredFiles.length > 0 && <><div className="px-3 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">文件</div>{filteredFiles.map((f) => <div key={f.path} className="px-3 py-2.5 min-h-11 hover:bg-blue-50 cursor-pointer text-sm flex items-center gap-2" onClick={() => insertMention(f, 'file')}><FileText className="w-5 h-5 text-gray-400" /><span className="flex-1 truncate">{f.name}</span><span className="text-xs text-gray-400 truncate max-w-[45%]">{f.path}</span></div>)}</>}
         </div>}
-        {sendError && !wsNoticeDismissed && <div className="mb-2 flex items-center justify-between gap-2 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700"><span>{sendError.replace('正在重连...', '实时同步暂不可用，但消息可正常发送')}</span><button type="button" onClick={() => setWsNoticeDismissed(true)} className="text-amber-500 hover:text-amber-700">×</button></div>}
+        {sendError && !wsNoticeDismissed && <div className="mb-2 flex items-center justify-between gap-2 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700"><span>{sendError.replace('正在重连...', '实时同步暂不可用，但消息可正常发送')}</span><button type="button" onClick={() => setWsNoticeDismissed(true)} className="text-amber-500 hover:text-amber-700" title="关闭"><X className="w-4 h-4" /></button></div>}
         <div className="flex gap-2 items-center rounded-2xl bg-gray-50 border border-gray-200 p-1.5 shadow-inner focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-300 transition-all">
           <textarea ref={inputRef} value={input} onChange={handleInputChange} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) sendMessage(e) }} rows={1} placeholder="输入消息，@提及成员..." className="min-w-0 flex-1 max-h-32 resize-none bg-transparent px-3 py-2.5 text-base sm:text-sm border-0 rounded-xl focus:ring-0 focus:outline-none overflow-y-auto leading-6" />
           <button type="submit" disabled={!input.trim()} className="fc-pressable fc-mobile-touch bg-blue-600 text-white px-4 sm:px-6 py-2 rounded-xl hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed shadow-sm shadow-blue-500/20">发送</button>

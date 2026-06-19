@@ -424,3 +424,11 @@ CREATE TABLE room_agents (
 为控制单文件大小，前端展示、REST API、开发阶段和待确定事项 已拆分到：
 
 - [DESIGN-AGENT-CORE-ROADMAP.md](./DESIGN-AGENT-CORE-ROADMAP.md)
+
+## Agent Package and Room Workspace
+
+Agent templates and room runtime workspaces are file-backed. See `DESIGN-AGENT-PACKAGE-WORKSPACE.md` for the directory contract:
+
+- Agent package: `.freechat/workspace-data/agents/{agentId}/` with `AGENT.md`, `res/`, `scripts/`, and Claude-style `skills/{skill}/SKILL.md`.
+- Room workspace: `.freechat/workspace-data/rooms/{roomId}/` with `ROOM.md`, `FILES.md`, `shared/`, `artifacts/`, and `agents/{agentId}/workspace/`.
+- Runtime treats Agent package as read-only and writes room artifacts/shared/current-Agent workspace.

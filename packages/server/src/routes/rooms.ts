@@ -10,6 +10,8 @@ import { taskItemService } from '../services/task-item.service.js'
 import { taskRetryService } from '../services/task-retry.service.js'
 import { notificationService } from '../services/notification.service.js'
 import { sceneTemplateService } from '../services/scene-template.service.js'
+import { marketEngagementService } from '../services/market-engagement.service.js'
+import { creditWalletService } from '../services/credit-wallet.service.js'
 
 export async function registerRoomRoutes(app: FastifyInstance) {
   // Get user's rooms
@@ -36,6 +38,10 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     }
 
     try {
+      const account = creditWalletService.getAccount(user.id)
+      if (account.balance <= 0) {
+        return reply.code(402).send({ success: false, error: { code: 'INSUFFICIENT_CREDITS', message: '余额不足，不能创建项目。请先充值 credit。' } })
+      }
       const initialMemberIds = Array.isArray(memberIds)
         ? memberIds.filter((id: string) => id && id !== user.id && areFriends(user.id, id))
         : []
@@ -43,12 +49,31 @@ export async function registerRoomRoutes(app: FastifyInstance) {
       // Ignore client-selected agents to avoid cloning scene Agents twice from stale/cached clients.
       const initialAgents = sceneId ? [] : (Array.isArray(agents) ? agents : [])
       if (sceneId) sceneTemplateService.ensureBuiltInScenes(user.id)
+      if (sceneId && !marketEngagementService.canUseScene(user, String(sceneId))) return reply.code(403).send({ success: false, error: { code: 'SCENE_NOT_PURCHASED', message: '请先购买或选择已拥有的场景' } })
       const sceneProvidesAssistant = sceneId ? sceneTemplateService.sceneHasAssistant(String(sceneId)) : false
-      const room = await roomService.createRoom(name, description || null, user.id, initialMemberIds, initialAgents, { skipDefaultAssistant: sceneProvidesAssistant })
-      if (sceneId) await sceneTemplateService.applySceneToRoom(String(sceneId), room.id, user.id)
-      await agentService.refreshRoomAgentContext(room.id).catch(() => {})
-      return reply.send({ success: true, data: { room } })
+      const room = await roomService.createRoom(name, description || null, user.id, initialMemberIds, [], { skipDefaultAssistant: sceneProvidesAssistant })
+      try {
+        if (sceneId) await sceneTemplateService.applySceneToRoom(String(sceneId), room.id, user.id)
+        if (!sceneId) {
+          for (const agent of initialAgents) {
+            if (!agent?.agentId) continue
+            await agentService.addAgentToRoom(room.id, String(agent.agentId), user.id, {
+              roomRole: agent.roomRole === 'assistant' ? 'assistant' : 'specialist',
+              autoEnabled: agent.autoEnabled === true,
+              priority: Number(agent.priority || 0),
+              confirmedPurchase: agent.confirmedPurchase === true,
+            })
+          }
+        }
+        await agentService.refreshRoomAgentContext(room.id).catch(() => {})
+        return reply.send({ success: true, data: { room } })
+      } catch (err) {
+        await roomService.deleteRoom(room.id, user.id).catch(() => {})
+        throw err
+      }
     } catch (err: any) {
+      if (err.code === 'PURCHASE_CONFIRMATION_REQUIRED') return reply.code(409).send({ success: false, error: { code: err.code, message: err.message, priceCredits: err.priceCredits } })
+      if (err.code === 'INSUFFICIENT_CREDITS') return reply.code(402).send({ success: false, error: { code: err.code, message: err.message } })
       throw err
     }
   })

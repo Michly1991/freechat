@@ -4,13 +4,14 @@ import { billingRuleRepository } from '../domains/billing/billing-rule.repositor
 import { modelProfileRepository } from '../domains/model-provider/model-profile.repository.js'
 import { aiConfigService } from './ai-config.service.js'
 import { encryptSecret } from './secret-crypto.js'
+import { nonNegativeCreditToMicro } from '../domains/billing/money.js'
 
 export const PLATFORM_USER_ID = 'user_platform_model_provider'
 
 const PLATFORM_MODEL_RULES = {
-  economy: { inputCreditPerMillion: 50, outputCreditPerMillion: 200, cacheWriteCreditPerMillion: 50, cacheReadCreditPerMillion: 10, minCreditsPerRun: 0, enabled: true },
-  standard: { inputCreditPerMillion: 100, outputCreditPerMillion: 400, cacheWriteCreditPerMillion: 100, cacheReadCreditPerMillion: 20, minCreditsPerRun: 0, enabled: true },
-  premium: { inputCreditPerMillion: 200, outputCreditPerMillion: 800, cacheWriteCreditPerMillion: 200, cacheReadCreditPerMillion: 40, minCreditsPerRun: 0, enabled: true },
+  economy: { inputCreditPerMillion: 1, outputCreditPerMillion: 1, cacheWriteCreditPerMillion: 1, cacheReadCreditPerMillion: 0, minCreditsPerRun: 0, enabled: true },
+  standard: { inputCreditPerMillion: 1, outputCreditPerMillion: 2, cacheWriteCreditPerMillion: 1, cacheReadCreditPerMillion: 0, minCreditsPerRun: 0, enabled: true },
+  premium: { inputCreditPerMillion: 1, outputCreditPerMillion: 2, cacheWriteCreditPerMillion: 1, cacheReadCreditPerMillion: 0, minCreditsPerRun: 0, enabled: true },
 }
 
 function defaultRuleForPlatformModel(model?: string | null) {
@@ -20,10 +21,6 @@ function defaultRuleForPlatformModel(model?: string | null) {
   return PLATFORM_MODEL_RULES.standard
 }
 
-function intValue(value: any): number {
-  const n = Number(value || 0)
-  return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0
-}
 
 export class PlatformModelBootstrapService {
   ensurePlatformUserAndModels(): void {
@@ -51,7 +48,7 @@ export class PlatformModelBootstrapService {
         models: JSON.stringify(provider.models || []),
       })
       const models = provider.models?.length ? provider.models : [provider.defaultModel].filter(Boolean)
-      for (const model of models) billingRuleRepository.upsertModelRule(profile.id, model, defaultRuleForPlatformModel(model), intValue)
+      for (const model of models) billingRuleRepository.upsertModelRule(profile.id, model, defaultRuleForPlatformModel(model), nonNegativeCreditToMicro)
     }
   }
 }

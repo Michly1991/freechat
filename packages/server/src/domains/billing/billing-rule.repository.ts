@@ -50,15 +50,13 @@ export class BillingRuleRepository {
     const ruleId = existing?.id || `abr_${uuidv4()}`
     db.prepare(`
       INSERT OR REPLACE INTO agent_billing_rules (
-        id, agent_template_id, billing_mode, token_multiplier, fixed_credits_per_run,
+        id, agent_template_id, billing_mode, token_multiplier, fixed_credits_per_run, fixed_credits_per_purchase,
         input_credit_per_million, output_credit_per_million, cache_write_credit_per_million,
         cache_read_credit_per_million, revenue_share_rate, enabled, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       ruleId, agentTemplateId,
-      body.billingMode || body.billing_mode || 'token_multiplier',
-      Number(body.tokenMultiplier ?? body.token_multiplier ?? 0),
-      intValue(body.fixedCreditsPerRun ?? body.fixed_credits_per_run),
+      body.billingMode || body.billing_mode || 'per_token',
       intValue(body.inputCreditPerMillion ?? body.input_credit_per_million),
       intValue(body.outputCreditPerMillion ?? body.output_credit_per_million),
       intValue(body.cacheWriteCreditPerMillion ?? body.cache_write_credit_per_million),

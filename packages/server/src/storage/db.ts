@@ -75,6 +75,8 @@ export function initDatabase() {
       last_active_at INTEGER NOT NULL,
       scene_template_id TEXT,
       scene_template_version INTEGER,
+      deleted_at INTEGER,
+      deleted_by TEXT,
       FOREIGN KEY (created_by) REFERENCES users(id)
     )
   `)
@@ -82,6 +84,8 @@ export function initDatabase() {
   const roomCols = db.prepare('PRAGMA table_info(rooms)').all() as any[]
   if (!roomCols.some((col) => col.name === 'scene_template_id')) db.exec('ALTER TABLE rooms ADD COLUMN scene_template_id TEXT')
   if (!roomCols.some((col) => col.name === 'scene_template_version')) db.exec('ALTER TABLE rooms ADD COLUMN scene_template_version INTEGER')
+  if (!roomCols.some((col) => col.name === 'deleted_at')) db.exec('ALTER TABLE rooms ADD COLUMN deleted_at INTEGER')
+  if (!roomCols.some((col) => col.name === 'deleted_by')) db.exec('ALTER TABLE rooms ADD COLUMN deleted_by TEXT')
 
   // Room members table
   db.exec(`
@@ -304,6 +308,7 @@ export function initDatabase() {
       source_template_id TEXT,
       source_template_version INTEGER,
       is_modified INTEGER DEFAULT 0,
+      market_listed INTEGER DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       FOREIGN KEY (owner_id) REFERENCES users(id)
@@ -316,6 +321,24 @@ export function initDatabase() {
   if (!agentCols.some((col) => col.name === 'source_template_id')) db.exec('ALTER TABLE agents ADD COLUMN source_template_id TEXT')
   if (!agentCols.some((col) => col.name === 'source_template_version')) db.exec('ALTER TABLE agents ADD COLUMN source_template_version INTEGER')
   if (!agentCols.some((col) => col.name === 'is_modified')) db.exec('ALTER TABLE agents ADD COLUMN is_modified INTEGER DEFAULT 0')
+  if (!agentCols.some((col) => col.name === 'market_listed')) db.exec('ALTER TABLE agents ADD COLUMN market_listed INTEGER DEFAULT 0')
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_packages (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      package_name TEXT NOT NULL,
+      package_version TEXT NOT NULL,
+      checksum TEXT NOT NULL,
+      manifest_json TEXT NOT NULL,
+      imported_by TEXT NOT NULL,
+      imported_at INTEGER NOT NULL,
+      UNIQUE(imported_by, package_name),
+      FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+      FOREIGN KEY (imported_by) REFERENCES users(id)
+    )
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_packages_agent ON agent_packages(agent_id)`)
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_skills (
@@ -369,6 +392,7 @@ export function initDatabase() {
       icon TEXT,
       version INTEGER NOT NULL DEFAULT 1,
       status TEXT NOT NULL DEFAULT 'active',
+      market_listed INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -377,6 +401,7 @@ export function initDatabase() {
   const sceneCols = db.prepare('PRAGMA table_info(scene_templates)').all() as any[]
   if (!sceneCols.some((col) => col.name === 'owner_id')) db.exec('ALTER TABLE scene_templates ADD COLUMN owner_id TEXT')
   if (!sceneCols.some((col) => col.name === 'built_in_key')) db.exec('ALTER TABLE scene_templates ADD COLUMN built_in_key TEXT')
+  if (!sceneCols.some((col) => col.name === 'market_listed')) db.exec('ALTER TABLE scene_templates ADD COLUMN market_listed INTEGER NOT NULL DEFAULT 0')
   db.exec(`CREATE INDEX IF NOT EXISTS idx_scene_templates_status_created ON scene_templates(status, created_at)`)
 
   db.exec(`
@@ -713,7 +738,7 @@ export function initDatabase() {
     )
   `)
 
-  console.log('✓ Database initialized')
+  console.log('Database initialized')
 }
 
 export default db
