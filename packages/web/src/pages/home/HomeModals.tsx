@@ -3,8 +3,8 @@ import type { AddFriendModalProps, CreateRoomModalProps, JoinRoomModalProps } fr
 export function JoinRoomModal({ show, inviteCode, joining, setInviteCode, setShowJoin, handleJoinRoom }: JoinRoomModalProps) {
   if (!show) return null
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl p-4 sm:p-6 w-full max-w-md max-h-[85vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/50 p-0 sm:items-center sm:p-4">
+      <div className="w-full max-w-md max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-t-2xl bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-xl sm:max-h-[85vh] sm:rounded-xl sm:p-6">
         <h3 className="text-lg font-semibold mb-4">加入项目</h3>
         <form onSubmit={handleJoinRoom} className="space-y-4">
           <div>
@@ -25,13 +25,13 @@ export function AddFriendModal({ show, searchQ, searchResults, setSearchQ, setSh
   if (!show) return null
   const close = () => setShowAddFriend(false)
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl p-4 sm:p-6 w-full max-w-md max-h-[85vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/50 p-0 sm:items-center sm:p-4">
+      <div className="w-full max-w-md max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-t-2xl bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-xl sm:max-h-[85vh] sm:rounded-xl sm:p-6">
         <h3 className="text-lg font-semibold mb-1">添加好友</h3>
         <p className="text-sm text-gray-500 mb-4">搜索用户名或昵称，向对方发送好友申请。</p>
-        <div className="flex gap-2">
-          <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchUsers()} placeholder="输入用户名/昵称" className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm" autoFocus />
-          <button onClick={searchUsers} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">搜索</button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && searchUsers()} placeholder="输入用户名/昵称" className="min-h-11 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-base sm:text-sm" autoFocus />
+          <button onClick={searchUsers} className="min-h-11 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 sm:min-h-0">搜索</button>
         </div>
         <div className="mt-4 space-y-2">
           {searchResults.length === 0 ? <p className="text-sm text-gray-400 text-center py-6">输入关键词后搜索用户</p> : searchResults.map((u) => (
@@ -51,8 +51,8 @@ export function AddFriendModal({ show, searchQ, searchResults, setSearchQ, setSh
             </div>
           ))}
         </div>
-        <div className="flex justify-end mt-5">
-          <button type="button" onClick={close} className="px-4 py-2 text-gray-600 hover:text-gray-800">关闭</button>
+        <div className="mt-5 flex justify-end">
+          <button type="button" onClick={close} className="min-h-11 rounded-lg px-4 py-2 text-gray-600 hover:text-gray-800 sm:min-h-0">关闭</button>
         </div>
       </div>
     </div>
@@ -83,8 +83,8 @@ export function CreateRoomModal(props: CreateRoomModalProps) {
   if (!show) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-xl p-4 sm:p-6 w-full max-w-md max-h-[85vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/50 p-0 sm:items-center sm:p-4">
+      <div className="w-full max-w-md max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-t-2xl bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-xl sm:max-h-[85vh] sm:rounded-xl sm:p-6">
         <h3 className="text-lg font-semibold mb-4">新建项目</h3>
         <form onSubmit={handleCreate} className="space-y-4">
           <div>

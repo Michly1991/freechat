@@ -377,6 +377,7 @@ Ongoing work:
 - More complete production deployment guide.
 - Stronger marketplace packaging and review workflow.
 - More polished multi-agent and remote Agent collaboration UX.
+- More deployment diagnostics for remote Claude Code agents.
 - Better notification preferences and possible PWA push support.
 - Performance optimization for large rooms, long histories, and heavy agent activity.
 - More complete billing audits and model-provider settlement flows.

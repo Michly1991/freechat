@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
+    "check:claude": "node scripts/check-claude-env.mjs",
+    "smoke:claude": "node scripts/smoke-local-claude.mjs",
     "build": "tsup src/index.ts --format esm --clean",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit"

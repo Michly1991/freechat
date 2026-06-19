@@ -20,7 +20,41 @@ ANTHROPIC_API_KEY or other local model config
 
 FreeChat only receives connector credentials created through pairing.
 
-## Pair
+## 1. Check and install Claude Code / 检查并安装 Claude Code
+
+Run on the remote server:
+
+```bash
+pnpm run check:claude
+```
+
+If Claude Code is missing:
+
+```bash
+npm install -g @anthropic-ai/claude-code
+claude -p "hello"
+```
+
+China mainland users often also need `cc-switch` to manage Claude Code provider endpoints:
+
+```bash
+npm install -g cc-switch
+cc-switch
+```
+
+经验说明：FreeChat 不接收远程机器的模型 API Key。请在远程服务器本机完成 Claude Code / cc-switch / `~/.claude/settings.json` 配置，确认 `claude -p "hello"` 可以运行后，再接入 FreeChat。
+
+## 2. Local Claude smoke test / 本地 Claude 自测
+
+```bash
+pnpm run smoke:claude
+```
+
+This script creates a temporary FreeChat-like workspace with a mock `./freechat` command, then runs local `claude -p` inside it. It verifies that the remote server can execute Claude Code in the same style used by the connector.
+
+该脚本会创建临时 FreeChat 风格工作区和 mock `./freechat` 命令，然后在其中运行本机 `claude -p`，用于验证远程服务器能否按连接器方式执行 Claude Code。
+
+## 3. Pair / 配对
 
 Create a pairing code in FreeChat Agent settings, then run:
 
@@ -36,7 +70,7 @@ Credentials are saved locally under:
 ~/.freechat/remote-claude-agent/credentials.json
 ```
 
-## Connect
+## 4. Connect / 连接
 
 ```bash
 node dist/index.js connect

@@ -159,6 +159,15 @@ node dist/index.js connect
 
 远程服务器必须自行安装并配置 Claude Code。FreeChat 不接收远程模型 API Key。
 
+示例客户端提供自检脚本：
+
+```bash
+pnpm run check:claude   # 检查 claude，国内用户提示 cc-switch
+pnpm run smoke:claude   # 创建临时工作区，验证本机 claude -p 能按连接器方式执行
+```
+
+国内用户经验：如果 Claude Code 不能直连，先在远程服务器本机安装并配置 `cc-switch`，确认 `claude -p "hello"` 成功后再连接 FreeChat。
+
 ## 后续增强
 
 - WebSocket/SSE 推送替代轮询；
