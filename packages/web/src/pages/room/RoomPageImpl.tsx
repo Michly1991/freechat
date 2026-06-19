@@ -160,6 +160,11 @@ export function RoomPageImpl() {
     if (isChatNearBottom()) scrollToBottom('smooth')
   }, [messages.length, scrollToBottom])
 
+  useEffect(() => {
+    if (activePanel !== 'chat' || messages.length === 0) return
+    scrollToBottom('auto')
+  }, [activePanel, messages.length, scrollToBottom])
+
   const { handleMessagesScroll } = createMessagePaginationActions({
     roomId,
     messages,
