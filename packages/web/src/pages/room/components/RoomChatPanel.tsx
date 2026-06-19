@@ -31,6 +31,23 @@ async function copyTextToClipboard(text: string) {
   document.body.removeChild(textarea)
 }
 
+function formatMessageTime(value?: number) {
+  if (!value) return ''
+  const date = new Date(value)
+  const now = new Date()
+  const sameDay = date.toDateString() === now.toDateString()
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+  const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  if (sameDay) return time
+  if (date.toDateString() === yesterday.toDateString()) return `昨天 ${time}`
+  return `${date.getMonth() + 1}/${date.getDate()} ${time}`
+}
+
+function formatFullMessageTime(value?: number) {
+  return value ? new Date(value).toLocaleString() : ''
+}
+
 interface RoomChatPanelProps {
   messages: Message[]
   user: any
@@ -92,6 +109,8 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
           const avatar = isOwn ? user?.avatar : getActorAvatar(msg)
           const actorMember = isOwn ? user : getActorMember(msg)
           const actorAgent = msg.actorRole === 'ai' ? (getActorAgent(msg) || { name: displayName, roleType: 'assistant', status: 'active' }) : null
+          const sentTime = formatMessageTime(msg.createdAt)
+          const fullSentTime = formatFullMessageTime(msg.createdAt)
           const showUnreadMarker = unreadMarkerAt && !isOwn && (msg.createdAt || 0) > unreadMarkerAt && !messages.slice(0, messages.findIndex((m) => m.id === msg.id)).some((m) => m.actorId !== user?.id && (m.createdAt || 0) > unreadMarkerAt)
           const isAgentReceipt = msg.kind === 'agent_receipt'
           const isAgentStream = msg.kind === 'agent_stream'
@@ -104,7 +123,10 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
                 {!isOwn && (msg.actorRole === 'ai' ? <button type="button" onClick={() => openMemberProfile(actorAgent, 'agent')} className="shrink-0 hover:ring-2 hover:ring-blue-200 rounded-full">{renderAgentAvatar(actorAgent, 'w-10 h-10 sm:w-12 sm:h-12', 'w-5 h-5 sm:w-6 sm:h-6')}</button> : <button type="button" onClick={() => actorMember && openMemberProfile(actorMember, 'member')} className="shrink-0 hover:ring-2 hover:ring-blue-200 rounded-full">{renderAvatar(displayName, avatar, 'w-10 h-10 sm:w-12 sm:h-12')}</button>)}
                 <div className={`min-w-0 max-w-[88%] sm:max-w-[80%] overflow-hidden rounded-2xl sm:rounded-xl px-3 sm:px-4 py-2 shadow-sm ${isAgentReceipt || isAgentStream ? 'bg-gray-50 border border-dashed border-gray-200 text-gray-500' : (isOwn ? 'bg-blue-600 text-white shadow-blue-500/10' : 'bg-white border border-gray-200 text-gray-800')}`}>
                   <div className="mb-1 flex items-center justify-between gap-2">
-                    <button type="button" onClick={() => msg.actorRole === 'ai' ? openMemberProfile(actorAgent, 'agent') : actorMember && openMemberProfile(actorMember, 'member')} className={`min-w-0 truncate text-xs text-left ${isAgentReceipt || isAgentStream ? 'text-gray-400' : (isOwn ? 'text-blue-200' : 'text-gray-400 hover:text-blue-500')}`}>{msg.actorRole === 'ai' ? 'AI · ' : ''}{displayName}</button>
+                    <div className="min-w-0 flex items-center gap-1.5">
+                      <button type="button" onClick={() => msg.actorRole === 'ai' ? openMemberProfile(actorAgent, 'agent') : actorMember && openMemberProfile(actorMember, 'member')} className={`min-w-0 truncate text-xs text-left ${isAgentReceipt || isAgentStream ? 'text-gray-400' : (isOwn ? 'text-blue-200' : 'text-gray-400 hover:text-blue-500')}`}>{msg.actorRole === 'ai' ? 'AI · ' : ''}{displayName}</button>
+                      {sentTime && <time dateTime={new Date(msg.createdAt).toISOString()} title={fullSentTime} className={`shrink-0 text-[10px] ${isAgentReceipt || isAgentStream ? 'text-gray-400' : (isOwn ? 'text-blue-100/80' : 'text-gray-400')}`}>{sentTime}</time>}
+                    </div>
                     {msg.content?.trim() && !isAgentStream && <button type="button" onClick={() => copyMessage(msg.id, msg.content)} className={`fc-pressable shrink-0 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] ${isOwn ? 'text-blue-100 hover:bg-blue-500/30' : 'text-gray-400 hover:bg-gray-100 hover:text-blue-500'}`} title="复制消息">
                       {copiedMessageId === msg.id ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                       <span className="hidden sm:inline">{copiedMessageId === msg.id ? '已复制' : '复制'}</span>
