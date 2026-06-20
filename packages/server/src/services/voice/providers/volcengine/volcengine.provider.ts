@@ -32,11 +32,8 @@ export class VolcengineVoiceProvider implements SpeechRecognitionProvider, Speec
       app: { appid: config.credential.appId || config.credential.appid, token, cluster: config.credential.asrCluster || config.config.asrCluster || 'volcengine_input_common' },
       user: { uid: config.userId },
       audio: { format: input.format || audioFormat(input.mimeType), rate: input.sampleRate || config.config.sampleRate || 16000, data: input.audio.toString('base64') },
+      // Some Volcengine ASR routes require a sequence value after internally converting `request` to `req`.
       request: { reqid: reqid(), language: input.language || config.config.language || 'zh-CN', operation: 'query', sequence: 1 },
-      // Some Volcengine ASR routes inspect `req.sequence` for routing even on the JSON one-shot API.
-      // Keep this alongside the documented `request` object for backward compatibility.
-      req: { sequence: 1 },
-      sequence: 1,
     }
     const res = await fetch(asrUrl, { method: 'POST', headers: { 'content-type': 'application/json', authorization: authHeader(config, token) }, body: JSON.stringify(body) })
     const text = await res.text()
