@@ -18,11 +18,12 @@ Top-level home navigation:
 
 Agent 模板是可关注的服务能力。
 
-- 市场展示所有可见 Agent 模板。
+- 市场只展示 `marketListed=true` 的 Agent 模板。
+- Agent owner 可在 FreeChat Web 通讯录或 Agent Client 的 Agent 管理里上架/下架。
 - 非拥有者需要先关注 Agent，才能在创建项目/添加项目 Agent 时选择它。
-- 使用时会克隆模板为项目内 Agent 副本。
+- 普通服务端模板使用时可克隆为项目内 Agent 副本；已由 Agent Client 接管的 `deployment='client'` Agent 会优先复用托管版本，避免同名未接管副本。
 - 自己创建的 Agent 和内置默认助手无需关注即可使用。
-- Agent 服务费仍按计费设计执行：低价一次性购买/激活；后续运行主要收模型费用。
+- Agent 服务费仍按计费设计执行：低价一次性购买/激活；后续运行主要收模型费用；客户端 Agent 的模型 Key/模型费用在客户端本机，MVP 阶段平台只记录 Agent 服务费。
 
 ### Model Service
 
@@ -94,7 +95,8 @@ UNIQUE(user_id, scene_template_id)
 
 ### 市场
 
-- AI 市场：非自有 Agent 显示关注/已关注按钮。
+- AI 市场：展示已上架 Agent；非自有 Agent 显示关注/已关注按钮。
+- Agent Client 的“上架到市场/取消上架”与 Web 通讯录的“上架/已上架”更新同一个 `marketListed` 字段。
 - 模型市场：非自有、非平台模型显示关注/已关注按钮。
 - 场景市场：未拥有场景显示购买按钮；已拥有/自有/内置场景显示可用状态。
 

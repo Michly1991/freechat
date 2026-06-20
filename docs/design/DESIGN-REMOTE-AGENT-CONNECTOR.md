@@ -30,19 +30,18 @@ FreeChat 只需要 connector 凭证，不需要 Anthropic/OpenAI/百炼等模型
 
 ## 配对注册流程
 
-1. 用户在 FreeChat 创建 Agent，部署方式选择“外部客户端”。
-2. 用户在 Agent 设置页生成短期配对码。
-3. 用户在远程服务器运行 remote-claude-agent 示例客户端。
-4. 客户端调用 `POST /api/remote-agents/register` 提交配对码。
-5. FreeChat 绑定 connector 到 Agent，返回连接凭证。
-6. 客户端将连接凭证保存到远程服务器本地。
-7. 后续客户端用连接凭证轮询事件、心跳、调用工具、完成 run。
+1. 用户用 FreeChat 账号创建/发布 Agent，部署方式可选 `client`。
+2. Agent owner 在服务端为该 Agent 生成短期配对码。
+3. Agent Client 调用 `POST /api/remote-agents/register` 提交配对码。
+4. FreeChat 绑定 connector 到 Agent，返回连接凭证。
+5. Client 将凭证保存在本机，只用于该 Agent 的心跳、事件、工具调用和 run 状态上报。
+6. 后续同一 Agent 可由客户端控制台继续接管/暂停/恢复接收请求。
 
-配对码只使用一次，并有短有效期。连接凭证不是模型 API Key。
+配对码只使用一次，并有短有效期。连接凭证不是模型 API Key。Agent Client 的本地登录密码只保护 5188 控制台，不代表业务身份；业务身份始终是保存的 FreeChat Server 账号，Agent 发布方/收费方是 `agents.owner_id`。
 
-## MVP 协议
+## 当前协议
 
-当前 MVP 使用 HTTP 轮询，后续可升级 WebSocket。
+当前实现优先 WebSocket 推送，SSE 兜底，最后保留 HTTP polling。三种通道共用 `remote_agent_events`，客户端必须按 `runId` 去重，避免断线重连时重复执行。
 
 ### 人类管理端 API
 
@@ -60,6 +59,8 @@ DELETE /api/agents/:id/connectors/:connectorId
 POST /api/remote-agents/register
 POST /api/remote-agents/heartbeat
 GET  /api/remote-agents/events
+GET  /api/remote-agents/events/stream
+WS   /api/remote-agents/events/ws?token=<connector credential>
 POST /api/remote-agents/runs/:runId/activity
 POST /api/remote-agents/runs/:runId/complete
 POST /api/remote-agents/runs/:runId/fail
@@ -85,12 +86,17 @@ Authorization: Bearer <connector credential>
 
 ## 事件类型
 
-MVP 事件：
+当前事件结构：
 
 ```ts
-type RemoteAgentEvent =
-  | { type: 'agent.mentioned'; runId: string; roomId: string; input: string }
-  | { type: 'task.assigned'; runId: string; roomId: string; input: string; taskId?: string; subtaskId?: string }
+type RemoteAgentEvent = {
+  id: string
+  runId: string
+  roomId: string
+  agentId: string
+  type: 'agent.mentioned' | 'task.assigned' | string
+  payload: { input: string; taskId?: string; subtaskId?: string; runSource?: string }
+}
 ```
 
 触发规则沿用现有 Agent 策略：
@@ -105,11 +111,13 @@ type RemoteAgentEvent =
 1. FreeChat 决定唤醒远程 Agent。
 2. 创建 `agent_runs`：`runtime='remote-claude-code'`，`status='running'`。
 3. 创建 `remote_agent_events`。
-4. 远程客户端轮询到事件。
-5. 客户端本机调用 Claude Code。
-6. Claude Code 通过 `./freechat` 调用工具 API 回写消息、任务、文件、页面。
+4. 客户端通过 WebSocket/SSE/polling 收到事件，服务端标记 delivered。
+5. 客户端本机调用 Claude Code 或其他本地运行时。
+6. 运行时通过 `./freechat` / Agent Tool API 显式回写消息、任务、文件、页面。
 7. 客户端调用 complete 或 fail。
 8. FreeChat 更新 run、Agent 状态、连接器状态，并触发账单。
+
+重要：`complete.output` 是运行摘要/审计记录，不会自动作为聊天消息发送。用户可见回复必须由 Agent 显式调用 `chat.send`，避免 stdout 和工具调用造成双回复。
 
 ## 计费
 
@@ -140,46 +148,39 @@ MVP 新增：
 
 同时确保 `agent_runs.payer_user_id` 存在，便于远程 run 按项目创建人计费。
 
-## 远程客户端模板
+## 客户端与 SDK 文档
 
-代码库包含示例：
+当前正式客户端在独立 workspace：
+
+```text
+clients/agent-client/
+```
+
+它自带公网可访问的本地控制台、环境检测、账号配置、Agent 管理、上架/下架、托管房间只读视图、请求状态和 WebSocket/SSE/polling 事件处理。若要自行实现第三方客户端，使用单独 SDK 文档：
+
+```text
+clients/agent-client/SDK.md
+```
+
+历史示例客户端仍可参考：
 
 ```text
 examples/remote-claude-agent/
 ```
 
-部署步骤：
-
-```bash
-pnpm install
-pnpm build
-node dist/index.js pair --server http://freechat.example.com --code ABCD-1234
-node dist/index.js connect
-```
-
-远程服务器必须自行安装并配置 Claude Code。FreeChat 不接收远程模型 API Key。
-
-示例客户端提供自检脚本：
-
-```bash
-pnpm run check:claude   # 检查 claude，国内用户提示 cc-switch
-pnpm run smoke:claude   # 创建临时工作区，验证本机 claude -p 能按连接器方式执行
-```
-
-国内用户经验：如果 Claude Code 不能直连，先在远程服务器本机安装并配置 `cc-switch`，确认 `claude -p "hello"` 成功后再连接 FreeChat。
+远程服务器必须自行安装并配置 Claude Code。FreeChat 不接收远程模型 API Key。国内用户如果 Claude Code 不能直连，先在远程服务器本机安装并配置 `cc-switch`，确认 `claude -p "hello"` 成功后再连接 FreeChat。
 
 ## 后续增强
 
-- WebSocket/SSE 推送替代轮询；
-- dispatch lease、重投递和幂等；
+- dispatch lease、重投递和更严格幂等；
 - 连接器多实例负载均衡；
 - 更完整的远程 workspace bundle；
 - reported token 计费和审计；
-- 前端连接状态、配对码、接入教程完整 UI。
+- HTTPS/反向代理部署向导和生产安全检查。
 
 ## Agent Client 独立控制台
 
-后续正式客户端放在独立目录：
+正式客户端放在独立目录：
 
 ```text
 clients/agent-client/
@@ -193,16 +194,18 @@ FreeChat Web:    5173
 Agent Client:    5188
 ```
 
-Agent Client 只连接一个 FreeChat 中心服务器，但可以管理多个 Agent 登录。每个 Agent 仍有自己的 connector credential，客户端本地统一保存和轮询这些 Agent 的事件。
+Agent Client 只连接一个 FreeChat 中心服务器，但可以管理多个 Agent。每个 Agent 仍有自己的 connector credential，客户端本地统一保存并优先用 WebSocket 接收事件。
 
 客户端自带网页/API 控制台，用于管理本客户端：
 
-- 配置中心服务器地址；
-- 添加多个 Agent 配对码；
-- 查看每个 Agent 的登录、启停、最近心跳、错误；
-- 启动/停止本地 worker；
+- 配置中心服务器地址和保存 FreeChat Server 账号；
+- 自动登录服务端并只展示当前账号 owner 的 Agent；
+- 新建并发布 Agent、编辑 Agent、上架/下架到市场；
+- 将 owner Agent 接管到本客户端执行；
+- 查看托管房间的只读消息视图；
+- 暂停/恢复接收请求；
 - 检测 Claude Code、cc-switch、Node 环境；
-- 查看本地运行日志。
+- 查看本地运行日志和请求状态。
 
 公网访问必须显式开启：
 
@@ -259,3 +262,15 @@ wss://<server>/api/remote-agents/events/ws?token=<connector credential>
 ```
 
 客户端优先连接 WebSocket；若当前 Node 运行时或网络代理不支持，则自动退回 SSE；若 SSE 也断开，则保留原 HTTP 轮询兜底。WebSocket/SSE/轮询共用事件去重，避免重复执行同一个 run。
+
+## 托管房间与同名 Agent 兜底
+
+服务端提供：
+
+```http
+GET /api/managed-agent-rooms?limit=50
+```
+
+该接口返回当前用户拥有且已被 connector 接管的 Agent 所在房间、托管 Agent 列表和最近消息，用于 Agent Client 的“托管房间”只读视图。服务端会过滤内部 runtime init 日志，客户端也要防御性隐藏 `{"type":"system","subtype":"init"}` 这类运行时消息。
+
+当 connector 注册或用户把 Agent 加入房间时，服务端会按 `owner_id + name + role_type` 查找已接管版本并迁移/优先使用它，避免房间挂到同名但没有 connector 的副本，导致 `@Agent` 事件一直 pending 无人消费。
