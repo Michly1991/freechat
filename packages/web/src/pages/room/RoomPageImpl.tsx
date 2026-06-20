@@ -239,6 +239,10 @@ export function RoomPageImpl() {
     scrollToBottom('smooth')
     setSelectedMentions([])
   }
+  const handleVoiceTranscript = (text: string) => {
+    setInput((prev) => `${prev}${prev.trim() ? '\n' : ''}${text}`)
+    inputRef.current?.focus()
+  }
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value
     setInput(val)

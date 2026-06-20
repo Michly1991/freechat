@@ -29,6 +29,7 @@ import { registerBillingRuleRoutes } from './routes/billing-rules.js'
 import { registerMarketRoutes } from './routes/market.js'
 import { registerRemoteAgentRoutes } from './routes/remote-agents.js'
 import { registerManagedAgentRoomRoutes } from './routes/managed-agent-rooms.js'
+import { registerVoiceRoutes } from './routes/voice.js'
 import { authenticate } from './auth/middleware.js'
 import { initDatabase } from './storage/db.js'
 import { initWebSocket } from './ws/gateway.js'
@@ -126,6 +127,7 @@ async function buildApp() {
   await registerMarketRoutes(app)
   await registerRemoteAgentRoutes(app)
   await registerManagedAgentRoomRoutes(app)
+  await registerVoiceRoutes(app)
   await registerAgentToolRoutes(app)
 
   // Error handler

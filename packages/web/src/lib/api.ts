@@ -68,6 +68,15 @@ export const api = {
   changePassword: (body: { old_password: string; new_password: string }) =>
     request('/user/password', { method: 'POST', body: JSON.stringify(body) }),
 
+
+  getVoiceConfigs: () => request<{ configs: any[] }>('/voice/configs'),
+  createVoiceConfig: (body: any) => request<{ config: any }>('/voice/configs', { method: 'POST', body: JSON.stringify(body) }),
+  updateVoiceConfig: (id: string, body: any) => request<{ config: any }>(`/voice/configs/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteVoiceConfig: (id: string) => request(`/voice/configs/${id}`, { method: 'DELETE' }),
+  testVoiceConfig: (id: string) => request<any>(`/voice/configs/${id}/test`, { method: 'POST' }),
+  transcribeVoice: (formData: FormData) => request<{ text: string; provider: string; durationMs?: number }>('/voice/transcribe', { method: 'POST', body: formData }),
+  synthesizeVoice: (body: { text: string; roomId?: string; messageId?: string; providerConfigId?: string; voice?: string; format?: string }) => request<{ audioUrl: string; mimeType: string; provider: string; durationMs?: number }>('/voice/synthesize', { method: 'POST', body: JSON.stringify(body) }),
+
   // Rooms
   getRooms: () => request<{ rooms: any[] }>('/rooms'),
   createRoom: (body: { name: string; description?: string; sceneId?: string; memberIds?: string[]; agents?: Array<{ agentId: string; roomRole?: 'assistant' | 'specialist'; autoEnabled?: boolean; priority?: number; confirmedPurchase?: boolean }> }) =>
