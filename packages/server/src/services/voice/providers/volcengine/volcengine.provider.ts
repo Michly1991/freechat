@@ -15,15 +15,22 @@ function audioFormat(mimeType?: string, fallback = 'wav') { if (!mimeType) retur
 function mimeFromEncoding(encoding: string) { return encoding === 'wav' ? 'audio/wav' : 'audio/mpeg' }
 function volcErrorMessage(message: any, fallback: string) {
   const text = asString(message) || fallback
-  if (text.includes('invalid auth token')) return '火山语音鉴权失败：请检查 Token 是否正确'
-  if (text.includes('requested grant not found')) return '火山语音授权不匹配：当前 App/Token 没有该 cluster 或音色的 TTS/ASR 授权，请检查火山控制台授权、ttsCluster 和音色配置'
+  if (text.includes('invalid auth token') || text.includes('Invalid X-Api-Key')) return '火山语音鉴权失败：请检查 Token/API Key 是否正确'
+  if (text.includes('requested grant not found')) return '火山语音授权不匹配：当前 App/Token 没有该 Resource ID、cluster 或音色的 TTS/ASR 授权，请检查火山控制台授权、Resource ID 和音色配置'
   return text
+}
+function shouldUseDoubaoAsr(config: VoiceProviderConfig) {
+  if (config.config.asrApiVersion === 'legacy') return false
+  if (config.config.asrApiVersion === 'v3' || config.config.asrApiVersion === 'doubao') return true
+  const appId = config.credential.appId || config.credential.appid || ''
+  return String(appId).startsWith('api-') || String(appId).startsWith('api_key') || !!config.config.asrResourceId
 }
 
 export class VolcengineVoiceProvider implements SpeechRecognitionProvider, SpeechSynthesisProvider {
   provider = 'volcengine'
   async transcribeOnce(input: { audio: Buffer; mimeType: string; sampleRate?: number; language?: string; format?: string; config: VoiceProviderConfig }) {
     const { config } = input
+    if (shouldUseDoubaoAsr(config)) return this.transcribeDoubao(input)
     const asrUrl = config.config.asrUrl || 'https://openspeech.bytedance.com/api/v1/asr'
     const token = bearer(config)
     if (!token) throw { code: 'VOICE_PROVIDER_CREDENTIAL_INVALID', message: '火山语音 token/secret 未配置' }
@@ -32,7 +39,6 @@ export class VolcengineVoiceProvider implements SpeechRecognitionProvider, Speec
       app: { appid: config.credential.appId || config.credential.appid, token, cluster: config.credential.asrCluster || config.config.asrCluster || 'volcengine_input_common' },
       user: { uid: config.userId },
       audio: { format: input.format || audioFormat(input.mimeType), rate: input.sampleRate || config.config.sampleRate || 16000, data: input.audio.toString('base64') },
-      // Some Volcengine ASR routes require a sequence value after internally converting `request` to `req`.
       request: { reqid: reqid(), language: input.language || config.config.language || 'zh-CN', operation: 'query', sequence: 1 },
     }
     const res = await fetch(asrUrl, { method: 'POST', headers: { 'content-type': 'application/json', authorization: authHeader(config, token) }, body: JSON.stringify(body) })
@@ -40,6 +46,35 @@ export class VolcengineVoiceProvider implements SpeechRecognitionProvider, Speec
     let data: any = {}
     try { data = text ? JSON.parse(text) : {} } catch { data = { rawText: text } }
     if (!res.ok || data?.code || data?.error) throw { code: 'VOICE_ASR_FAILED', message: volcErrorMessage(data?.message || data?.error, `火山语音识别失败 HTTP ${res.status}`) }
+    const transcript = pickText(data)
+    if (!transcript) throw { code: 'VOICE_ASR_EMPTY', message: '语音识别未返回文本' }
+    return { text: transcript, durationMs: Date.now() - started, raw: data }
+  }
+
+  private async transcribeDoubao(input: { audio: Buffer; mimeType: string; sampleRate?: number; language?: string; format?: string; config: VoiceProviderConfig }) {
+    const { config } = input
+    const asrUrl = config.config.asrUrl || 'https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash'
+    const requestId = reqid()
+    const apiKey = doubaoApiKey(config)
+    const appKey = config.credential.appId || config.credential.appid || config.config.appKey || apiKey
+    const accessKey = config.credential.accessKey || config.config.accessKey || bearer(config) || apiKey
+    if (!apiKey && (!appKey || !accessKey)) throw { code: 'VOICE_PROVIDER_CREDENTIAL_INVALID', message: '火山豆包语音 ASR API Key 未配置' }
+    const format = input.format || audioFormat(input.mimeType)
+    const started = Date.now()
+    const body = {
+      user: { uid: config.userId },
+      audio: { format, rate: input.sampleRate || config.config.sampleRate || 16000, data: input.audio.toString('base64') },
+      request: { reqid: requestId, model_name: config.config.asrModel || 'bigmodel', language: input.language || config.config.language || 'zh-CN', enable_itn: true, enable_punc: true },
+    }
+    const headers: Record<string, string> = { 'content-type': 'application/json', 'x-api-resource-id': config.config.asrResourceId || config.credential.asrCluster || config.config.asrCluster || 'volc.bigasr.auc', 'x-api-request-id': requestId, 'x-api-sequence': '-1' }
+    if (apiKey) headers['x-api-key'] = apiKey
+    if (appKey) headers['x-api-app-key'] = appKey
+    if (accessKey) headers['x-api-access-key'] = accessKey
+    const res = await fetch(asrUrl, { method: 'POST', headers, body: JSON.stringify(body) })
+    const text = await res.text()
+    let data: any = {}
+    try { data = text ? JSON.parse(text) : {} } catch { data = { rawText: text } }
+    if (!res.ok || data?.code || data?.error) throw { code: 'VOICE_ASR_FAILED', message: volcErrorMessage(data?.message || data?.error, `火山豆包语音识别失败 HTTP ${res.status}`) }
     const transcript = pickText(data)
     if (!transcript) throw { code: 'VOICE_ASR_EMPTY', message: '语音识别未返回文本' }
     return { text: transcript, durationMs: Date.now() - started, raw: data }

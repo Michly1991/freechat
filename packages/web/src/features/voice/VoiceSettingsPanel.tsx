@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
 
 type VoiceConfig = { id: string; provider: string; name: string; asrEnabled: boolean; ttsEnabled: boolean; isDefaultAsr: boolean; isDefaultTts: boolean; credentialStatus: string; credentialMeta?: any; config: any }
-const emptyForm = { name: '我的火山语音', token: '', appId: '', asrCluster: 'volcengine_input_common', ttsCluster: 'seed-tts-2.0', defaultVoice: 'zh_female_vv_uranus_bigtts', asrUrl: '', ttsUrl: '' }
+const emptyForm = { name: '我的火山语音', token: '', appId: '', asrCluster: 'volc.bigasr.auc', ttsCluster: 'seed-tts-2.0', defaultVoice: 'zh_female_vv_uranus_bigtts', asrUrl: '', ttsUrl: '' }
 
 export function VoiceSettingsPanel() {
   const [configs, setConfigs] = useState<VoiceConfig[]>([])
@@ -59,11 +59,11 @@ export function VoiceSettingsPanel() {
       <label className="text-sm"><span className="text-gray-600">配置名称</span><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1 w-full rounded-lg border px-3 py-2" /></label>
       <label className="text-sm"><span className="text-gray-600">App ID</span><input value={form.appId} onChange={(e) => setForm({ ...form, appId: e.target.value })} className="mt-1 w-full rounded-lg border px-3 py-2" /></label>
       <label className="text-sm sm:col-span-2"><span className="text-gray-600">API Key / Token</span><input type="password" value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} placeholder="保存后列表不直接展示" className="mt-1 w-full rounded-lg border px-3 py-2" /></label>
-      <label className="text-sm"><span className="text-gray-600">ASR Cluster</span><input value={form.asrCluster} onChange={(e) => setForm({ ...form, asrCluster: e.target.value })} className="mt-1 w-full rounded-lg border px-3 py-2" /></label>
+      <label className="text-sm"><span className="text-gray-600">ASR Resource ID</span><input value={form.asrCluster} onChange={(e) => setForm({ ...form, asrCluster: e.target.value })} className="mt-1 w-full rounded-lg border px-3 py-2" /></label>
       <label className="text-sm"><span className="text-gray-600">TTS Resource ID</span><input value={form.ttsCluster} onChange={(e) => setForm({ ...form, ttsCluster: e.target.value })} className="mt-1 w-full rounded-lg border px-3 py-2" /></label>
       <label className="text-sm"><span className="text-gray-600">默认音色</span><input value={form.defaultVoice} onChange={(e) => setForm({ ...form, defaultVoice: e.target.value })} className="mt-1 w-full rounded-lg border px-3 py-2" /></label>
       <div className="text-xs text-gray-400 flex items-end">如你的火山产品线端点不同，可在下面覆盖 URL。</div>
-      <label className="text-sm"><span className="text-gray-600">ASR URL（可选）</span><input value={form.asrUrl} onChange={(e) => setForm({ ...form, asrUrl: e.target.value })} placeholder="默认 OpenSpeech ASR" className="mt-1 w-full rounded-lg border px-3 py-2" /></label>
+      <label className="text-sm"><span className="text-gray-600">ASR URL（可选）</span><input value={form.asrUrl} onChange={(e) => setForm({ ...form, asrUrl: e.target.value })} placeholder="默认豆包新版 ASR" className="mt-1 w-full rounded-lg border px-3 py-2" /></label>
       <label className="text-sm"><span className="text-gray-600">TTS URL（可选）</span><input value={form.ttsUrl} onChange={(e) => setForm({ ...form, ttsUrl: e.target.value })} placeholder="默认 OpenSpeech TTS" className="mt-1 w-full rounded-lg border px-3 py-2" /></label>
     </div><button onClick={save} className="rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">{editingId ? '保存修改并测试' : '保存并测试'}</button></div>}
     {msg && <p className="text-sm text-blue-600">{msg}</p>}
