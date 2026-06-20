@@ -16,6 +16,10 @@ function toPublic(config: VoiceProviderConfig): VoiceProviderConfigPublic {
 export class VoiceConfigService {
   list(userId: string) { return (db.prepare('SELECT * FROM user_voice_provider_configs WHERE user_id = ? AND status != ? ORDER BY created_at DESC').all(userId, 'deleted') as any[]).map((row) => toPublic(rowToConfig(row))) }
   get(userId: string, id: string) { const row = db.prepare('SELECT * FROM user_voice_provider_configs WHERE id = ? AND user_id = ? AND status != ?').get(id, userId, 'deleted') as any; if (!row) throw { code: 'VOICE_CONFIG_NOT_FOUND', message: '语音服务配置不存在' }; return rowToConfig(row) }
+  getEditable(userId: string, id: string) {
+    const config = this.get(userId, id)
+    return { ...toPublic(config), credential: { token: config.credential.token || config.credential.accessToken || config.credential.secretAccessKey || '', appId: config.credential.appId || config.credential.appid || '', asrCluster: config.credential.asrCluster || '', ttsCluster: config.credential.ttsCluster || '' } } as any
+  }
   getDefault(userId: string, capability: 'asr' | 'tts') {
     const flag = capability === 'asr' ? 'is_default_asr' : 'is_default_tts', enabled = capability === 'asr' ? 'asr_enabled' : 'tts_enabled'
     const row = db.prepare(`SELECT * FROM user_voice_provider_configs WHERE user_id = ? AND status = 'active' AND ${enabled} = 1 ORDER BY ${flag} DESC, updated_at DESC LIMIT 1`).get(userId) as any

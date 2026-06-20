@@ -71,6 +71,7 @@ export const api = {
 
   getVoiceConfigs: () => request<{ configs: any[] }>('/voice/configs'),
   createVoiceConfig: (body: any) => request<{ config: any }>('/voice/configs', { method: 'POST', body: JSON.stringify(body) }),
+  getEditableVoiceConfig: (id: string) => request<{ config: any }>(`/voice/configs/${id}/edit`),
   updateVoiceConfig: (id: string, body: any) => request<{ config: any }>(`/voice/configs/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteVoiceConfig: (id: string) => request(`/voice/configs/${id}`, { method: 'DELETE' }),
   testVoiceConfig: (id: string) => request<any>(`/voice/configs/${id}/test`, { method: 'POST' }),

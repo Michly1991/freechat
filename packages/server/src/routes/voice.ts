@@ -10,6 +10,11 @@ export async function registerVoiceRoutes(app: FastifyInstance) {
     const user = (request as any).user
     return { success: true, data: { config: voiceConfigService.create(user.id, request.body || {}) } }
   })
+  app.get('/api/voice/configs/:id/edit', async (request) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    return { success: true, data: { config: voiceConfigService.getEditable(user.id, id) } }
+  })
   app.patch('/api/voice/configs/:id', async (request) => {
     const user = (request as any).user
     const { id } = request.params as any
