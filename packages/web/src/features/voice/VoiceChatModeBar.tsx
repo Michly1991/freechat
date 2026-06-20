@@ -18,8 +18,9 @@ export function VoiceChatModeBar({ enabled, autoSend, autoPlay, busy, status = '
     </div>
   }
 
+  const micUnavailable = !navigator.mediaDevices?.getUserMedia
   return <div className="mx-3 mb-2 rounded-2xl border border-emerald-100 bg-gradient-to-r from-emerald-50 to-cyan-50 px-3 py-2 text-sm text-emerald-900 flex flex-wrap items-center justify-between gap-2">
-    <div className="min-w-0"><p className="font-medium">AI 语音对话中 · {statusText[status] || statusText.idle}</p><p className="text-xs text-emerald-700/80">点击“开始说话”，识别后{autoSend ? '自动发送给房间 AI' : '填入输入框由你确认'}；AI 回复{autoPlay ? '自动播放' : '可手动播放'}。</p></div>
+    <div className="min-w-0"><p className="font-medium">AI 语音对话中 · {statusText[status] || statusText.idle}</p><p className="text-xs text-emerald-700/80">{micUnavailable ? '当前浏览器暂不能访问麦克风，请使用 HTTPS 页面或检查微信/浏览器麦克风权限。' : `点击“开始说话”，识别后${autoSend ? '自动发送给房间 AI' : '填入输入框由你确认'}；AI 回复${autoPlay ? '自动播放' : '可手动播放'}。`}</p></div>
     <div className="flex flex-wrap items-center gap-2">
       <VoiceRecorderButton roomId={roomId} onTranscript={onTranscript} label="开始说话" recordingLabel="停止说话" disabled={busy || status === 'speaking'} onRecordingChange={onRecordingChange} onBusyChange={onBusyChange} />
       <label className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1.5 text-xs text-gray-600 border border-gray-200"><input type="checkbox" checked={autoSend} onChange={(e) => onAutoSendChange(e.target.checked)} />自动发送</label>

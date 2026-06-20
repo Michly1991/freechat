@@ -35,7 +35,8 @@ export function VoiceRecorderButton({ roomId, onTranscript, label, recordingLabe
     } catch (err: any) { alert(err.message || '无法访问麦克风') }
   }
   const stop = () => { recorderRef.current?.stop(); recorderRef.current = null; setRecording(false); onRecordingChange?.(false) }
-  if (!navigator.mediaDevices?.getUserMedia) return null
   const text = recording ? recordingLabel : label
+  const canRecord = !!navigator.mediaDevices?.getUserMedia
+  if (!canRecord) return <button type="button" disabled className="fc-pressable fc-mobile-touch inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-gray-100 text-gray-400 disabled:opacity-80" title="当前浏览器无法访问麦克风：请使用 HTTPS 页面或检查微信/浏览器麦克风权限"><Mic className="h-4 w-4" />{text && <span>{text}</span>}</button>
   return <button type="button" onClick={recording ? stop : start} disabled={busy || disabled} className={`fc-pressable fc-mobile-touch inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${recording ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-blue-50 hover:text-blue-600'} disabled:opacity-60`} title={recording ? '停止录音' : '语音输入'}>{recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}{text && <span>{text}</span>}</button>
 }
