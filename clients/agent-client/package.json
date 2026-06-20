@@ -1,0 +1,23 @@
+{
+  "name": "@freechat/agent-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/main.js",
+  "scripts": {
+    "dev": "tsx src/main.ts serve",
+    "build": "tsup src/main.ts --format esm --clean",
+    "start": "node dist/main.js serve",
+    "typecheck": "tsc --noEmit",
+    "check:claude": "node scripts/check-claude-env.mjs",
+    "check:client": "node scripts/check-client.mjs",
+    "check:routes": "node scripts/check-local-routes.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  }
+}

@@ -31,7 +31,8 @@ export async function registerAgentRoutes(app: FastifyInstance) {
         const isOwner = agent.ownerId === user.id
         const isFollowing = marketEngagementService.isFollowing(user.id, 'agent', agent.id)
         const isBuiltInDefault = agent.builtInKey === 'default_assistant'
-        return { ...agent, canEdit, canDelete: canEdit && agent.canDelete !== false, isOwner, isFollowing, canUse: isOwner || isFollowing || isBuiltInDefault || canEdit || user.role === 'admin' }
+        const connectorSummary = remoteAgentConnectorService.getConnectorSummary(agent.id)
+        return { ...agent, ...connectorSummary, canEdit, canDelete: canEdit && agent.canDelete !== false, isOwner, isFollowing, canUse: isOwner || isFollowing || isBuiltInDefault || canEdit || user.role === 'admin' }
       }))
       return reply.send({ success: true, data: { agents: enriched } })
     } catch (err: any) {

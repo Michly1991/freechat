@@ -365,6 +365,25 @@ export class AgentService {
     return null
   }
 
+
+  private getManagedEquivalentAgent(agent: Agent): Agent | null {
+    const row = db.prepare(`
+      SELECT a.*, COALESCE(u.nickname, u.username) owner_name
+      FROM agents a
+      INNER JOIN agent_connectors c ON c.agent_id = a.id AND c.status != 'revoked'
+      LEFT JOIN users u ON u.id = a.owner_id
+      WHERE a.owner_id = ? AND a.name = ? AND a.role_type = ?
+      ORDER BY COALESCE(c.last_seen_at, c.created_at) DESC, a.updated_at DESC
+      LIMIT 1
+    `).get(agent.ownerId, agent.name, agent.roleType) as AgentRow | undefined
+    return row ? rowToAgent(row) : null
+  }
+
+  private isManagedClientAgent(agentId: string): boolean {
+    const row = db.prepare("SELECT 1 FROM agent_connectors WHERE agent_id = ? AND status != 'revoked' LIMIT 1").get(agentId) as any
+    return !!row
+  }
+
   /**
    * Add an agent to a room
    */
@@ -375,9 +394,11 @@ export class AgentService {
       return
     }
     if (!(await this.canUseAgent(agentId, addedBy))) throw { code: 'AGENT_NOT_FOLLOWED', message: '请先关注或选择自己创建的 Agent' }
-    let targetAgentId = agentId
-    if (agent.isTemplate) {
-      agent = await this.cloneAgentTemplate(agentId, addedBy, { roomId })
+    const managedEquivalent = this.getManagedEquivalentAgent(agent)
+    if (managedEquivalent) agent = managedEquivalent
+    let targetAgentId = agent.id
+    if (agent.isTemplate && !this.isManagedClientAgent(agent.id)) {
+      agent = await this.cloneAgentTemplate(agent.id, addedBy, { roomId })
       targetAgentId = agent.id
     }
     const requestedRole = options.roomRole || (agent.roleType === 'assistant' ? 'assistant' : 'specialist')

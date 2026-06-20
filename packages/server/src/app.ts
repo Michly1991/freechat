@@ -28,9 +28,11 @@ import { registerBillingRoutes } from './routes/billing.js'
 import { registerBillingRuleRoutes } from './routes/billing-rules.js'
 import { registerMarketRoutes } from './routes/market.js'
 import { registerRemoteAgentRoutes } from './routes/remote-agents.js'
+import { registerManagedAgentRoomRoutes } from './routes/managed-agent-rooms.js'
 import { authenticate } from './auth/middleware.js'
 import { initDatabase } from './storage/db.js'
 import { initWebSocket } from './ws/gateway.js'
+import { initRemoteAgentEventWebSocket } from './ws/remote-agent-events.js'
 import { config } from './config.js'
 import { agentDreamSchedulerService } from './services/agent-dream-scheduler.service.js'
 import { agentGrowthSchedulerService } from './services/agent-growth-scheduler.service.js'
@@ -123,6 +125,7 @@ async function buildApp() {
   await registerBillingRuleRoutes(app)
   await registerMarketRoutes(app)
   await registerRemoteAgentRoutes(app)
+  await registerManagedAgentRoomRoutes(app)
   await registerAgentToolRoutes(app)
 
   // Error handler
@@ -152,6 +155,7 @@ export async function startServer() {
 
   // Initialize WebSocket
   initWebSocket(app.server)
+  initRemoteAgentEventWebSocket(app.server)
 
   // Start nightly Agent dream/growth reviews
   agentDreamSchedulerService.start()

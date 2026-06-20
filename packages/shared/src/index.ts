@@ -91,6 +91,12 @@ export interface Agent {
   builtInKey?: string
   canEdit?: boolean
   canDelete?: boolean
+  managedByClient?: boolean
+  clientConnectorCount?: number
+  clientConnectorId?: string
+  clientConnectorName?: string
+  clientConnectorStatus?: 'online' | 'working' | 'offline' | 'error' | 'revoked' | string
+  clientLastSeenAt?: number
 }
 
 export interface AgentSkill {

@@ -33,7 +33,27 @@ export async function registerRemoteAgentRoutes(app: FastifyInstance) {
     const auth = await requireConnector(request, reply)
     if (!auth) return
     const query = request.query as any
-    return { success: true, data: { events: remoteAgentConnectorService.pollEvents(auth, Number(query?.limit || 10)) } }
+    const agentIds = typeof query?.agentIds === 'string' ? query.agentIds.split(',').filter(Boolean) : undefined
+    return { success: true, data: { events: remoteAgentConnectorService.pollEvents(auth, Number(query?.limit || 10), agentIds) } }
+  })
+
+
+  app.get('/api/remote-agents/events/stream', async (request, reply) => {
+    const auth = await requireConnector(request, reply)
+    if (!auth) return
+    const raw = reply.raw
+    raw.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    })
+    const send = (event: any) => raw.write(`event: remote-event\ndata: ${JSON.stringify(event)}\n\n`)
+    raw.write(`event: ready\ndata: ${JSON.stringify({ ok: true, agentId: auth.agentId })}\n\n`)
+    const unsubscribe = remoteAgentConnectorService.subscribe(auth, send)
+    const ping = setInterval(() => raw.write(`event: ping\ndata: ${JSON.stringify({ now: Date.now() })}\n\n`), 25000)
+    request.raw.on('close', () => { clearInterval(ping); unsubscribe() })
+    return reply
   })
 
   app.post('/api/remote-agents/runs/:runId/activity', async (request, reply) => {

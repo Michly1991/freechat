@@ -21,7 +21,12 @@ export class WebSocketGateway {
       this.broadcastToRoom(roomId, message, excludeClientId)
       if (message?.action === 'agent.status_update') this.sendToRoomMembers(roomId, message)
     })
-    this.wss = new WebSocketServer({ server, path: '/ws' })
+    this.wss = new WebSocketServer({ noServer: true })
+    server.on('upgrade', (req, socket, head) => {
+      const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`)
+      if (url.pathname !== '/ws') return
+      this.wss.handleUpgrade(req, socket, head, (ws) => this.wss.emit('connection', ws, req))
+    })
     this.wss.on('connection', (ws, req) => this.handleConnection(ws, req))
     console.log('WebSocket gateway initialized')
   }

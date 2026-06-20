@@ -1,0 +1,20 @@
+[Unit]
+Description=FreeChat Agent Client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.openclaw/workspace/freechat
+Environment=AGENT_CLIENT_HOST=0.0.0.0
+Environment=AGENT_CLIENT_PORT=5188
+Environment=FREECHAT_SERVER_URL=http://localhost:3001
+Environment=AGENT_CLIENT_AUTOSTART_WORKER=1
+# 必须改成强密码；公网模式没有密码会拒绝启动
+Environment=AGENT_CLIENT_ADMIN_PASSWORD=change-me
+ExecStart=/usr/bin/env node clients/agent-client/dist/main.js serve
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

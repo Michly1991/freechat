@@ -10,11 +10,16 @@ import { creditWalletService } from './credit-wallet.service.js'
 const ACCESS_EXPIRES_IN = '7d'
 const PAIRING_TTL_MS = 10 * 60 * 1000
 
-type ConnectorAuth = {
+export type ConnectorAuth = {
   connectorId: string
   agentId: string
   ownerId: string
   tokenId: string
+}
+
+type EventSubscriber = {
+  auth: ConnectorAuth
+  send: (event: any) => void
 }
 
 type EnqueueContext = {
@@ -40,6 +45,8 @@ function tokenPrefix(token: string): string {
 }
 
 export class RemoteAgentConnectorService {
+  private subscribers = new Map<string, Set<EventSubscriber>>()
+
   async createPairingCode(agentId: string, ownerId: string) {
     const agent = db.prepare('SELECT id, owner_id, deployment FROM agents WHERE id = ?').get(agentId) as any
     if (!agent) throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found' }
@@ -52,6 +59,25 @@ export class RemoteAgentConnectorService {
       VALUES (?, ?, ?, ?, 'pending', ?, ?)
     `).run(id, agentId, ownerId, await bcrypt.hash(compactCode(code), 10), now + PAIRING_TTL_MS, now)
     return { id, code, expiresAt: now + PAIRING_TTL_MS }
+  }
+
+
+  getConnectorSummary(agentId: string) {
+    const rows = db.prepare(`
+      SELECT id, name, status, last_seen_at lastSeenAt, created_at createdAt
+      FROM agent_connectors
+      WHERE agent_id = ? AND status != 'revoked'
+      ORDER BY COALESCE(last_seen_at, created_at) DESC
+    `).all(agentId) as any[]
+    const latest = rows[0]
+    return {
+      managedByClient: rows.length > 0,
+      clientConnectorCount: rows.length,
+      clientConnectorId: latest?.id,
+      clientConnectorName: latest?.name || undefined,
+      clientConnectorStatus: latest?.status || undefined,
+      clientLastSeenAt: latest?.lastSeenAt || undefined,
+    }
   }
 
   listConnectors(agentId: string, ownerId: string) {
@@ -74,6 +100,37 @@ export class RemoteAgentConnectorService {
     const now = Date.now()
     db.prepare("UPDATE agent_connectors SET status = 'revoked', revoked_at = ?, last_seen_at = ? WHERE id = ?").run(now, now, connectorId)
     db.prepare("UPDATE agent_connector_tokens SET status = 'revoked' WHERE connector_id = ?").run(connectorId)
+  }
+
+
+  private migrateRoomsToManagedAgent(agentId: string) {
+    const agent = db.prepare('SELECT id, owner_id, name, role_type FROM agents WHERE id = ?').get(agentId) as any
+    if (!agent) return { migrated: 0, removedDuplicates: 0 }
+    const siblings = db.prepare(`
+      SELECT id
+      FROM agents
+      WHERE owner_id = ? AND name = ? AND role_type = ? AND id != ?
+    `).all(agent.owner_id, agent.name, agent.role_type, agent.id) as any[]
+    let migrated = 0
+    let removedDuplicates = 0
+    for (const sibling of siblings) {
+      const roomRows = db.prepare('SELECT room_id FROM room_agents WHERE agent_id = ?').all(sibling.id) as any[]
+      for (const row of roomRows) {
+        const exists = db.prepare('SELECT 1 FROM room_agents WHERE room_id = ? AND agent_id = ?').get(row.room_id, agent.id) as any
+        if (exists) {
+          db.prepare('DELETE FROM room_agents WHERE room_id = ? AND agent_id = ?').run(row.room_id, sibling.id)
+          db.prepare('DELETE FROM room_agent_model_bindings WHERE room_id = ? AND agent_id = ?').run(row.room_id, sibling.id)
+          removedDuplicates += 1
+        } else {
+          db.prepare('UPDATE room_agents SET agent_id = ? WHERE room_id = ? AND agent_id = ?').run(agent.id, row.room_id, sibling.id)
+          const bindingExists = db.prepare('SELECT 1 FROM room_agent_model_bindings WHERE room_id = ? AND agent_id = ?').get(row.room_id, agent.id) as any
+          if (bindingExists) db.prepare('DELETE FROM room_agent_model_bindings WHERE room_id = ? AND agent_id = ?').run(row.room_id, sibling.id)
+          else db.prepare('UPDATE room_agent_model_bindings SET agent_id = ? WHERE room_id = ? AND agent_id = ?').run(agent.id, row.room_id, sibling.id)
+          migrated += 1
+        }
+      }
+    }
+    return { migrated, removedDuplicates }
   }
 
   async register(input: { pairingCode: string; instanceId?: string; name?: string; clientVersion?: string; capabilities?: any }) {
@@ -114,6 +171,10 @@ export class RemoteAgentConnectorService {
 
   async authenticateBearer(authHeader?: string): Promise<ConnectorAuth | null> {
     const token = (authHeader || '').startsWith('Bearer ') ? authHeader!.slice(7) : ''
+    return this.authenticateCredential(token)
+  }
+
+  async authenticateCredential(token: string): Promise<ConnectorAuth | null> {
     if (!token) return null
     const jwtAuth = this.verifyAccessToken(token)
     if (jwtAuth) return jwtAuth
@@ -160,16 +221,21 @@ export class RemoteAgentConnectorService {
       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
     `).run(eventId, runId, roomId, agentId, eventType, JSON.stringify({ runId, roomId, agentId, input, taskId: context.taskId, subtaskId: context.subtaskId, runSource: context.runSource || eventType }), now)
     db.prepare("UPDATE agents SET status = 'working', updated_at = ? WHERE id = ?").run(now, agentId)
+    this.pushPendingEvents(agentId)
     return { runId, eventId }
   }
 
-  pollEvents(auth: ConnectorAuth, limit = 10) {
+  pollEvents(auth: ConnectorAuth, limit = 10, agentIds?: string[]) {
+    const requested = Array.isArray(agentIds) ? agentIds.filter(Boolean) : []
+    const allowed = requested.length > 0 ? this.allowedPollAgentIds(auth, requested) : [auth.agentId]
+    if (allowed.length === 0) return []
+    const placeholders = allowed.map(() => '?').join(',')
     const rows = db.prepare(`
       SELECT * FROM remote_agent_events
-      WHERE agent_id = ? AND status = 'pending'
+      WHERE agent_id IN (${placeholders}) AND status = 'pending'
       ORDER BY created_at ASC
       LIMIT ?
-    `).all(auth.agentId, Math.max(1, Math.min(50, Number(limit) || 10))) as any[]
+    `).all(...allowed, Math.max(1, Math.min(50, Number(limit) || 10))) as any[]
     const now = Date.now()
     const mark = db.prepare("UPDATE remote_agent_events SET status = 'delivered', delivered_at = ? WHERE id = ?")
     const events = rows.map((row) => {
@@ -177,6 +243,35 @@ export class RemoteAgentConnectorService {
       return { id: row.id, runId: row.run_id, roomId: row.room_id, agentId: row.agent_id, type: row.type, payload: JSON.parse(row.payload_json || '{}'), createdAt: row.created_at }
     })
     return events
+  }
+
+
+  subscribe(auth: ConnectorAuth, send: (event: any) => void) {
+    const sub: EventSubscriber = { auth, send }
+    let set = this.subscribers.get(auth.agentId)
+    if (!set) { set = new Set(); this.subscribers.set(auth.agentId, set) }
+    set.add(sub)
+    this.heartbeat(auth, { capabilities: { sse: true } })
+    this.pushPendingEvents(auth.agentId)
+    return () => {
+      const current = this.subscribers.get(auth.agentId)
+      current?.delete(sub)
+      if (current && current.size === 0) this.subscribers.delete(auth.agentId)
+    }
+  }
+
+  private pushPendingEvents(agentId: string) {
+    const set = this.subscribers.get(agentId)
+    if (!set || set.size === 0) return
+    for (const sub of Array.from(set)) {
+      try {
+        const events = this.pollEvents(sub.auth, 10)
+        for (const event of events) sub.send(event)
+      } catch {
+        set.delete(sub)
+      }
+    }
+    if (set.size === 0) this.subscribers.delete(agentId)
   }
 
   activity(auth: ConnectorAuth, runId: string, text: string) {
@@ -217,6 +312,11 @@ export class RemoteAgentConnectorService {
     db.prepare("UPDATE agent_connectors SET status = 'online', last_seen_at = ? WHERE id = ?").run(now, auth.connectorId)
     db.prepare("UPDATE agents SET status = 'error', updated_at = ? WHERE id = ?").run(now, auth.agentId)
     return { ok: true }
+  }
+
+  private allowedPollAgentIds(auth: ConnectorAuth, requested: string[]) {
+    if (requested.includes(auth.agentId)) return [auth.agentId]
+    return []
   }
 
   private signAccessToken(auth: ConnectorAuth) {
