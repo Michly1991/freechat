@@ -8,7 +8,7 @@ import { PanelLeftOpen } from 'lucide-react'
 import { AgentRecoveryBanner } from './components/AgentRecoveryBanner'
 import { InteractionCard } from './components/InteractionCard'
 import { RoomMainPanel } from './components/RoomMainPanel'
-import { RoomVoiceSessionBar } from '../../features/voice/RoomVoiceSessionBar'
+import { VoiceChatModeBar } from '../../features/voice/VoiceChatModeBar'
 import { DesktopMembersPanel, MobileMembersDrawer, ProfileModal } from './components/RoomMembers'
 import { RoomSettingsSidePanel } from './components/RoomSettingsSidePanel'
 import { AgentModelDialog } from './components/AgentModelDialog'
@@ -72,8 +72,10 @@ export function RoomPageImpl() {
   const [interactionInputs, setInteractionInputs] = useState<Record<string, Record<string, string>>>({})
   const [submittingInteractions, setSubmittingInteractions] = useState<Record<string, boolean>>({})
   const [pendingInteractions, setPendingInteractions] = useState<any[]>([])
-  const [voiceSession, setVoiceSession] = useState<any | null>(null)
-  const [voiceSessionBusy, setVoiceSessionBusy] = useState(false)
+  const [voiceChatEnabled, setVoiceChatEnabled] = useState(false)
+  const [voiceAutoSend, setVoiceAutoSend] = useState(false)
+  const [voiceAutoPlay, setVoiceAutoPlay] = useState(true)
+  const [voicePlaybackBusy, setVoicePlaybackBusy] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<number | null>(null)
   const reconnectAttemptsRef = useRef(0)
@@ -81,6 +83,9 @@ export function RoomPageImpl() {
   const wsConnectIdRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement>(null), messagesScrollRef = useRef<HTMLDivElement>(null), initialScrollDoneRef = useRef(false), suppressNextAutoScrollRef = useRef(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const voiceChatEnabledRef = useRef(false), voiceAutoPlayRef = useRef(true)
+  useEffect(() => { voiceChatEnabledRef.current = voiceChatEnabled }, [voiceChatEnabled])
+  useEffect(() => { voiceAutoPlayRef.current = voiceAutoPlay }, [voiceAutoPlay])
   const getCurrentToken = () => {
     if (token) return token
     try {
@@ -187,11 +192,19 @@ export function RoomPageImpl() {
     if (el && initialScrollDoneRef.current && !loadingOlderMessages && hasMoreMessages && messages.length > 0 && el.scrollHeight <= el.clientHeight + 24) void handleMessagesScroll()
   }, [messages.length, hasMoreMessages, loadingOlderMessages, handleMessagesScroll])
 
+  const handleIncomingMessage = useCallback((msg: any) => {
+    if (!voiceChatEnabledRef.current || !voiceAutoPlayRef.current || msg?.actorRole !== 'ai' || !msg?.content?.trim() || msg?.kind === 'agent_stream' || msg?.kind === 'agent_receipt') return
+    setVoicePlaybackBusy(true)
+    api.synthesizeVoice({ text: msg.content, roomId, messageId: msg.id })
+      .then((res) => { const audio = new Audio(res.audioUrl); void audio.play() })
+      .catch((err: any) => feedback.error(err?.message || 'AI 回复语音播放失败，请检查语音配置'))
+      .finally(() => setVoicePlaybackBusy(false))
+  }, [roomId, feedback])
   const { loadRoom, connectWs, sendWs, loadFiles, loadTabs } = createRoomRuntimeActions({
     roomId, navigate, feedback, user, activePanel, wsRef, reconnectTimerRef, reconnectAttemptsRef,
     manuallyClosedRef, wsConnectIdRef, isChatNearBottom, getCurrentToken, setRoom, setMembers,
     setFiles, setTabs, setActiveTabId, setRoomAgents, setTasks, setMessages, setWsStatus, setSendError,
-    setPendingInteractions, setLastReadAt, setRoomNewMessageCount, setHasMoreMessages, setVoiceSession,
+    setPendingInteractions, setLastReadAt, setRoomNewMessageCount, setHasMoreMessages, onIncomingMessage: handleIncomingMessage,
   })
   const buildMentionsForSend = (content: string) => {
     const mentions = [...selectedMentions]
@@ -214,13 +227,12 @@ export function RoomPageImpl() {
     addFiles(files)
     return mentions.filter((m) => content.includes(`@${m.name}`))
   }
-  const sendMessage = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const content = input.trim()
-    if (!content || !roomId) return
+  const sendTextMessage = async (rawContent: string) => {
+    const content = rawContent.trim()
+    if (!content || !roomId) return false
     const mentions = buildMentionsForSend(content)
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      if (!sendWs('chat.send', { content, mentions })) return
+      if (!sendWs('chat.send', { content, mentions })) return false
     } else {
       try {
         addClientLog('warn', 'ui', 'send message via http fallback', { roomId })
@@ -235,14 +247,22 @@ export function RoomPageImpl() {
       } catch (err: any) {
         setSendError(err?.message || '发送失败')
         connectWs()
-        return
+        return false
       }
     }
-    setInput('')
     scrollToBottom('smooth')
     setSelectedMentions([])
+    return true
   }
-  const handleVoiceTranscript = (text: string) => {
+  const sendMessage = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (await sendTextMessage(input)) setInput('')
+  }
+  const handleVoiceTranscript = async (text: string) => {
+    if (voiceChatEnabled && voiceAutoSend) {
+      if (await sendTextMessage(text)) setInput('')
+      return
+    }
     setInput((prev) => `${prev}${prev.trim() ? '\n' : ''}${text}`)
     inputRef.current?.focus()
   }
@@ -308,18 +328,6 @@ export function RoomPageImpl() {
     feedback, setExpandedTaskIds, setTasks,
   })
   const { restartAgent, restartAllErrorAgents } = createRoomAgentActions({ roomId, errorAgents, workingAgents, feedback, refreshAgents: loadRoom })
-  const runVoiceSessionAction = async (action: () => Promise<{ session: any }>) => {
-    if (!roomId || voiceSessionBusy) return
-    setVoiceSessionBusy(true)
-    try {
-      const res = await action()
-      setVoiceSession(res.session?.status === 'ended' ? null : res.session)
-    } catch (err: any) {
-      feedback.error(err?.message || '语音对话操作失败')
-    } finally {
-      setVoiceSessionBusy(false)
-    }
-  }
   const renderInteractionCard = (msg: Message) => (
     <InteractionCard
       msg={msg}
@@ -351,15 +359,17 @@ export function RoomPageImpl() {
       <DesktopPanelTabs activePanel={activePanel} setActivePanel={setActivePanel} agentWorking={workingAgents.length > 0} />
       <AgentRecoveryBanner errorAgents={errorAgents} restartAllAgents={restartAllErrorAgents} />
       {activePanel === 'chat' && (
-        <RoomVoiceSessionBar
-          session={voiceSession}
-          user={user}
-          busy={voiceSessionBusy}
-          onStart={() => runVoiceSessionAction(() => api.startRoomVoiceSession(roomId!))}
-          onAnswer={() => voiceSession && runVoiceSessionAction(() => api.answerRoomVoiceSession(roomId!, voiceSession.id))}
-          onDecline={() => voiceSession && runVoiceSessionAction(() => api.declineRoomVoiceSession(roomId!, voiceSession.id))}
-          onLeave={() => voiceSession && runVoiceSessionAction(() => api.leaveRoomVoiceSession(roomId!, voiceSession.id))}
-          onToggleMute={(muted: boolean) => voiceSession && runVoiceSessionAction(() => api.updateMyRoomVoiceSession(roomId!, voiceSession.id, { muted }))}
+        <VoiceChatModeBar
+          enabled={voiceChatEnabled}
+          autoSend={voiceAutoSend}
+          autoPlay={voiceAutoPlay}
+          busy={voicePlaybackBusy}
+          roomId={roomId}
+          onEnable={() => setVoiceChatEnabled(true)}
+          onDisable={() => setVoiceChatEnabled(false)}
+          onAutoSendChange={setVoiceAutoSend}
+          onAutoPlayChange={setVoiceAutoPlay}
+          onTranscript={handleVoiceTranscript}
         />
       )}
       {activePanel === 'chat' && pendingInteractions.length > 0 && (

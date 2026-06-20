@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { Mic, Square } from 'lucide-react'
 import { api } from '../../lib/api'
 
-export function VoiceRecorderButton({ roomId, onTranscript }: { roomId?: string; onTranscript: (text: string) => void }) {
+export function VoiceRecorderButton({ roomId, onTranscript, label, recordingLabel, disabled }: { roomId?: string; onTranscript: (text: string) => void; label?: string; recordingLabel?: string; disabled?: boolean }) {
   const [recording, setRecording] = useState(false)
   const [busy, setBusy] = useState(false)
   const recorderRef = useRef<MediaRecorder | null>(null)
@@ -34,5 +34,6 @@ export function VoiceRecorderButton({ roomId, onTranscript }: { roomId?: string;
   }
   const stop = () => { recorderRef.current?.stop(); recorderRef.current = null; setRecording(false) }
   if (!navigator.mediaDevices?.getUserMedia) return null
-  return <button type="button" onClick={recording ? stop : start} disabled={busy} className={`fc-pressable fc-mobile-touch px-3 py-2 rounded-xl transition-colors ${recording ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-blue-50 hover:text-blue-600'} disabled:opacity-60`} title={recording ? '停止录音' : '语音输入'}>{recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}</button>
+  const text = recording ? recordingLabel : label
+  return <button type="button" onClick={recording ? stop : start} disabled={busy || disabled} className={`fc-pressable fc-mobile-touch inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-colors ${recording ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-blue-50 hover:text-blue-600'} disabled:opacity-60`} title={recording ? '停止录音' : '语音输入'}>{recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}{text && <span>{text}</span>}</button>
 }

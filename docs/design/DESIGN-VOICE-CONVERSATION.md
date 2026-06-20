@@ -19,13 +19,13 @@ Agent 服务费、模型运行费、语音 ASR/TTS 费相互独立。
 
 ## MVP 流程
 
-### 房间语音会话
+### 房间语音聊天模式
 
 ```text
-开启语音对话 → 房间成员收到邀请 → 接听/拒绝 → 语音对话中 → 静音/挂断
+开启语音对话 → 开始说话 → ASR 转文字 → 用户确认或自动发送 → 大模型/Agent 文字回复 → TTS 自动播放或手动播放
 ```
 
-Phase 1 的“语音会话”先管理房间会话状态和接听按钮，不做实时音频流。会话中的语音输入仍复用下方 ASR：录音识别为文本，再进入现有房间消息、任务和 Agent 流程。
+Phase 1 不是实时语音通话，也不是多人接听。它只是在房间聊天里提供“语音输入 + AI 回复语音播放”的模式，仍然复用现有房间消息、任务和 Agent 流程。
 
 ### 语音输入
 
@@ -33,12 +33,12 @@ Phase 1 的“语音会话”先管理房间会话状态和接听按钮，不做
 浏览器录音 → POST /api/voice/transcribe → 用户个人 Provider ASR → 识别文本填入输入框 → 用户确认发送 → 现有 room/task/Agent 流程
 ```
 
-MVP 不自动发送识别文本，避免误识别直接进入任务对话。
+默认不自动发送识别文本，避免误识别直接进入任务对话。用户可在房间语音对话条里打开“自动发送”，让识别结果直接进入现有消息发送流程。
 
 ### 语音播放
 
 ```text
-用户点击消息“播放” → POST /api/voice/synthesize → 用户个人 Provider TTS → 返回音频 URL → 浏览器播放
+用户点击消息“播放”或开启 AI 回复自动播放 → POST /api/voice/synthesize → 用户个人 Provider TTS → 返回音频 URL → 浏览器播放
 ```
 
 ## 解耦模块
@@ -88,29 +88,6 @@ packages/server/src/services/voice/
 - `error`
 - `duration_ms`
 
-### room_voice_sessions
-
-房间级语音会话：
-
-- `room_id`
-- `created_by`
-- `status`: `ringing | active | ended`
-- `provider_mode`: `byok`
-- `created_at`
-- `answered_at`
-- `ended_at`
-
-### room_voice_session_participants
-
-语音会话参与人状态：
-
-- `session_id`
-- `user_id`
-- `status`: `invited | joined | declined | left`
-- `muted`
-- `joined_at`
-- `left_at`
-
 ## API
 
 ### 配置
@@ -124,25 +101,6 @@ POST   /api/voice/configs/:id/test
 ```
 
 返回配置时不返回明文 credential，仅返回 `credentialStatus`。
-
-### 房间语音会话
-
-```http
-GET   /api/rooms/:roomId/voice-sessions/active
-POST  /api/rooms/:roomId/voice-sessions
-POST  /api/rooms/:roomId/voice-sessions/:sessionId/answer
-POST  /api/rooms/:roomId/voice-sessions/:sessionId/decline
-POST  /api/rooms/:roomId/voice-sessions/:sessionId/leave
-PATCH /api/rooms/:roomId/voice-sessions/:sessionId/me
-```
-
-WebSocket 广播：
-
-```text
-voice.session_updated
-```
-
-Payload 包含 `action` 和最新 `session`。前端据此刷新开启、接听、拒绝、静音、挂断按钮。
 
 ### ASR
 
@@ -200,14 +158,17 @@ Body：
 ## 前端入口
 
 - 设置 → 语音：配置个人火山语音 Key。
-- 房间聊天区：显示“开启语音对话 / 接听 / 拒绝 / 静音 / 挂断”。
-- 房间聊天输入框：麦克风按钮录音识别，识别结果填入输入框，用户确认发送。
+- 房间聊天区：显示“开启语音对话 / 关闭语音对话”。
+- 语音对话条：显示“开始说话 / 停止说话”、“自动发送”、“AI 回复自动播放”。
+- 房间聊天输入框：麦克风按钮录音识别，识别结果填入输入框或自动发送。
 - 每条文本消息：播放按钮，按当前用户的 TTS 配置合成并播放。
+- 语音对话模式开启且“AI 回复自动播放”开启时，新到达的大模型/Agent 文本回复会自动合成并播放。
 
 ## 后续增强
 
 - WebSocket 流式 ASR。
 - 流式 TTS。
-- 实时语音对话 Provider。
+- 更自然的连续语音聊天模式。
+- 可选实时语音 Provider（必须继续经过 FreeChat Agent/task/message 流程，除非另行确认）。
 - 项目 owner 共享语音配置。
 - 语音费用估算和账单展示。

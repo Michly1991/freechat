@@ -4,7 +4,7 @@ import { playNotificationSound } from '../../features/notifications/notification
 import { mergeMessages, writeCachedMessages } from '../room-page-model'
 
 export function createRoomRuntimeActions(deps: any) {
-  const { roomId, navigate, feedback, user, activePanel, wsRef, reconnectTimerRef, reconnectAttemptsRef, manuallyClosedRef, wsConnectIdRef, isChatNearBottom, getCurrentToken, setRoom, setMembers, setFiles, setTabs, setActiveTabId, setRoomAgents, setTasks, setMessages, setWsStatus, setSendError, setPendingInteractions, setLastReadAt, setRoomNewMessageCount, setHasMoreMessages, setVoiceSession } = deps
+  const { roomId, navigate, feedback, user, activePanel, wsRef, reconnectTimerRef, reconnectAttemptsRef, manuallyClosedRef, wsConnectIdRef, isChatNearBottom, getCurrentToken, setRoom, setMembers, setFiles, setTabs, setActiveTabId, setRoomAgents, setTasks, setMessages, setWsStatus, setSendError, setPendingInteractions, setLastReadAt, setRoomNewMessageCount, setHasMoreMessages, onIncomingMessage } = deps
 
   const loadFiles = async () => { if (!roomId) return; try { const fd = await api.getFiles(roomId); setFiles(fd.files || []) } catch (err: any) { feedback.error(err?.message || '加载文件失败'); addClientLog('error', 'ui', 'load files failed', { message: err?.message }) } }
   const applyTabs = (td: { tabs?: any[]; defaultTabId?: string | null }) => {
@@ -27,7 +27,6 @@ export function createRoomRuntimeActions(deps: any) {
       try { const ra = await api.getRoomAgents(roomId!); setRoomAgents(ra.agents || []) } catch (err: any) { addClientLog('error', 'ui', 'load room agents failed', { message: err?.message }) }
       try { const td = await api.getRoomTasks(roomId!); setTasks(td.tasks || []) } catch (err: any) { addClientLog('error', 'ui', 'load tasks failed', { message: err?.message }) }
       try { const md = await api.getRoomMessages(roomId!, 10); setHasMoreMessages?.(md.hasMore !== false); setMessages((prev: any[]) => { const next = mergeMessages(prev, md.messages || []); if (roomId) writeCachedMessages(roomId, next); return next }) } catch (err: any) { addClientLog('error', 'ui', 'load messages failed', { message: err?.message }) }
-      try { const vd = await api.getActiveRoomVoiceSession(roomId!); setVoiceSession?.(vd.session || null) } catch (err: any) { addClientLog('error', 'ui', 'load voice session failed', { message: err?.message }) }
     } catch (err: any) { addClientLog('error', 'ui', 'load room failed, navigate home', { message: err?.message }); navigate('/') }
   }
 
@@ -71,6 +70,7 @@ export function createRoomRuntimeActions(deps: any) {
       }
       if (isIncoming && activePanel === 'chat') nearBottom ? api.markConversationRead('project', roomId!).then(() => { const now = Date.now(); setLastReadAt(now); sessionStorage.setItem(`freechat:room:${roomId}:lastReadAt`, String(now)) }).catch(() => {}) : setRoomNewMessageCount((count: number) => count + 1)
       setMessages((prev: any[]) => { const withoutCompletedStream = msg.payload?.actorRole === 'ai' ? prev.filter((m) => !(m.kind === 'agent_stream' && m.actorId === msg.payload.actorId && m.payload?.status === 'completed')) : prev; const next = mergeMessages(withoutCompletedStream, [msg.payload]); if (roomId) writeCachedMessages(roomId, next); return next })
+      onIncomingMessage?.(msg.payload)
     } else if (msg.action === 'agent.stream.started') {
       const streamMsg = { ...msg.payload, payload: { status: 'streaming', activities: msg.payload.activities || [] } }
       setMessages((prev: any[]) => mergeMessages(prev, [streamMsg]))
@@ -98,7 +98,6 @@ export function createRoomRuntimeActions(deps: any) {
     } else if (msg.action === 'chat.history_result') { setHasMoreMessages?.(msg.payload.hasMore !== false); setMessages((prev: any[]) => { const next = mergeMessages(prev, msg.payload.messages || []); if (roomId) writeCachedMessages(roomId, next); return next }) }
     else if (msg.action === 'chat.edited') setMessages((prev: any[]) => { const next = mergeMessages(prev.map((m) => (m.id === msg.payload.id ? { ...m, ...msg.payload } : m))); if (roomId) writeCachedMessages(roomId, next); return next })
     else if (msg.action === 'chat.deleted') setMessages((prev: any[]) => { const next = prev.filter((m) => m.id !== msg.payload.message_id); if (roomId) writeCachedMessages(roomId, next); return next })
-    else if (msg.action === 'voice.session_updated') setVoiceSession?.(msg.payload?.session && msg.payload.session.status !== 'ended' ? msg.payload.session : null)
     else if (msg.action === 'room.members_update') { setMembers(msg.payload.members || []); if (Array.isArray(msg.payload.agents)) setRoomAgents(msg.payload.agents) }
     else if (msg.action === 'agent.status_update') setRoomAgents((prev: any[]) => prev.map((a) => a.id === msg.payload.agentId ? { ...a, ...msg.payload } : a))
     else if (msg.action === 'task.list_result') setTasks(msg.payload.tasks || [])
