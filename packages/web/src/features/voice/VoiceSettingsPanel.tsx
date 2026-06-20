@@ -19,7 +19,15 @@ export function VoiceSettingsPanel() {
     } catch (err: any) { setMsg('保存失败：' + err.message) }
   }
   const remove = async (id: string) => { if (!confirm('删除这个语音配置？')) return; await api.deleteVoiceConfig(id); await load() }
-  const test = async (id: string) => { try { const res = await api.testVoiceConfig(id); setMsg(`配置可用：${res.provider} / ${res.credentialStatus}`) } catch (err: any) { setMsg('测试失败：' + err.message) } }
+  const test = async (id: string) => {
+    try {
+      setMsg('正在测试语音合成...')
+      const res = await api.synthesizeVoice({ providerConfigId: id, text: '语音服务测试', format: 'mp3' })
+      const audio = new Audio(res.audioUrl)
+      await audio.play()
+      setMsg(`语音合成测试成功：${res.provider}`)
+    } catch (err: any) { setMsg('测试失败：' + err.message) }
+  }
   return <section className="bg-white rounded-xl p-5 sm:p-6 shadow-sm border border-gray-100 space-y-5">
     <div><h2 className="text-lg font-semibold text-gray-800">语音服务</h2><p className="text-sm text-gray-500 mt-1">语音识别和合成采用个人 BYOK：谁使用语音，谁配置自己的火山 Key 并由自己的账号付费。</p></div>
     <div className="grid gap-3 sm:grid-cols-2">
