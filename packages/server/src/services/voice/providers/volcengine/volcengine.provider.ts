@@ -3,10 +3,16 @@ import type { SpeechRecognitionProvider, SpeechSynthesisProvider, VoiceProviderC
 
 function reqid() { return crypto.randomUUID() }
 function bearer(config: VoiceProviderConfig) { return config.credential.token || config.credential.accessToken || config.credential.secretAccessKey || '' }
+function doubaoApiKey(config: VoiceProviderConfig) {
+  // 新版豆包语音 HTTP TTS 使用 X-Api-Key。用户表单里的 Token 对应该值；App ID 可能也是 api- 开头但不一定可作为 X-Api-Key。
+  const appId = config.credential.appId || config.credential.appid || ''
+  return config.credential.apiKey || config.config.apiKey || bearer(config) || (String(appId).startsWith('api-') ? appId : '')
+}
 function authHeader(config: VoiceProviderConfig, token: string) { return config.config.authorization || `${config.config.authScheme || 'Bearer;'}${token}` }
 function asString(v: any) { return typeof v === 'string' ? v : '' }
 function pickText(data: any): string { return asString(data?.text) || asString(data?.result?.text) || asString(data?.result?.[0]?.text) || asString(data?.utterances?.[0]?.text) || asString(data?.data?.text) || '' }
 function audioFormat(mimeType?: string, fallback = 'wav') { if (!mimeType) return fallback; if (mimeType.includes('webm')) return 'webm'; if (mimeType.includes('ogg')) return 'ogg'; if (mimeType.includes('mpeg') || mimeType.includes('mp3')) return 'mp3'; if (mimeType.includes('wav')) return 'wav'; return fallback }
+function mimeFromEncoding(encoding: string) { return encoding === 'wav' ? 'audio/wav' : 'audio/mpeg' }
 function volcErrorMessage(message: any, fallback: string) {
   const text = asString(message) || fallback
   if (text.includes('invalid auth token')) return '火山语音鉴权失败：请检查 Token 是否正确'
@@ -39,6 +45,35 @@ export class VolcengineVoiceProvider implements SpeechRecognitionProvider, Speec
   }
   async synthesize(input: { text: string; voice?: string; speed?: number; format?: string; sampleRate?: number; config: VoiceProviderConfig }) {
     const { config } = input
+    if (config.config.ttsApiVersion === 'legacy') return this.synthesizeLegacy(input)
+    const ttsUrl = config.config.ttsUrl || 'https://openspeech.bytedance.com/api/v3/tts/unidirectional'
+    const apiKey = doubaoApiKey(config)
+    if (!apiKey) throw { code: 'VOICE_PROVIDER_CREDENTIAL_INVALID', message: '火山豆包语音 API Key 未配置' }
+    const encoding = input.format || config.config.audioFormat || 'mp3'
+    const started = Date.now()
+    const body = {
+      req_params: {
+        text: input.text,
+        speaker: input.voice || config.config.defaultVoice || config.config.speaker || 'zh_female_vv_uranus_bigtts',
+        audio_params: { format: encoding, sample_rate: input.sampleRate || config.config.sampleRate || 24000 },
+      },
+    }
+    const res = await fetch(ttsUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'x-api-resource-id': config.config.ttsResourceId || config.credential.resourceId || config.credential.ttsCluster || 'seed-tts-2.0', 'x-control-require-usage-tokens-return': '*' }, body: JSON.stringify(body) })
+    const text = await res.text()
+    const chunks: Buffer[] = []
+    let last: any = null
+    for (const line of text.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)) {
+      try { last = JSON.parse(line) } catch { continue }
+      if (last?.code && last.code !== 0 && last.code !== 20000000) throw { code: 'VOICE_TTS_FAILED', message: volcErrorMessage(last?.message, `火山语音合成失败：${last.code}`) }
+      if (last?.data) chunks.push(Buffer.from(last.data, 'base64'))
+    }
+    if (!res.ok) throw { code: 'VOICE_TTS_FAILED', message: volcErrorMessage(last?.message, `火山语音合成失败 HTTP ${res.status}`) }
+    if (!chunks.length) throw { code: 'VOICE_TTS_EMPTY', message: volcErrorMessage(last?.message, '语音合成未返回音频') }
+    return { audio: Buffer.concat(chunks), mimeType: mimeFromEncoding(encoding), durationMs: Date.now() - started, raw: last || {} }
+  }
+
+  private async synthesizeLegacy(input: { text: string; voice?: string; speed?: number; format?: string; sampleRate?: number; config: VoiceProviderConfig }) {
+    const { config } = input
     const ttsUrl = config.config.ttsUrl || 'https://openspeech.bytedance.com/api/v1/tts'
     const token = bearer(config)
     if (!token) throw { code: 'VOICE_PROVIDER_CREDENTIAL_INVALID', message: '火山语音 token/secret 未配置' }
@@ -57,6 +92,6 @@ export class VolcengineVoiceProvider implements SpeechRecognitionProvider, Speec
     if (!res.ok || data?.code || data?.error) throw { code: 'VOICE_TTS_FAILED', message: volcErrorMessage(data?.message || data?.error, `火山语音合成失败 HTTP ${res.status}`) }
     const base64 = data?.data || data?.audio || data?.result?.audio || data?.result?.data
     if (!base64) throw { code: 'VOICE_TTS_EMPTY', message: '语音合成未返回音频' }
-    return { audio: Buffer.from(base64, 'base64'), mimeType: encoding === 'wav' ? 'audio/wav' : 'audio/mpeg', durationMs: Date.now() - started, raw: data }
+    return { audio: Buffer.from(base64, 'base64'), mimeType: mimeFromEncoding(encoding), durationMs: Date.now() - started, raw: data }
   }
 }

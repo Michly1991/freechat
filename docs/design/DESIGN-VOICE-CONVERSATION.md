@@ -145,15 +145,25 @@ Body：
 
 ## 火山 Provider
 
-当前 `volcengine.provider.ts` 采用 OpenSpeech 兼容 JSON 格式，并允许用户在配置里覆盖：
+TTS 默认使用豆包语音新版 HTTP 单向流式接口：
+
+```text
+POST https://openspeech.bytedance.com/api/v3/tts/unidirectional
+X-Api-Key: <用户配置的 API Key / Token>
+X-Api-Resource-Id: seed-tts-2.0
+```
+
+响应按行返回 JSON，`data` 为 base64 音频分片；服务端会合并分片后保存为 `/uploads/voice/...mp3` 供前端播放。
+
+ASR 暂保留 OpenSpeech 兼容 JSON 格式。允许用户在配置里覆盖：
 
 - `asrUrl`
 - `ttsUrl`
 - `asrCluster`
-- `ttsCluster`
+- `ttsResourceId` / `ttsCluster`
 - `defaultVoice`
 
-这样即使火山不同产品线端点不同，也不影响 FreeChat 的 voice 抽象层。
+如需回退旧版 TTS，可在配置里设置 `ttsApiVersion = legacy`。
 
 ## 前端入口
 
