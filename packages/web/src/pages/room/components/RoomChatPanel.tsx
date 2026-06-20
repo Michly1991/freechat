@@ -179,8 +179,8 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
         </div>}
         {sendError && !wsNoticeDismissed && <div className="mb-2 flex items-center justify-between gap-2 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700"><span>{sendError.replace('正在重连...', '实时同步暂不可用，但消息可正常发送')}</span><button type="button" onClick={() => setWsNoticeDismissed(true)} className="text-amber-500 hover:text-amber-700" title="关闭"><X className="w-4 h-4" /></button></div>}
         <div className="flex gap-2 items-center rounded-2xl bg-gray-50 border border-gray-200 p-1.5 shadow-inner focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-300 transition-all">
-          {onVoiceTranscript && <VoiceRecorderButton roomId={roomId} onTranscript={onVoiceTranscript} />}
           <textarea ref={inputRef} value={input} onChange={handleInputChange} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) sendMessage(e) }} rows={1} placeholder="输入消息，@提及成员..." className="min-w-0 flex-1 max-h-32 resize-none bg-transparent px-3 py-2.5 text-base sm:text-sm border-0 rounded-xl focus:ring-0 focus:outline-none overflow-y-auto leading-6" />
+          {onVoiceTranscript && <VoiceRecorderButton roomId={roomId} onTranscript={onVoiceTranscript} />}
           <button type="submit" disabled={!input.trim()} className="fc-pressable fc-mobile-touch bg-blue-600 text-white px-4 sm:px-6 py-2 rounded-xl hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed shadow-sm shadow-blue-500/20">发送</button>
         </div>
       </form>
