@@ -3,9 +3,16 @@ import type { SpeechRecognitionProvider, SpeechSynthesisProvider, VoiceProviderC
 
 function reqid() { return crypto.randomUUID() }
 function bearer(config: VoiceProviderConfig) { return config.credential.token || config.credential.accessToken || config.credential.secretAccessKey || '' }
+function authHeader(config: VoiceProviderConfig, token: string) { return config.config.authorization || `${config.config.authScheme || 'Bearer;'}${token}` }
 function asString(v: any) { return typeof v === 'string' ? v : '' }
 function pickText(data: any): string { return asString(data?.text) || asString(data?.result?.text) || asString(data?.result?.[0]?.text) || asString(data?.utterances?.[0]?.text) || asString(data?.data?.text) || '' }
 function audioFormat(mimeType?: string, fallback = 'wav') { if (!mimeType) return fallback; if (mimeType.includes('webm')) return 'webm'; if (mimeType.includes('ogg')) return 'ogg'; if (mimeType.includes('mpeg') || mimeType.includes('mp3')) return 'mp3'; if (mimeType.includes('wav')) return 'wav'; return fallback }
+function volcErrorMessage(message: any, fallback: string) {
+  const text = asString(message) || fallback
+  if (text.includes('invalid auth token')) return '火山语音鉴权失败：请检查 Token 是否正确'
+  if (text.includes('requested grant not found')) return '火山语音授权不匹配：当前 App/Token 没有该 cluster 或音色的 TTS/ASR 授权，请检查火山控制台授权、ttsCluster 和音色配置'
+  return text
+}
 
 export class VolcengineVoiceProvider implements SpeechRecognitionProvider, SpeechSynthesisProvider {
   provider = 'volcengine'
@@ -21,11 +28,11 @@ export class VolcengineVoiceProvider implements SpeechRecognitionProvider, Speec
       audio: { format: input.format || audioFormat(input.mimeType), rate: input.sampleRate || config.config.sampleRate || 16000, data: input.audio.toString('base64') },
       request: { reqid: reqid(), language: input.language || config.config.language || 'zh-CN', operation: 'query' },
     }
-    const res = await fetch(asrUrl, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify(body) })
+    const res = await fetch(asrUrl, { method: 'POST', headers: { 'content-type': 'application/json', authorization: authHeader(config, token) }, body: JSON.stringify(body) })
     const text = await res.text()
     let data: any = {}
     try { data = text ? JSON.parse(text) : {} } catch { data = { rawText: text } }
-    if (!res.ok || data?.code || data?.error) throw { code: 'VOICE_ASR_FAILED', message: data?.message || data?.error || `火山语音识别失败 HTTP ${res.status}` }
+    if (!res.ok || data?.code || data?.error) throw { code: 'VOICE_ASR_FAILED', message: volcErrorMessage(data?.message || data?.error, `火山语音识别失败 HTTP ${res.status}`) }
     const transcript = pickText(data)
     if (!transcript) throw { code: 'VOICE_ASR_EMPTY', message: '语音识别未返回文本' }
     return { text: transcript, durationMs: Date.now() - started, raw: data }
@@ -43,11 +50,11 @@ export class VolcengineVoiceProvider implements SpeechRecognitionProvider, Speec
       audio: { voice_type: input.voice || config.config.defaultVoice || 'zh_female_tianmeisongv2_moon_bigtts', encoding, speed_ratio: input.speed || config.config.speed || 1.0, rate: input.sampleRate || config.config.sampleRate || 24000 },
       request: { reqid: reqid(), text: input.text, operation: 'query' },
     }
-    const res = await fetch(ttsUrl, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify(body) })
+    const res = await fetch(ttsUrl, { method: 'POST', headers: { 'content-type': 'application/json', authorization: authHeader(config, token) }, body: JSON.stringify(body) })
     const text = await res.text()
     let data: any = {}
     try { data = text ? JSON.parse(text) : {} } catch { data = { rawText: text } }
-    if (!res.ok || data?.code || data?.error) throw { code: 'VOICE_TTS_FAILED', message: data?.message || data?.error || `火山语音合成失败 HTTP ${res.status}` }
+    if (!res.ok || data?.code || data?.error) throw { code: 'VOICE_TTS_FAILED', message: volcErrorMessage(data?.message || data?.error, `火山语音合成失败 HTTP ${res.status}`) }
     const base64 = data?.data || data?.audio || data?.result?.audio || data?.result?.data
     if (!base64) throw { code: 'VOICE_TTS_EMPTY', message: '语音合成未返回音频' }
     return { audio: Buffer.from(base64, 'base64'), mimeType: encoding === 'wav' ? 'audio/wav' : 'audio/mpeg', durationMs: Date.now() - started, raw: data }
