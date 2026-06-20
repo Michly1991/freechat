@@ -75,3 +75,7 @@ pnpm --filter @freechat/agent-client check:claude
 ```
 
 `check:client` 会检查控制台可访问、管理员登录、状态接口和环境检测接口。
+
+## SDK / 协议文档
+
+如果要自己实现 Agent Client 或接入第三方运行时，请看 [SDK.md](./SDK.md)。
