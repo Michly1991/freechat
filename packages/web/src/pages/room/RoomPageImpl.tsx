@@ -76,6 +76,7 @@ export function RoomPageImpl() {
   const [voiceAutoSend, setVoiceAutoSend] = useState(false)
   const [voiceAutoPlay, setVoiceAutoPlay] = useState(true)
   const [voicePlaybackBusy, setVoicePlaybackBusy] = useState(false)
+  const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'transcribing' | 'thinking' | 'speaking' | 'error'>('idle')
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<number | null>(null)
   const reconnectAttemptsRef = useRef(0)
@@ -83,7 +84,7 @@ export function RoomPageImpl() {
   const wsConnectIdRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement>(null), messagesScrollRef = useRef<HTMLDivElement>(null), initialScrollDoneRef = useRef(false), suppressNextAutoScrollRef = useRef(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const voiceChatEnabledRef = useRef(false), voiceAutoPlayRef = useRef(true)
+  const voiceChatEnabledRef = useRef(false), voiceAutoPlayRef = useRef(true), voiceAudioRef = useRef<HTMLAudioElement | null>(null)
   useEffect(() => { voiceChatEnabledRef.current = voiceChatEnabled }, [voiceChatEnabled])
   useEffect(() => { voiceAutoPlayRef.current = voiceAutoPlay }, [voiceAutoPlay])
   const getCurrentToken = () => {
@@ -192,13 +193,28 @@ export function RoomPageImpl() {
     if (el && initialScrollDoneRef.current && !loadingOlderMessages && hasMoreMessages && messages.length > 0 && el.scrollHeight <= el.clientHeight + 24) void handleMessagesScroll()
   }, [messages.length, hasMoreMessages, loadingOlderMessages, handleMessagesScroll])
 
+  const interruptVoicePlayback = useCallback(() => {
+    if (voiceAudioRef.current) {
+      voiceAudioRef.current.pause()
+      voiceAudioRef.current.currentTime = 0
+      voiceAudioRef.current = null
+    }
+    setVoicePlaybackBusy(false)
+    setVoiceStatus('idle')
+  }, [])
   const handleIncomingMessage = useCallback((msg: any) => {
     if (!voiceChatEnabledRef.current || !voiceAutoPlayRef.current || msg?.actorRole !== 'ai' || !msg?.content?.trim() || msg?.kind === 'agent_stream' || msg?.kind === 'agent_receipt') return
     setVoicePlaybackBusy(true)
+    setVoiceStatus('speaking')
     api.synthesizeVoice({ text: msg.content, roomId, messageId: msg.id })
-      .then((res) => { const audio = new Audio(res.audioUrl); void audio.play() })
-      .catch((err: any) => feedback.error(err?.message || 'AI 回复语音播放失败，请检查语音配置'))
-      .finally(() => setVoicePlaybackBusy(false))
+      .then((res) => {
+        const audio = new Audio(res.audioUrl)
+        voiceAudioRef.current = audio
+        audio.onended = () => { if (voiceAudioRef.current === audio) voiceAudioRef.current = null; setVoicePlaybackBusy(false); setVoiceStatus('idle') }
+        audio.onerror = () => { setVoicePlaybackBusy(false); setVoiceStatus('error') }
+        void audio.play()
+      })
+      .catch((err: any) => { setVoicePlaybackBusy(false); setVoiceStatus('error'); feedback.error(err?.message || 'AI 回复语音播放失败，请检查语音配置') })
   }, [roomId, feedback])
   const { loadRoom, connectWs, sendWs, loadFiles, loadTabs } = createRoomRuntimeActions({
     roomId, navigate, feedback, user, activePanel, wsRef, reconnectTimerRef, reconnectAttemptsRef,
@@ -260,10 +276,13 @@ export function RoomPageImpl() {
   }
   const handleVoiceTranscript = async (text: string) => {
     if (voiceChatEnabled && voiceAutoSend) {
+      setVoiceStatus('thinking')
       if (await sendTextMessage(text)) setInput('')
+      else setVoiceStatus('error')
       return
     }
     setInput((prev) => `${prev}${prev.trim() ? '\n' : ''}${text}`)
+    setVoiceStatus('idle')
     inputRef.current?.focus()
   }
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -364,11 +383,15 @@ export function RoomPageImpl() {
           autoSend={voiceAutoSend}
           autoPlay={voiceAutoPlay}
           busy={voicePlaybackBusy}
+          status={voiceStatus}
           roomId={roomId}
-          onEnable={() => setVoiceChatEnabled(true)}
-          onDisable={() => setVoiceChatEnabled(false)}
+          onEnable={() => { setVoiceChatEnabled(true); setVoiceAutoSend(true); setVoiceAutoPlay(true); setVoiceStatus('idle') }}
+          onDisable={() => { setVoiceChatEnabled(false); interruptVoicePlayback(); setVoiceStatus('idle') }}
           onAutoSendChange={setVoiceAutoSend}
           onAutoPlayChange={setVoiceAutoPlay}
+          onInterrupt={interruptVoicePlayback}
+          onRecordingChange={(recording: boolean) => setVoiceStatus(recording ? 'listening' : 'transcribing')}
+          onBusyChange={(busy: boolean) => { if (busy) setVoiceStatus('transcribing') }}
           onTranscript={handleVoiceTranscript}
         />
       )}
