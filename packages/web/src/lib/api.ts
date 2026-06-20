@@ -76,6 +76,12 @@ export const api = {
   testVoiceConfig: (id: string) => request<any>(`/voice/configs/${id}/test`, { method: 'POST' }),
   transcribeVoice: (formData: FormData) => request<{ text: string; provider: string; durationMs?: number }>('/voice/transcribe', { method: 'POST', body: formData }),
   synthesizeVoice: (body: { text: string; roomId?: string; messageId?: string; providerConfigId?: string; voice?: string; format?: string }) => request<{ audioUrl: string; mimeType: string; provider: string; durationMs?: number }>('/voice/synthesize', { method: 'POST', body: JSON.stringify(body) }),
+  getActiveRoomVoiceSession: (roomId: string) => request<{ session: any | null }>(`/rooms/${roomId}/voice-sessions/active`),
+  startRoomVoiceSession: (roomId: string) => request<{ session: any }>(`/rooms/${roomId}/voice-sessions`, { method: 'POST' }),
+  answerRoomVoiceSession: (roomId: string, sessionId: string) => request<{ session: any }>(`/rooms/${roomId}/voice-sessions/${sessionId}/answer`, { method: 'POST' }),
+  declineRoomVoiceSession: (roomId: string, sessionId: string) => request<{ session: any }>(`/rooms/${roomId}/voice-sessions/${sessionId}/decline`, { method: 'POST' }),
+  leaveRoomVoiceSession: (roomId: string, sessionId: string) => request<{ session: any }>(`/rooms/${roomId}/voice-sessions/${sessionId}/leave`, { method: 'POST' }),
+  updateMyRoomVoiceSession: (roomId: string, sessionId: string, body: { muted?: boolean }) => request<{ session: any }>(`/rooms/${roomId}/voice-sessions/${sessionId}/me`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   // Rooms
   getRooms: () => request<{ rooms: any[] }>('/rooms'),

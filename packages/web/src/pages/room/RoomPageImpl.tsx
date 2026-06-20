@@ -8,6 +8,7 @@ import { PanelLeftOpen } from 'lucide-react'
 import { AgentRecoveryBanner } from './components/AgentRecoveryBanner'
 import { InteractionCard } from './components/InteractionCard'
 import { RoomMainPanel } from './components/RoomMainPanel'
+import { RoomVoiceSessionBar } from '../../features/voice/RoomVoiceSessionBar'
 import { DesktopMembersPanel, MobileMembersDrawer, ProfileModal } from './components/RoomMembers'
 import { RoomSettingsSidePanel } from './components/RoomSettingsSidePanel'
 import { AgentModelDialog } from './components/AgentModelDialog'
@@ -71,6 +72,8 @@ export function RoomPageImpl() {
   const [interactionInputs, setInteractionInputs] = useState<Record<string, Record<string, string>>>({})
   const [submittingInteractions, setSubmittingInteractions] = useState<Record<string, boolean>>({})
   const [pendingInteractions, setPendingInteractions] = useState<any[]>([])
+  const [voiceSession, setVoiceSession] = useState<any | null>(null)
+  const [voiceSessionBusy, setVoiceSessionBusy] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<number | null>(null)
   const reconnectAttemptsRef = useRef(0)
@@ -188,7 +191,7 @@ export function RoomPageImpl() {
     roomId, navigate, feedback, user, activePanel, wsRef, reconnectTimerRef, reconnectAttemptsRef,
     manuallyClosedRef, wsConnectIdRef, isChatNearBottom, getCurrentToken, setRoom, setMembers,
     setFiles, setTabs, setActiveTabId, setRoomAgents, setTasks, setMessages, setWsStatus, setSendError,
-    setPendingInteractions, setLastReadAt, setRoomNewMessageCount, setHasMoreMessages,
+    setPendingInteractions, setLastReadAt, setRoomNewMessageCount, setHasMoreMessages, setVoiceSession,
   })
   const buildMentionsForSend = (content: string) => {
     const mentions = [...selectedMentions]
@@ -305,6 +308,18 @@ export function RoomPageImpl() {
     feedback, setExpandedTaskIds, setTasks,
   })
   const { restartAgent, restartAllErrorAgents } = createRoomAgentActions({ roomId, errorAgents, workingAgents, feedback, refreshAgents: loadRoom })
+  const runVoiceSessionAction = async (action: () => Promise<{ session: any }>) => {
+    if (!roomId || voiceSessionBusy) return
+    setVoiceSessionBusy(true)
+    try {
+      const res = await action()
+      setVoiceSession(res.session?.status === 'ended' ? null : res.session)
+    } catch (err: any) {
+      feedback.error(err?.message || '语音对话操作失败')
+    } finally {
+      setVoiceSessionBusy(false)
+    }
+  }
   const renderInteractionCard = (msg: Message) => (
     <InteractionCard
       msg={msg}
@@ -335,6 +350,18 @@ export function RoomPageImpl() {
       />
       <DesktopPanelTabs activePanel={activePanel} setActivePanel={setActivePanel} agentWorking={workingAgents.length > 0} />
       <AgentRecoveryBanner errorAgents={errorAgents} restartAllAgents={restartAllErrorAgents} />
+      {activePanel === 'chat' && (
+        <RoomVoiceSessionBar
+          session={voiceSession}
+          user={user}
+          busy={voiceSessionBusy}
+          onStart={() => runVoiceSessionAction(() => api.startRoomVoiceSession(roomId!))}
+          onAnswer={() => voiceSession && runVoiceSessionAction(() => api.answerRoomVoiceSession(roomId!, voiceSession.id))}
+          onDecline={() => voiceSession && runVoiceSessionAction(() => api.declineRoomVoiceSession(roomId!, voiceSession.id))}
+          onLeave={() => voiceSession && runVoiceSessionAction(() => api.leaveRoomVoiceSession(roomId!, voiceSession.id))}
+          onToggleMute={(muted: boolean) => voiceSession && runVoiceSessionAction(() => api.updateMyRoomVoiceSession(roomId!, voiceSession.id, { muted }))}
+        />
+      )}
       {activePanel === 'chat' && pendingInteractions.length > 0 && (
         <div className="mx-3 mb-2 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
           <span>？有 {pendingInteractions.length} 个待你处理的请求</span>

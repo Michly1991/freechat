@@ -39,4 +39,35 @@ export function ensureVoiceSchema() {
     )
   `)
   db.exec('CREATE INDEX IF NOT EXISTS idx_voice_interactions_user_created ON voice_interactions(user_id, created_at)')
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS room_voice_sessions (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      status TEXT NOT NULL,
+      provider_mode TEXT NOT NULL DEFAULT 'byok',
+      created_at INTEGER NOT NULL,
+      answered_at INTEGER,
+      ended_at INTEGER,
+      FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_room_voice_sessions_active ON room_voice_sessions(room_id, status, created_at)')
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS room_voice_session_participants (
+      session_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      muted INTEGER NOT NULL DEFAULT 0,
+      joined_at INTEGER,
+      left_at INTEGER,
+      PRIMARY KEY (session_id, user_id),
+      FOREIGN KEY (session_id) REFERENCES room_voice_sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_room_voice_participants_user ON room_voice_session_participants(user_id, status)')
 }

@@ -19,6 +19,14 @@ Agent 服务费、模型运行费、语音 ASR/TTS 费相互独立。
 
 ## MVP 流程
 
+### 房间语音会话
+
+```text
+开启语音对话 → 房间成员收到邀请 → 接听/拒绝 → 语音对话中 → 静音/挂断
+```
+
+Phase 1 的“语音会话”先管理房间会话状态和接听按钮，不做实时音频流。会话中的语音输入仍复用下方 ASR：录音识别为文本，再进入现有房间消息、任务和 Agent 流程。
+
 ### 语音输入
 
 ```text
@@ -80,6 +88,29 @@ packages/server/src/services/voice/
 - `error`
 - `duration_ms`
 
+### room_voice_sessions
+
+房间级语音会话：
+
+- `room_id`
+- `created_by`
+- `status`: `ringing | active | ended`
+- `provider_mode`: `byok`
+- `created_at`
+- `answered_at`
+- `ended_at`
+
+### room_voice_session_participants
+
+语音会话参与人状态：
+
+- `session_id`
+- `user_id`
+- `status`: `invited | joined | declined | left`
+- `muted`
+- `joined_at`
+- `left_at`
+
 ## API
 
 ### 配置
@@ -93,6 +124,25 @@ POST   /api/voice/configs/:id/test
 ```
 
 返回配置时不返回明文 credential，仅返回 `credentialStatus`。
+
+### 房间语音会话
+
+```http
+GET   /api/rooms/:roomId/voice-sessions/active
+POST  /api/rooms/:roomId/voice-sessions
+POST  /api/rooms/:roomId/voice-sessions/:sessionId/answer
+POST  /api/rooms/:roomId/voice-sessions/:sessionId/decline
+POST  /api/rooms/:roomId/voice-sessions/:sessionId/leave
+PATCH /api/rooms/:roomId/voice-sessions/:sessionId/me
+```
+
+WebSocket 广播：
+
+```text
+voice.session_updated
+```
+
+Payload 包含 `action` 和最新 `session`。前端据此刷新开启、接听、拒绝、静音、挂断按钮。
 
 ### ASR
 
@@ -150,6 +200,7 @@ Body：
 ## 前端入口
 
 - 设置 → 语音：配置个人火山语音 Key。
+- 房间聊天区：显示“开启语音对话 / 接听 / 拒绝 / 静音 / 挂断”。
 - 房间聊天输入框：麦克风按钮录音识别，识别结果填入输入框，用户确认发送。
 - 每条文本消息：播放按钮，按当前用户的 TTS 配置合成并播放。
 
