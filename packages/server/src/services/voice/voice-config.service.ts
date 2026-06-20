@@ -7,7 +7,11 @@ function parseJson(value?: string | null) { try { return value ? JSON.parse(valu
 function rowToConfig(row: any): VoiceProviderConfig {
   return { id: row.id, userId: row.user_id, provider: row.provider, name: row.name, asrEnabled: !!row.asr_enabled, ttsEnabled: !!row.tts_enabled, isDefaultAsr: !!row.is_default_asr, isDefaultTts: !!row.is_default_tts, credential: parseJson(decryptSecret(row.credential_json_cipher)), config: parseJson(row.config_json), status: row.status, createdAt: row.created_at, updatedAt: row.updated_at }
 }
-function toPublic(config: VoiceProviderConfig): VoiceProviderConfigPublic { const { credential, ...rest } = config; return { ...rest, credentialStatus: Object.keys(credential || {}).length ? 'configured' : 'missing' } }
+function mask(value?: string) { return value ? `${value.slice(0, 4)}***${value.slice(-3)}` : '' }
+function toPublic(config: VoiceProviderConfig): VoiceProviderConfigPublic {
+  const { credential, ...rest } = config
+  return { ...rest, credentialStatus: Object.keys(credential || {}).length ? 'configured' : 'missing', credentialMeta: { appIdMasked: mask(credential?.appId || credential?.appid), asrCluster: credential?.asrCluster || '', ttsCluster: credential?.ttsCluster || '' } } as any
+}
 
 export class VoiceConfigService {
   list(userId: string) { return (db.prepare('SELECT * FROM user_voice_provider_configs WHERE user_id = ? AND status != ? ORDER BY created_at DESC').all(userId, 'deleted') as any[]).map((row) => toPublic(rowToConfig(row))) }
@@ -35,7 +39,10 @@ export class VoiceConfigService {
     if (input.name !== undefined) add('name = ?', String(input.name || '我的语音服务'))
     if (input.asrEnabled !== undefined) add('asr_enabled = ?', input.asrEnabled ? 1 : 0)
     if (input.ttsEnabled !== undefined) add('tts_enabled = ?', input.ttsEnabled ? 1 : 0)
-    if (input.credential !== undefined) add('credential_json_cipher = ?', encryptSecret(JSON.stringify(input.credential || {})))
+    if (input.credential !== undefined) {
+      const current = this.get(userId, id)
+      add('credential_json_cipher = ?', encryptSecret(JSON.stringify({ ...(current.credential || {}), ...(input.credential || {}) })))
+    }
     if (input.config !== undefined) add('config_json = ?', JSON.stringify(input.config || {}))
     if (input.isDefaultAsr === true) db.prepare('UPDATE user_voice_provider_configs SET is_default_asr = 0 WHERE user_id = ?').run(userId)
     if (input.isDefaultTts === true) db.prepare('UPDATE user_voice_provider_configs SET is_default_tts = 0 WHERE user_id = ?').run(userId)
