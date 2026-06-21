@@ -106,3 +106,41 @@ Agent 工具 / CLI：
 - 房间头部显示“接待：Agent 名称”。
 - 成员面板 Agent 行显示“当前接待 / 可接待”。
 - 非当前接待 Agent 可手动点击“接待”切换。
+
+## Handoff 服务端/客户端解耦边界
+
+实现上分为两层服务，避免 Web API、Agent 工具和 Agent Client 相互耦合：
+
+### RoomAssistantService
+
+负责房间当前接待状态和 handoff 编排：
+
+- 校验目标 Agent 是否在房间内且可用。
+- 事务切换 `rooms.current_assistant_agent_id` 和 `room_agents.auto_enabled/room_role`。
+- 写入 `room_assistant_handoffs` 审计记录。
+- 广播 `room.assistant_handoff`、`room.updated`、`room.members_update`。
+- 根据 `wake` 参数调用 `AgentInvocationService` 唤醒目标 Agent。
+
+Web API `POST /api/rooms/:id/assistant/handoff` 和 Agent 工具 `room.handoff` 都只调用该服务，不各自实现状态切换。
+
+### AgentInvocationService
+
+负责统一 Agent 调用，不关心调用来源是人类 @、自动助理、任务分派还是 handoff：
+
+- 更新 Agent working/active/error 状态。
+- 调用 `agentService.spawnClaudeCode`，由 Agent deployment 决定走服务端 runtime 还是远程 Agent Client。
+- 发布 Agent 产物、处理任务完成检测、广播最终聊天消息。
+- 支持 `runSource` 和 `responseMode`：
+  - `runSource = handoff`：表示当前接待转交唤醒。
+  - `responseMode = final_to_chat`：最终 stdout/结果应作为聊天回复。
+  - `responseMode = tool_only`：只通过工具产生用户可见输出，避免任务执行摘要重复发到聊天。
+  - `responseMode = silent`：内部执行，不主动发聊天。
+
+### Agent Client
+
+Agent Client 不保存或判断“谁是当前接待”，只作为执行器：
+
+1. 从服务端接收 remote event。
+2. 根据 payload 中的 `input/runSource/responseMode/metadata` 运行本地 Claude Code。
+3. `responseMode = final_to_chat` 时自动把最终输出回传为聊天消息；`tool_only` 时不自动发送 stdout。
+4. 本地 `./freechat room handoff` 只是薄 wrapper，调用服务端 `room.handoff` 工具，不直接修改房间状态。

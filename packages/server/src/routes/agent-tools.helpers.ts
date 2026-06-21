@@ -1,12 +1,9 @@
 import { readdir, stat } from 'fs/promises'
 import { join, normalize, relative } from 'path'
 import db from '../storage/db.js'
-import { config } from '../config.js'
 import { getWebSocketGateway } from '../ws/gateway.js'
 import { agentService } from '../services/agent.service.js'
-import { messageService } from '../services/message.service.js'
-import { agentTaskCompletionService } from '../services/agent-task-completion.service.js'
-import { agentArtifactService } from '../services/agent-artifact.service.js'
+import { agentInvocationService } from '../services/agent-invocation.service.js'
 
 export function safeRelativePath(input = ''): string {
   const cleaned = normalize(input).replace(/^([/\\])+/, '')
@@ -85,36 +82,7 @@ export function buildSubtaskWakePrompt(task: any, subtask: any, reason: string) 
 
 export async function invokeAssignedAgent(roomId: string, assigneeId: string | undefined, assigningAgentId: string, prompt: string, actorUserId?: string, context: { taskId?: string; subtaskId?: string } = {}) {
   if (!assigneeId) return
-  const roomAgents = await agentService.getRoomAgents(roomId)
-  const assigned = roomAgents.find((a) => a.id === assigneeId)
-  if (!assigned) return
-
-  void (async () => {
-    try {
-      await agentService.updateAgent(assigned.id, { status: 'working' } as any)
-      broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'working', onlineStatus: 'working', lastActiveAt: Date.now() })
-      const result = await agentService.spawnClaudeCode(roomId, assigned.id, prompt, { timeoutMs: config.agent.taskTimeoutMs, actorUserId, runSource: context.subtaskId ? 'subtask' : 'task', taskId: context.taskId, subtaskId: context.subtaskId })
-      await agentArtifactService.publishDeclaredArtifacts(roomId, assigned.id, prompt)
-      const completed = await agentTaskCompletionService.autoCompleteFromRun(prompt, result.response || '')
-      if (completed) broadcast(roomId, 'task.changed', { action: 'update', task: completed.task })
-      await agentService.updateAgent(assigned.id, { status: 'active' } as any)
-      broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'active', onlineStatus: 'online', lastActiveAt: Date.now() })
-      if (completed?.released?.length) {
-        for (const item of completed.released) {
-          if (item.assigneeType === 'agent' && item.assigneeId) {
-            void invokeAssignedAgent(roomId, item.assigneeId, assigned.id, buildSubtaskWakePrompt(completed.task, item, '前置子任务已完成，你负责的子任务已解除阻塞，请立即处理。'), actorUserId, { taskId: completed.task.id, subtaskId: item.id })
-          }
-        }
-      }
-      if (result.silent || !result.response) return
-      const msg = await messageService.createMessage(roomId, assigned.id, assigned.name, 'ai', result.response)
-      broadcast(roomId, 'chat.message', msg)
-    } catch (err: any) {
-      await agentService.updateAgent(assigneeId, { status: 'error' } as any).catch(() => {})
-      broadcast(roomId, 'agent.status_update', { agentId: assigneeId, status: 'error', onlineStatus: 'error', lastActiveAt: Date.now(), lastError: err?.message || String(err) })
-      console.error(`Assigned agent ${assigneeId} invocation failed:`, err)
-    }
-  })()
+  await agentInvocationService.invoke(roomId, assigneeId, prompt, { actorUserId, runSource: context.subtaskId ? 'subtask' : 'task', taskId: context.taskId, subtaskId: context.subtaskId, responseMode: 'final_to_chat' })
 }
 
 

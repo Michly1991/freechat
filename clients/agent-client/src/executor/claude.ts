@@ -109,7 +109,8 @@ export async function executeEvent(cfg: ClientConfig, agent: AgentCredential, ev
   writeRunContext(cfg, agent, event, cwd)
   const response = await runClaude(event.payload.input || '', cwd)
   const trimmed = response.trim()
-  const shouldAutoSend = event.type === 'agent.mentioned' && trimmed && !/^\{\s*"success"\s*:/i.test(trimmed)
+  const responseMode = event.payload.responseMode || (event.type === 'agent.mentioned' ? 'final_to_chat' : 'tool_only')
+  const shouldAutoSend = responseMode === 'final_to_chat' && trimmed && !/^\{\s*"success"\s*:/i.test(trimmed)
   if (shouldAutoSend) await agentTool(cfg, agent, event.roomId, 'chat.send', { content: trimmed })
   return response
 }

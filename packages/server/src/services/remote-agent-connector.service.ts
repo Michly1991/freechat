@@ -29,6 +29,8 @@ type EnqueueContext = {
   subtaskId?: string
   parentRunId?: string
   resumeAttempt?: number
+  responseMode?: 'final_to_chat' | 'tool_only' | 'silent'
+  metadata?: Record<string, any>
 }
 
 function compactCode(raw: string): string {
@@ -219,7 +221,7 @@ export class RemoteAgentConnectorService {
     db.prepare(`
       INSERT INTO remote_agent_events (id, run_id, room_id, agent_id, type, payload_json, status, created_at)
       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
-    `).run(eventId, runId, roomId, agentId, eventType, JSON.stringify({ runId, roomId, agentId, input, taskId: context.taskId, subtaskId: context.subtaskId, runSource: context.runSource || eventType }), now)
+    `).run(eventId, runId, roomId, agentId, eventType, JSON.stringify({ runId, roomId, agentId, input, taskId: context.taskId, subtaskId: context.subtaskId, runSource: context.runSource || eventType, responseMode: context.responseMode, metadata: context.metadata }), now)
     db.prepare("UPDATE agents SET status = 'working', updated_at = ? WHERE id = ?").run(now, agentId)
     this.pushPendingEvents(agentId)
     return { runId, eventId }
