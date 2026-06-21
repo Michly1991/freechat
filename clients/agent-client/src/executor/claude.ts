@@ -37,10 +37,14 @@ async function post(action, args) {
   })
   const text = await res.text(); if (!res.ok) throw new Error(text); console.log(text)
 }
+function takeFlag(args, name) { const i=args.indexOf(name); if(i<0)return undefined; const v=args[i+1]; args.splice(i, v===undefined?1:2); return v }
 const [cmd, sub, ...rest] = process.argv.slice(2)
 if (cmd === 'chat' && sub === 'send') await post('chat.send', { content: rest.join(' ') })
 else if (cmd === 'tool') await post(sub, JSON.parse(rest.join(' ') || '{}'))
 else if (cmd === 'task' && sub === 'list') await post('task.list', { status: rest[0] })
+else if (cmd === 'task' && sub === 'create') { const args=[...rest]; const assignee=takeFlag(args,'--assignee'); const priority=takeFlag(args,'--priority'); await post('task.create', { title: args[0], description: args.slice(1).join(' '), assigneeName: assignee, priority: priority || 'medium' }) }
+else if (cmd === 'task' && sub === 'subtask' && rest[0] === 'list') await post('task.subtask.list', { taskId: rest[1] })
+else if (cmd === 'task' && sub === 'subtask' && rest[0] === 'add') { const args=rest.slice(1); const assignee=takeFlag(args,'--assignee'); await post('task.subtask.add', { taskId: args[0], title: args[1], description: args.slice(2).join(' '), assigneeName: assignee }) }
 else if (cmd === 'members' && sub === 'list') await post('members.list', {})
 else if (cmd === 'room' && sub === 'info') await post('room.info', {})
 else { console.error('Usage: ./freechat chat send <text> | ./freechat tool <action> <json>'); process.exit(2) }
