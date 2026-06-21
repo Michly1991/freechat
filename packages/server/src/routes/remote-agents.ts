@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { remoteAgentConnectorService } from '../services/remote-agent-connector.service.js'
+import { agentRuntimeSpecService } from '../services/agent-runtime-spec.service.js' 
 
 async function requireConnector(request: any, reply: any) {
   const auth = await remoteAgentConnectorService.authenticateBearer(request.headers.authorization)
@@ -35,6 +36,12 @@ export async function registerRemoteAgentRoutes(app: FastifyInstance) {
     const query = request.query as any
     const agentIds = typeof query?.agentIds === 'string' ? query.agentIds.split(',').filter(Boolean) : undefined
     return { success: true, data: { events: remoteAgentConnectorService.pollEvents(auth, Number(query?.limit || 10), agentIds) } }
+  })
+
+  app.get('/api/remote-agents/runtime-spec', async (request, reply) => {
+    const auth = await requireConnector(request, reply)
+    if (!auth) return
+    return { success: true, data: agentRuntimeSpecService.getSpec() }
   })
 
 

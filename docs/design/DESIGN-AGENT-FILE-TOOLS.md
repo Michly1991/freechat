@@ -131,3 +131,33 @@ message-files/<messageId>/<filename>
 ```
 
 下载到本地处理。
+
+## Agent Runtime Spec 动态同步
+
+为避免服务端文件协议与 Agent Client 内置 CLI 分叉，服务端提供统一运行规范：
+
+```http
+GET /api/remote-agents/runtime-spec
+```
+
+Agent Client 使用 Remote Agent Bearer 凭证获取该规范，内容包括：
+
+- `cliWrapper`
+- `cliCjsTemplate`
+- `claudeMd`
+- `runtimeRules`
+- `apiDoc`
+- `version/checksum`
+
+客户端每次执行 Agent 前拉取并缓存规范（默认 10 分钟），然后写入当前 Agent 工作区：
+
+```text
+./freechat
+.freechat/freechat.cjs
+CLAUDE.md
+.freechat/RUNTIME.md
+.freechat/API.md
+.freechat/runtime-spec.json
+```
+
+因此 Agent 的文件、任务、handoff 等命令以服务端最新模板为准；客户端不再维护一份过期的简化 CLI。服务端新增 `file write-local/upload/download/promote` 等命令后，客户端在下一次规范刷新后即可使用。

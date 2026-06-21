@@ -3,54 +3,41 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSy
 import { join } from 'path'
 import type { AgentCredential, ClientConfig, RemoteEvent } from '../config/types.js'
 import { workRoot } from '../config/store.js'
-import { agentTool } from '../connector/api.js'
+import { agentTool, getRuntimeSpec, type RuntimeSpec } from '../connector/api.js'
 
 export function workspaceFor(agent: AgentCredential, event: RemoteEvent) {
   const dir = agent.workdir || join(workRoot(), event.agentId, event.roomId)
   mkdirSync(join(dir, '.freechat'), { recursive: true })
-  const cli = join(dir, 'freechat')
-  writeFileSync(cli, renderFreechatCli(), 'utf8')
-  try { chmodSync(cli, 0o755) } catch {}
   return dir
 }
 
-export function writeRunContext(cfg: ClientConfig, agent: AgentCredential, event: RemoteEvent, cwd: string) {
-  writeFileSync(join(cwd, '.freechat', 'run.json'), JSON.stringify({
+function materializeCliTemplate(template: string, cfg: ClientConfig, agent: AgentCredential, event: RemoteEvent) {
+  return template
+    .replaceAll('__FREECHAT_API_URL__', cfg.serverUrl)
+    .replaceAll('__FREECHAT_ROOM_ID__', event.roomId)
+    .replaceAll('__FREECHAT_TOKEN__', agent.accessToken)
+}
+
+export function writeRunContext(cfg: ClientConfig, agent: AgentCredential, event: RemoteEvent, cwd: string, spec: RuntimeSpec) {
+  const freechatDir = join(cwd, '.freechat')
+  mkdirSync(freechatDir, { recursive: true })
+  writeFileSync(join(freechatDir, 'run.json'), JSON.stringify({
     serverUrl: cfg.serverUrl,
     token: agent.accessToken,
     roomId: event.roomId,
     agentId: event.agentId,
     runId: event.runId,
+    runtimeSpecVersion: spec.version,
+    runtimeSpecChecksum: spec.checksum,
   }, null, 2))
-  writeFileSync(join(cwd, 'CLAUDE.md'), `# FreeChat Agent Client\n\n你运行在用户自己的 Agent Client 中。\n\n- 普通聊天/私聊：直接把最终回复输出到 stdout，Agent Client 会自动发回房间；不要再调用 ./freechat chat send，避免重复回复。\n- 需要中途汇报、多条消息或执行工具时，才使用 ./freechat chat send <内容> 或 ./freechat tool <action> '<jsonArgs>'。\n- 如果需要把当前接待/助理转给房间内另一个 Agent，使用 ./freechat room handoff --agent <名称> --reason <原因>，不要普通聊天里假 @。
-- 群聊/项目交付文件必须通过 FreeChat 工具写回，不能只留在本地。\n`, 'utf8')
-}
-
-function renderFreechatCli() {
-  return `#!/usr/bin/env node
-import { readFileSync } from 'fs'
-import { join } from 'path'
-const cfg = JSON.parse(readFileSync(join(process.cwd(), '.freechat', 'run.json'), 'utf8'))
-async function post(action, args) {
-  const res = await fetch(cfg.serverUrl + '/api/agent-tools/' + encodeURIComponent(cfg.roomId), {
-    method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.token },
-    body: JSON.stringify({ action, args })
-  })
-  const text = await res.text(); if (!res.ok) throw new Error(text); console.log(text)
-}
-function takeFlag(args, name) { const i=args.indexOf(name); if(i<0)return undefined; const v=args[i+1]; args.splice(i, v===undefined?1:2); return v }
-const [cmd, sub, ...rest] = process.argv.slice(2)
-if (cmd === 'chat' && sub === 'send') await post('chat.send', { content: rest.join(' ') })
-else if (cmd === 'tool') await post(sub, JSON.parse(rest.join(' ') || '{}'))
-else if (cmd === 'task' && sub === 'list') await post('task.list', { status: rest[0] })
-else if (cmd === 'task' && sub === 'create') { const args=[...rest]; const assignee=takeFlag(args,'--assignee'); const priority=takeFlag(args,'--priority'); await post('task.create', { title: args[0], description: args.slice(1).join(' '), assigneeName: assignee, priority: priority || 'medium' }) }
-else if (cmd === 'task' && sub === 'subtask' && rest[0] === 'list') await post('task.subtask.list', { taskId: rest[1] })
-else if (cmd === 'task' && sub === 'subtask' && rest[0] === 'add') { const args=rest.slice(1); const assignee=takeFlag(args,'--assignee'); await post('task.subtask.add', { taskId: args[0], title: args[1], description: args.slice(2).join(' '), assigneeName: assignee }) }
-else if (cmd === 'members' && sub === 'list') await post('members.list', {})
-else if (cmd === 'room' && sub === 'info') await post('room.info', {})
-else if (cmd === 'room' && sub === 'handoff') { const args=[...rest]; const agent=takeFlag(args,'--agent') || args.shift(); const reason=takeFlag(args,'--reason') || args.join(' '); await post('room.handoff', { agent, reason }) }
-else { console.error('Usage: ./freechat chat send <text> | ./freechat tool <action> <json>'); process.exit(2) }
-`
+  writeFileSync(join(cwd, 'CLAUDE.md'), spec.claudeMd, 'utf8')
+  writeFileSync(join(freechatDir, 'RUNTIME.md'), spec.runtimeRules, 'utf8')
+  writeFileSync(join(freechatDir, 'API.md'), spec.apiDoc, 'utf8')
+  writeFileSync(join(freechatDir, 'runtime-spec.json'), JSON.stringify({ version: spec.version, checksum: spec.checksum, updatedAt: spec.updatedAt }, null, 2), 'utf8')
+  writeFileSync(join(freechatDir, 'freechat.cjs'), materializeCliTemplate(spec.cliCjsTemplate, cfg, agent, event), 'utf8')
+  const cli = join(cwd, 'freechat')
+  writeFileSync(cli, spec.cliWrapper, 'utf8')
+  try { chmodSync(cli, 0o755); chmodSync(join(freechatDir, 'freechat.cjs'), 0o755) } catch {}
 }
 
 const DEFAULT_SESSION_TTL_MS = 5 * 60 * 1000
@@ -106,7 +93,8 @@ export function runClaude(prompt: string, cwd: string): Promise<string> {
 
 export async function executeEvent(cfg: ClientConfig, agent: AgentCredential, event: RemoteEvent) {
   const cwd = workspaceFor(agent, event)
-  writeRunContext(cfg, agent, event, cwd)
+  const spec = await getRuntimeSpec(cfg, agent)
+  writeRunContext(cfg, agent, event, cwd, spec)
   const response = await runClaude(event.payload.input || '', cwd)
   const trimmed = response.trim()
   const responseMode = event.payload.responseMode || (event.type === 'agent.mentioned' ? 'final_to_chat' : 'tool_only')

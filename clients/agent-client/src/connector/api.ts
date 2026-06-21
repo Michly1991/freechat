@@ -67,6 +67,27 @@ export async function pollEvents(cfg: ClientConfig, agent: AgentCredential): Pro
   return data.events || []
 }
 
+export interface RuntimeSpec {
+  version: string
+  updatedAt: number
+  checksum: string
+  cliWrapper: string
+  cliCjsTemplate: string
+  claudeMd: string
+  apiDoc: string
+  runtimeRules: string
+}
+
+let runtimeSpecCache: { spec: RuntimeSpec; fetchedAt: number } | null = null
+const RUNTIME_SPEC_TTL_MS = 10 * 60 * 1000
+
+export async function getRuntimeSpec(cfg: ClientConfig, agent: AgentCredential): Promise<RuntimeSpec> {
+  if (runtimeSpecCache && Date.now() - runtimeSpecCache.fetchedAt < RUNTIME_SPEC_TTL_MS) return runtimeSpecCache.spec
+  const spec = await request<RuntimeSpec>(cfg.serverUrl, '/api/remote-agents/runtime-spec', {}, agent.accessToken)
+  runtimeSpecCache = { spec, fetchedAt: Date.now() }
+  return spec
+}
+
 export function agentTool(cfg: ClientConfig, agent: AgentCredential, roomId: string, action: string, args: any) {
   return request(cfg.serverUrl, `/api/agent-tools/${encodeURIComponent(roomId)}`, {
     method: 'POST',
