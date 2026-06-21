@@ -88,3 +88,46 @@ python scripts/analyze_pdf.py .freechat/files/合同.pdf > res/合同分析.md
 ```
 
 服务端只参与存取和权限控制，复杂解析由客户端环境完成。
+
+## 服务端强控制与房间隔离
+
+文件和目录由服务端强控制，客户端只提交上传、下载、promote 等意图。
+
+强制规则：
+
+1. 每个目录和文件都必须绑定唯一 `roomId`。
+2. 所有文件查询、下载、上传、promote 都必须通过当前 URL/token 对应的 `roomId` 校验。
+3. `fileId` 不是全局访问凭证；读取时必须使用 `roomId + fileId` 查询。
+4. Agent 即使知道其他房间的 `fileId`，也不能跨房间下载、搜索、promote。
+5. Agent Client 生成的 `./freechat` CLI 固定当前 `ROOM_ID`，不能切换房间。
+6. 本地 `workspace` 命令只能访问当前房间/当前 Agent workspace。
+
+## 房间文件元数据
+
+新增服务端元数据：
+
+- `room_file_folders`
+- `room_files`
+
+文件记录包含：
+
+- `room_id`
+- `folder_id`
+- `id` / `ref=file:<id>`
+- `relative_path`
+- `source`
+- `message_id?`
+
+对话附件上传后也进入当前房间文件体系，默认目录：
+
+```text
+message-files/<messageId>/<filename>
+```
+
+消息 payload 中会携带附件的 `fileId/ref/folderId/relativePath/mimeType/size`，Agent prompt 中也会注入这些引用。Agent 通过：
+
+```bash
+./freechat file download file:<fileId>
+```
+
+下载到本地处理。

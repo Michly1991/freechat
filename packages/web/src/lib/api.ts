@@ -104,6 +104,12 @@ export const api = {
     request<{ subtask: any; task: any; shouldWake: boolean }>(`/rooms/${roomId}/tasks/${taskId}/subtasks/${itemId}/retry`, { method: 'POST', body: JSON.stringify({ reason }) }),
   sendRoomMessage: (id: string, body: { content: string; mentions?: any[]; reply_to?: string }) =>
     request<{ message: any }>(`/rooms/${id}/messages`, { method: 'POST', body: JSON.stringify(body) }),
+  sendRoomMessageWithFiles: (id: string, content: string, files: File[]) => {
+    const form = new FormData()
+    form.append('content', content)
+    files.forEach((file) => form.append('files', file, file.name))
+    return request<{ message: any }>(`/rooms/${id}/messages/with-files`, { method: 'POST', body: form })
+  },
   updateRoom: (id: string, body: { name?: string; description?: string }) =>
     request(`/rooms/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteRoom: (id: string) => request(`/rooms/${id}`, { method: 'DELETE' }),

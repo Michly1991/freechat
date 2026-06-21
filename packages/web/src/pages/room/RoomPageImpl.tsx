@@ -29,6 +29,7 @@ export function RoomPageImpl() {
   const [room, setRoom] = useState<any>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
+  const [pendingAttachments, setPendingAttachments] = useState<File[]>([])
   const [members, setMembers] = useState<any[]>([])
   const [roomAgents, setRoomAgents] = useState<any[]>([])
   const [activePanel, setActivePanel] = useState<Panel>('chat')
@@ -241,9 +242,18 @@ export function RoomPageImpl() {
   }
   const sendTextMessage = async (rawContent: string) => {
     const content = rawContent.trim()
-    if (!content || !roomId) return false
+    if ((!content && pendingAttachments.length === 0) || !roomId) return false
     const mentions = buildMentionsForSend(content)
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+    if (pendingAttachments.length > 0) {
+      try {
+        const res = await api.sendRoomMessageWithFiles(roomId, content, pendingAttachments)
+        setMessages((prev) => { const next = mergeMessages(prev, [res.message]); writeCachedMessages(roomId, next); return next })
+        setPendingAttachments([])
+      } catch (err: any) {
+        setSendError(err?.message || '发送失败')
+        return false
+      }
+    } else if (wsRef.current?.readyState === WebSocket.OPEN) {
       if (!sendWs('chat.send', { content, mentions })) return false
     } else {
       try {
@@ -266,6 +276,11 @@ export function RoomPageImpl() {
     setSelectedMentions([])
     return true
   }
+  const addPendingAttachments = (list: FileList | null) => {
+    if (!list?.length) return
+    setPendingAttachments((prev) => [...prev, ...Array.from(list)].slice(0, 10))
+  }
+  const removePendingAttachment = (index: number) => setPendingAttachments((prev) => prev.filter((_, i) => i !== index))
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
     if (await sendTextMessage(input)) setInput('')
@@ -396,7 +411,7 @@ export function RoomPageImpl() {
         )}
         <div className="flex-1 flex flex-col overflow-hidden">
           <RoomMainPanel
-            {...{ roomId, activePanel, messages, user, unreadMarkerAt, messagesScrollRef, messagesEndRef, roomNewMessageCount, scrollToBottomAndRead, sendMessage, showMentionPopup, filteredMembers, filteredAgents, filteredFiles, insertMention, inputRef, input, handleInputChange, voiceAvailable, voiceChatEnabled, voiceStatus, voiceBusy: voicePlaybackBusy, onVoiceEnable: enableVoiceChat, onVoiceDisable: disableVoiceChat, onVoiceTranscript: handleVoiceTranscript, onVoiceRecordingChange: (recording: boolean) => { if (recording) setVoiceStatus('listening') }, onVoiceBusyChange: (busy: boolean) => { if (busy) setVoiceStatus('transcribing') }, sendError, wsNoticeDismissed, setWsNoticeDismissed, renderInteractionCard, getActorAvatar, getActorMember, getActorAgent, openMemberProfile, handleMessagesScroll, loadingOlderMessages, hasMoreMessages, files, currentFile, setCurrentFile, fileDirty, setFileDirty, openFile, saveFile, deleteFile, createFile, createFolder, uploadLocalFile, activeTabId, tabs, roomAgents: visibleRoomAgents, feedback, showCreateTab, setShowCreateTab, newTabName, setNewTabName, newTabContent, setNewTabContent, createTab, deleteTab, editingTabId, setEditingTabId, editingTabTitle, setEditingTabTitle, editingTabContent, setEditingTabContent, updateTab, beginEditTab, tabError, tasks, newTaskTitle, setNewTaskTitle, creatingTask, createTask, expandedTaskIds, toggleTaskExpanded, newSubtaskTitles, setNewSubtaskTitles, showArchivedTasks, setShowArchivedTasks, updateTaskStatus, retryTaskFailedItems, deleteTask, createSubtask, updateSubtaskStatus, retrySubtask, deleteSubtask, renderAssigneeBadge, setActiveTabId, restartAgent }}
+            {...{ roomId, activePanel, messages, user, unreadMarkerAt, messagesScrollRef, messagesEndRef, roomNewMessageCount, scrollToBottomAndRead, sendMessage, pendingAttachments, onAddAttachments: addPendingAttachments, onRemoveAttachment: removePendingAttachment, showMentionPopup, filteredMembers, filteredAgents, filteredFiles, insertMention, inputRef, input, handleInputChange, voiceAvailable, voiceChatEnabled, voiceStatus, voiceBusy: voicePlaybackBusy, onVoiceEnable: enableVoiceChat, onVoiceDisable: disableVoiceChat, onVoiceTranscript: handleVoiceTranscript, onVoiceRecordingChange: (recording: boolean) => { if (recording) setVoiceStatus('listening') }, onVoiceBusyChange: (busy: boolean) => { if (busy) setVoiceStatus('transcribing') }, sendError, wsNoticeDismissed, setWsNoticeDismissed, renderInteractionCard, getActorAvatar, getActorMember, getActorAgent, openMemberProfile, handleMessagesScroll, loadingOlderMessages, hasMoreMessages, files, currentFile, setCurrentFile, fileDirty, setFileDirty, openFile, saveFile, deleteFile, createFile, createFolder, uploadLocalFile, activeTabId, tabs, roomAgents: visibleRoomAgents, feedback, showCreateTab, setShowCreateTab, newTabName, setNewTabName, newTabContent, setNewTabContent, createTab, deleteTab, editingTabId, setEditingTabId, editingTabTitle, setEditingTabTitle, editingTabContent, setEditingTabContent, updateTab, beginEditTab, tabError, tasks, newTaskTitle, setNewTaskTitle, creatingTask, createTask, expandedTaskIds, toggleTaskExpanded, newSubtaskTitles, setNewSubtaskTitles, showArchivedTasks, setShowArchivedTasks, updateTaskStatus, retryTaskFailedItems, deleteTask, createSubtask, updateSubtaskStatus, retrySubtask, deleteSubtask, renderAssigneeBadge, setActiveTabId, restartAgent }}
           />
         </div>
         <DesktopMembersPanel

@@ -6,6 +6,7 @@ export interface Message {
   content: string
   kind?: 'text' | 'interaction_request' | 'system' | 'agent_receipt' | 'agent_stream'
   payload?: any
+  attachments?: any[]
   createdAt: number
 }
 

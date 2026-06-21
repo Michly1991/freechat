@@ -186,6 +186,20 @@ export interface RoomMember {
 }
 
 // === Message Types ===
+export interface MessageAttachment {
+  id: string
+  ref: string
+  roomId: string
+  folderId: string
+  name: string
+  relativePath: string
+  mimeType?: string
+  size: number
+  source: string
+  messageId?: string
+  createdAt: number
+}
+
 export interface Message {
   id: string
   roomId: string
@@ -195,6 +209,7 @@ export interface Message {
   content: string
   kind?: 'text' | 'interaction_request' | 'system' | 'agent_receipt' | 'agent_stream'
   payload?: Record<string, any>
+  attachments?: MessageAttachment[]
   mentions?: Mention[]
   replyTo?: string
   editedAt?: number

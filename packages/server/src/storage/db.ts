@@ -8,7 +8,7 @@ import { ensureNotificationSchema } from './notification-schema.js'
 import { ensureBillingSchema } from './billing-schema.js'
 import { ensureAgentAnalyticsSchema } from './agent-analytics-schema.js'
 import { ensureRemoteAgentSchema } from './remote-agent-schema.js'
-import { ensureVoiceSchema } from './voice-schema.js'; import { ensureRoomHandoffSchema } from './room-handoff-schema.js'
+import { ensureVoiceSchema } from './voice-schema.js'; import { ensureRoomFileSchema } from './room-file-schema.js'; import { ensureRoomHandoffSchema } from './room-handoff-schema.js'
 
 mkdirSync(dirname(config.database.path), { recursive: true })
 
@@ -136,7 +136,7 @@ export function initDatabase() {
   if (!messageCols.some((col) => col.name === 'kind')) db.exec("ALTER TABLE messages ADD COLUMN kind TEXT DEFAULT 'text'")
   if (!messageCols.some((col) => col.name === 'payload')) db.exec('ALTER TABLE messages ADD COLUMN payload TEXT')
 
-  ensureNotificationSchema()
+  ensureNotificationSchema(); ensureRoomFileSchema()
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS interaction_requests (

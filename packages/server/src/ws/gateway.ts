@@ -411,7 +411,9 @@ export class WebSocketGateway {
       user.role === 'agent' ? 'ai' : 'human',
       payload.content,
       payload.mentions,
-      payload.reply_to
+      payload.reply_to,
+      'text',
+      payload.payload
     )
 
     this.broadcastToRoom(roomId, {
@@ -423,24 +425,19 @@ export class WebSocketGateway {
       timestamp: Date.now()
     })
 
-    notificationService.notifyMentions({
-      roomId,
-      messageId: msg.id,
-      actorId: user.id,
-      actorName: user.nickname || user.username,
-      content: payload.content,
-      mentions: payload.mentions,
-    })
-
-    const mentions = payload.mentions || []
-    const agentMentions = mentions.filter((m: any) => m?.role === 'ai' && m?.id)
-    if ((user.role === 'user' || user.role === 'admin') && agentMentions.length > 0) {
-      void this.invokeMentionedAgents(roomId, payload.content, mentions, 'mention', user.id)
-    } else if ((user.role === 'user' || user.role === 'admin')) {
-      void this.maybeAutoInvokeAssistant(roomId, user.nickname || user.username, payload.content, mentions, user.id)
-    }
+    this.handleUserMessageSideEffects(roomId, user, msg, payload.content, payload.mentions || [])
 
     return msg
+  }
+
+  handleUserMessageSideEffects(roomId: string, user: any, msg: any, content: string, mentions: any[] = []) {
+    notificationService.notifyMentions({ roomId, messageId: msg.id, actorId: user.id, actorName: user.nickname || user.username, content, mentions })
+    const agentMentions = mentions.filter((m: any) => m?.role === 'ai' && m?.id)
+    if ((user.role === 'user' || user.role === 'admin') && agentMentions.length > 0) {
+      void this.invokeMentionedAgents(roomId, content, mentions, 'mention', user.id)
+    } else if ((user.role === 'user' || user.role === 'admin')) {
+      void this.maybeAutoInvokeAssistant(roomId, user.nickname || user.username, content, mentions, user.id)
+    }
   }
 
   invokeAgents(roomId: string, content: string, mentions: any[], reason: InvokeReason = 'mention', actorUserId?: string) {

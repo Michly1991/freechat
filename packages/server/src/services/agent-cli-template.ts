@@ -257,7 +257,8 @@ async function downloadProjectFile(projectPath, localPath) {
   if (!projectPath) die('path is required');
   const target = safeWorkspacePath(localPath || path.join('.freechat', 'files', projectPath));
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  const url = API_URL + '/api/agent-files/' + ROOM_ID + '/download?path=' + encodeURIComponent(projectPath);
+  const key = String(projectPath).startsWith('file:') ? 'ref' : 'path';
+  const url = API_URL + '/api/agent-files/' + ROOM_ID + '/download?' + key + '=' + encodeURIComponent(projectPath);
   const res = await fetch(url, { headers: { Authorization: 'Bearer ' + TOKEN } });
   if (!res.ok) die(await res.text());
   const buf = Buffer.from(await res.arrayBuffer());
@@ -380,6 +381,10 @@ if (domain === 'tool' && cmd === 'list') {
 } else if (domain === 'file' && cmd === 'upload') {
   const parsed = parseNamedOptions(rest);
   uploadProjectFile(parsed.args[0], parsed.args[1], parsed.options.show === true || parsed.options.addToTab === true);
+} else if (domain === 'file' && cmd === 'promote') {
+  const parsed = parseNamedOptions(rest);
+  if (!parsed.args[0] || !parsed.args[1]) die('ref and targetPath are required');
+  call('file.promote', { ref: parsed.args[0], targetPath: parsed.args[1], show: parsed.options.show === true || parsed.options.addToTab === true });
 } else if (domain === 'file' && cmd === 'write') {
   const parsed = parseShowFlag(rest);
   if (!parsed.args[0]) die('path is required');

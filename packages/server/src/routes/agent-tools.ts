@@ -87,7 +87,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
       if (appUiTool.handled) {
         return appUiTool.response
       }
-      const fileTool = await handleFileTool({ action: String(action || ''), args, roomId, filesDir, broadcast })
+      const fileTool = await handleFileTool({ action: String(action || ''), args, roomId, filesDir, actorUserId, broadcast })
       if (fileTool.handled) {
         return fileTool.response
       }

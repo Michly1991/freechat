@@ -1,6 +1,6 @@
 import db from '../storage/db.js'
 import { v4 as uuidv4 } from 'uuid'
-import type { Message, Mention } from '@freechat/shared'
+import type { Message, Mention, MessageAttachment } from '@freechat/shared'
 import { MAX_MESSAGES_PER_ROOM } from '@freechat/shared'
 import { roomService } from './room.service.js'
 
@@ -45,9 +45,10 @@ export class MessageService {
     mentions?: Mention[],
     replyTo?: string,
     kind: string = 'text',
-    payload?: any
+    payload?: any,
+    idOverride?: string
   ): Promise<Message> {
-    const id = `msg_${uuidv4()}`
+    const id = idOverride || `msg_${uuidv4()}`
     const now = Date.now()
 
     db.prepare(`
@@ -82,6 +83,7 @@ export class MessageService {
       content,
       kind: kind as any,
       payload,
+      attachments: Array.isArray(payload?.attachments) ? payload.attachments as MessageAttachment[] : undefined,
       mentions,
       replyTo,
       deleted: false,
@@ -125,6 +127,7 @@ export class MessageService {
         content: row.content,
         kind: row.kind || 'text',
         payload,
+        attachments: Array.isArray(payload?.attachments) ? payload.attachments : undefined,
         mentions: row.mentions ? JSON.parse(row.mentions) : undefined,
         replyTo: row.reply_to,
         editedAt: row.edited_at,
@@ -153,6 +156,7 @@ export class MessageService {
       content: row.content,
       kind: row.kind || 'text',
       payload: row.payload ? JSON.parse(row.payload) : undefined,
+      attachments: row.payload && Array.isArray(JSON.parse(row.payload)?.attachments) ? JSON.parse(row.payload).attachments : undefined,
       mentions: row.mentions ? JSON.parse(row.mentions) : undefined,
       replyTo: row.reply_to,
       editedAt: row.edited_at,

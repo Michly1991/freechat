@@ -1,15 +1,13 @@
 import type { FastifyInstance } from 'fastify'
-import { createReadStream } from 'fs'
-import { mkdir, writeFile, stat } from 'fs/promises'
-import { basename, dirname, join } from 'path'
+import { basename } from 'path'
 import db from '../storage/db.js'
-import { config } from '../config.js'
 import { verifyAgentToolToken } from '../agent-tool-token.js'
 import { agentService } from '../services/agent.service.js'
 import { remoteAgentConnectorService } from '../services/remote-agent-connector.service.js'
 import { tabConfigService } from '../services/tab-config.service.js'
 import { tabFilesMapService } from '../services/tab-files-map.service.js'
-import { broadcast, assertProjectFilePathAllowed, safeRelativePath } from './agent-tools.helpers.js'
+import { roomFileService } from '../services/room-file.service.js'
+import { broadcast } from './agent-tools.helpers.js'
 
 async function authenticateAgentFileRequest(roomId: string, authorization?: string) {
   const auth = authorization || ''
@@ -37,11 +35,9 @@ export async function registerAgentFileRoutes(app: FastifyInstance) {
     const { roomId } = request.params as any
     try {
       await authenticateAgentFileRequest(roomId, request.headers.authorization)
-      const rel = safeRelativePath((request.query as any)?.path || '')
-      const fullPath = join(config.workspace.root, roomId, 'files', rel)
-      const info = await stat(fullPath)
-      if (!info.isFile()) throw { status: 400, code: 'VALIDATION_ERROR', message: 'path is not a file' }
-      return reply.header('content-disposition', `attachment; filename="${encodeURIComponent(basename(rel))}"`).send(createReadStream(fullPath))
+      const raw = (request.query as any)?.ref || (request.query as any)?.path || ''
+      const { row, stream } = roomFileService.streamForRef(roomId, raw)
+      return reply.header('content-disposition', `attachment; filename="${encodeURIComponent(row.name || basename(row.relative_path))}"`).send(stream)
     } catch (err: any) {
       return reply.code(err.status || (err.code === 'ENOENT' ? 404 : 500)).send({ success: false, error: { code: err.code || 'INTERNAL_ERROR', message: err.message || String(err) } })
     }
@@ -50,20 +46,29 @@ export async function registerAgentFileRoutes(app: FastifyInstance) {
   app.post('/api/agent-files/:roomId/upload', async (request, reply) => {
     const { roomId } = request.params as any
     try {
-      await authenticateAgentFileRequest(roomId, request.headers.authorization)
+      const auth = await authenticateAgentFileRequest(roomId, request.headers.authorization)
       const file = await request.file()
       if (!file) throw { status: 400, code: 'VALIDATION_ERROR', message: 'No file uploaded' }
       const requestedPath = String((file.fields?.path as any)?.value || '').trim()
       const addToTab = String((file.fields?.addToTab as any)?.value || '').toLowerCase() === 'true'
-      const rel = safeRelativePath(requestedPath || cleanFilename(file.filename))
-      assertProjectFilePathAllowed(rel)
-      const fullPath = join(config.workspace.root, roomId, 'files', rel)
-      await mkdir(dirname(fullPath), { recursive: true })
-      const buffer = await file.toBuffer()
-      await writeFile(fullPath, buffer)
-      if (addToTab) { await tabConfigService.addFile(roomId, 'files', rel); await tabFilesMapService.writeRoomMap(roomId) }
-      broadcast(roomId, 'files.updated', { path: rel })
-      return { success: true, data: { path: rel, name: cleanFilename(file.filename), size: buffer.length, mimeType: file.mimetype, addToTab } }
+      const record = await roomFileService.uploadProjectFile(roomId, file, requestedPath || cleanFilename(file.filename), auth.actorUserId, addToTab)
+      if (addToTab) { await tabConfigService.addFile(roomId, 'files', record.relativePath); await tabFilesMapService.writeRoomMap(roomId) }
+      broadcast(roomId, 'files.updated', { path: record.relativePath, file: record })
+      return { success: true, data: { file: record, addToTab } }
+    } catch (err: any) {
+      return reply.code(err.status || (err.code === 'INVALID_PATH' ? 400 : 500)).send({ success: false, error: { code: err.code || 'INTERNAL_ERROR', message: err.message || String(err) } })
+    }
+  })
+
+  app.post('/api/agent-files/:roomId/promote', async (request, reply) => {
+    const { roomId } = request.params as any
+    try {
+      const auth = await authenticateAgentFileRequest(roomId, request.headers.authorization)
+      const body = request.body as any
+      const record = await roomFileService.promote(roomId, body.ref || body.path, body.targetPath || body.target, auth.actorUserId)
+      if (body.addToTab === true || body.show === true) { await tabConfigService.addFile(roomId, 'files', record.relativePath); await tabFilesMapService.writeRoomMap(roomId) }
+      broadcast(roomId, 'files.updated', { path: record.relativePath, file: record })
+      return { success: true, data: { file: record } }
     } catch (err: any) {
       return reply.code(err.status || (err.code === 'INVALID_PATH' ? 400 : 500)).send({ success: false, error: { code: err.code || 'INTERNAL_ERROR', message: err.message || String(err) } })
     }

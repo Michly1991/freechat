@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile, stat, rm } from 'fs/promises'
 import { dirname, join } from 'path'
 import { tabConfigService } from '../services/tab-config.service.js'
 import { tabFilesMapService } from '../services/tab-files-map.service.js'
+import { roomFileService } from '../services/room-file.service.js'
 import { assertProjectFilePathAllowed, buildFileTree, safeRelativePath } from './agent-tools.helpers.js'
 
 interface FileToolContext {
@@ -10,6 +11,7 @@ interface FileToolContext {
   roomId: string
   filesDir: string
   broadcast: (roomId: string, action: string, payload: any) => void
+  actorUserId?: string
 }
 
 function flattenFiles(items: any[], out: any[] = []): any[] {
@@ -40,7 +42,8 @@ export async function handleFileTool(ctx: FileToolContext): Promise<{ handled: b
       await mkdir(filesDir, { recursive: true })
       const files = await buildFileTree(filesDir)
       const tab = await tabConfigService.getTab(roomId, 'files')
-      return { handled: true, response: { success: true, data: { files: tabConfigService.filterFileTree(files, tab), tabConfig: tab } } }
+      const index = roomFileService.list(roomId)
+      return { handled: true, response: { success: true, data: { files: tabConfigService.filterFileTree(files, tab), tabConfig: tab, folders: index.folders, fileRefs: index.files } } }
     }
     case 'file.glob': {
       await mkdir(filesDir, { recursive: true })
@@ -84,6 +87,12 @@ export async function handleFileTool(ctx: FileToolContext): Promise<{ handled: b
       if (args.showInTab === true || args.addToTab === true) { await tabConfigService.addDir(roomId, String(args.tabKey || 'files'), rel); await tabFilesMapService.writeRoomMap(roomId) }
       broadcast(roomId, 'files.updated', { path: rel })
       return { handled: true, response: { success: true, data: { path: rel } } }
+    }
+    case 'file.promote': {
+      const record = await roomFileService.promote(roomId, args.ref || args.path, args.targetPath || args.target, ctx.actorUserId || '')
+      if (args.show === true || args.addToTab === true) { await tabConfigService.addFile(roomId, String(args.tabKey || 'files'), record.relativePath); await tabFilesMapService.writeRoomMap(roomId) }
+      broadcast(roomId, 'files.updated', { path: record.relativePath, file: record })
+      return { handled: true, response: { success: true, data: { file: record } } }
     }
     case 'file.delete': {
       const rel = safeRelativePath(args.path)
