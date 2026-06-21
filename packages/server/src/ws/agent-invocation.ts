@@ -6,6 +6,7 @@ import { agentTaskCompletionService } from '../services/agent-task-completion.se
 import { agentArtifactService } from '../services/agent-artifact.service.js'
 import { fileMentionContextService } from '../services/file-mention-context.service.js'
 import { longTaskService } from '../services/long-task.service.js'
+import { roomAssistantService } from '../services/room-assistant.service.js'
 import { config } from '../config.js'
 import { buildAssistantAutoPrompt, shouldConsiderAssistantAutoReply } from './assistant-auto-prompt.js'
 import type { BroadcastToRoom, InvokeReason } from './gateway-types.js'
@@ -17,6 +18,37 @@ export class AgentInvocationHandler {
   private assistantAutoReplyCooldowns: Map<string, number> = new Map()
 
   constructor(private broadcastToRoom: BroadcastToRoom) {}
+
+  private extractHandoffTargetName(content: string): string {
+    const text = String(content || '').replace(/\s+/g, '')
+    const patterns = [
+      /(?:切换到|切到|转接给|交接给|换成|切成|转给|由|让)([\u4e00-\u9fa5A-Za-z0-9_-]{2,20})/,
+      /([\u4e00-\u9fa5A-Za-z0-9_-]{2,20})(?:来接待|接待|接手)/,
+    ]
+    for (const pattern of patterns) {
+      const match = text.match(pattern)
+      if (match?.[1]) return match[1].replace(/(?:接待|助理|律师|专家)$/g, '')
+    }
+    return ''
+  }
+
+  private async maybeHandleAssistantHandoffCommand(roomId: string, content: string, actorUserId?: string): Promise<boolean> {
+    const text = String(content || '')
+    if (!/(?:切换|切到|转接|交接|换成|切成|接待|接手|handoff)/i.test(text)) return false
+    const targetName = this.extractHandoffTargetName(text)
+    if (!targetName) return false
+    const agents = await agentService.getRoomAgents(roomId)
+    const compactTarget = targetName.replace(/\s+/g, '')
+    const target = agents.find((agent) => text.includes(agent.name)) || agents.find((agent) => {
+      const name = String(agent.name || '').replace(/\s+/g, '')
+      return name === compactTarget || name.includes(compactTarget) || compactTarget.includes(name) || (name.length === compactTarget.length && name[0] === compactTarget[0] && name[name.length - 1] === compactTarget[compactTarget.length - 1])
+    })
+    if (!target) return false
+    const current = await agentService.getAutoAgent(roomId)
+    if (current?.id === target.id) return false
+    await roomAssistantService.requestHandoff({ roomId, targetAgentId: target.id, requestedBy: actorUserId || 'system', requestedByType: actorUserId ? 'human' : 'system', source: 'auto_router', reason: `用户要求切换当前接待为 ${target.name}`, wake: true, announce: true })
+    return true
+  }
 
   async maybeCreateObviousExpertTaskPlan(roomId: string, assistant: any, content: string): Promise<boolean> {
     const text = String(content || '')
@@ -92,6 +124,7 @@ export class AgentInvocationHandler {
     if (!this.isCreatorCommand(roomId, actorUserId)) return
     const room = db.prepare('SELECT room_kind FROM rooms WHERE id = ?').get(roomId) as any
     const isDirectAgentRoom = room?.room_kind === 'direct_agent'
+    if (!isDirectAgentRoom && await this.maybeHandleAssistantHandoffCommand(roomId, content, actorUserId)) return
     const pendingInteractions = interactionService.list(roomId, { status: 'pending' }).slice(0, 5)
     const pendingReplyText = pendingInteractions.length > 0 && /^(确认|可以|同意|开始|继续|取消|不要|不用|否|好|好的|ok|OK|yes|no)[。.!！?？]*$/.test(String(content || '').trim())
     if (!isDirectAgentRoom && !shouldConsiderAssistantAutoReply(content, { hasPendingInteraction: pendingInteractions.length > 0 })) return
