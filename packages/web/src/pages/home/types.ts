@@ -3,7 +3,7 @@ import type { SwipeAction } from '../../components/SwipeActionItem'
 import type { AgentFormState, AgentToolKey } from '../home-agent-form'
 
 export type HomeTab = 'messages' | 'contacts' | 'market' | 'billing' | 'settings'
-export type ContactKind = 'people' | 'agents' | 'models' | 'scenes'
+export type ContactKind = 'people' | 'agents' | 'models' | 'scenes' | 'knowledge'
 export type MarketKind = 'agents' | 'models' | 'scenes'
 export type SelectedAgent = { agentId: string; autoEnabled: boolean }
 

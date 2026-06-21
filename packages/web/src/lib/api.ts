@@ -271,6 +271,13 @@ export const api = {
   createAgentScript: (id: string, body: any) => request<{ script: any }>(`/agents/${id}/scripts`, { method: 'POST', body: JSON.stringify(body) }),
   updateAgentScript: (id: string, scriptId: string, body: any) => request<{ script: any }>(`/agents/${id}/scripts/${scriptId}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteAgentScript: (id: string, scriptId: string) => request(`/agents/${id}/scripts/${scriptId}`, { method: 'DELETE' }),
+  getKnowledge: (params: Record<string, any> = {}) => {
+    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString()
+    return request<{ entries: any[] }>(`/knowledge${qs ? `?${qs}` : ''}`)
+  },
+  createKnowledge: (body: any) => request<{ entry: any }>('/knowledge', { method: 'POST', body: JSON.stringify(body) }),
+  updateKnowledge: (id: string, body: any) => request<{ entry: any }>(`/knowledge/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteKnowledge: (id: string) => request(`/knowledge/${id}`, { method: 'DELETE' }),
   getRoomAgents: (roomId: string) => request<{ agents: any[] }>(`/rooms/${roomId}/agents`),
   addRoomAgent: (roomId: string, agentId: string, options?: { roomRole?: 'assistant' | 'specialist'; autoEnabled?: boolean; priority?: number; confirmedPurchase?: boolean }) =>
     request(`/rooms/${roomId}/agents`, { method: 'POST', body: JSON.stringify({ agentId, ...(options || {}) }) }),

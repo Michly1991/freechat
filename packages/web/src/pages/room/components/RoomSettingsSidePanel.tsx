@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Activity, Bot, Settings, Shield, Wrench, X } from 'lucide-react'
+import { Activity, BookOpen, Bot, Settings, Shield, Wrench, X } from 'lucide-react'
 import { api } from '../../../lib/api'
 import AgentDreamPanel from '../../../features/analytics/AgentDreamPanel'
 import { RoomDiagnosticsPanel } from '../../../features/diagnostics/RoomDiagnosticsPanel'
 import { AgentRunsPanel } from './AgentRunsPanel'
+import { KnowledgePanel } from './KnowledgePanel'
 
-type SideTab = 'basic' | 'agent' | 'runs' | 'diagnostics' | 'advanced'
+type SideTab = 'basic' | 'agent' | 'knowledge' | 'runs' | 'diagnostics' | 'advanced'
 const tabs: Array<{ id: SideTab; label: string; icon: any }> = [
   { id: 'basic', label: '基本', icon: Settings },
   { id: 'agent', label: 'Agent', icon: Bot },
+  { id: 'knowledge', label: '知识', icon: BookOpen },
   { id: 'runs', label: '执行', icon: Activity },
   { id: 'diagnostics', label: '诊断', icon: Wrench },
   { id: 'advanced', label: '高级', icon: Shield },
@@ -57,6 +59,7 @@ export function RoomSettingsSidePanel({ open, onClose, roomId, room, roomAgents,
     <div className="flex-1 overflow-y-auto p-4 space-y-5">
       {activeTab === 'basic' && <section className="rounded-xl border border-gray-200 bg-white p-4"><h3 className="mb-3 font-semibold text-gray-800">基本信息</h3><div className="space-y-3"><div><label className="mb-1 block text-sm text-gray-600">房间名称</label><input value={editName} onChange={(e) => setEditName(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" /></div><div><label className="mb-1 block text-sm text-gray-600">描述</label><textarea value={editDesc} onChange={(e) => setEditDesc(e.target.value)} rows={3} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" /></div><button onClick={saveRoom} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">保存</button></div></section>}
       {activeTab === 'agent' && <div className="space-y-5"><section className="rounded-xl border border-gray-200 bg-white p-4"><h3 className="mb-3 font-semibold text-gray-800">Agent</h3><div className="space-y-2">{roomAgents.length === 0 && <p className="text-sm text-gray-400">暂无 Agent</p>}{roomAgents.map((agent: any) => <div key={agent.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 p-3"><div className="min-w-0"><span className="text-sm font-medium">{agent.name}</span><span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] ${agent.autoEnabled ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>{agent.autoEnabled ? '自动助理' : (agent.roomRole === 'assistant' ? '助理' : '专家')}</span>{agent.lastError && <p className="mt-1 truncate text-xs text-red-500">{agent.lastError}</p>}</div><button onClick={() => removeAgent(agent.id)} className="shrink-0 text-xs text-red-500 hover:text-red-700">移除</button></div>)}</div></section><AgentDreamPanel roomId={roomId} /></div>}
+      {activeTab === 'knowledge' && <div className="space-y-5"><KnowledgePanel scope="room" roomId={roomId} feedback={feedback} compact /><div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700">房间知识只在当前房间/客户/项目内生效，适合保存已确认事实、客户材料摘要、项目结论。</div></div>}
       {activeTab === 'runs' && <AgentRunsPanel roomId={roomId} roomAgents={roomAgents} restartAgent={restartAgent} feedback={feedback} />}
       {activeTab === 'diagnostics' && <RoomDiagnosticsPanel roomId={roomId} user={user} hasToken={!!localStorage.getItem('auth-storage')} note="右侧设置栏复用当前浏览器客户端日志；如需排查实时连接问题，先在房间里复现再复制日志。" />}
       {activeTab === 'advanced' && <div className="space-y-5"><section className="rounded-xl border border-gray-200 bg-white p-4"><h3 className="mb-3 font-semibold text-gray-800">邀请链接</h3><button onClick={generateInvite} className="rounded-lg bg-green-600 px-4 py-2 text-sm text-white hover:bg-green-700">生成邀请码</button>{inviteCode && <div className="mt-3 space-y-3"><input value={inviteCode} readOnly className="w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-sm font-mono" /><input value={inviteUrl} readOnly className="w-full rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-sm" /></div>}</section><section className="rounded-xl border border-red-200 bg-white p-4"><h3 className="mb-2 font-semibold text-red-600">危险操作</h3><p className="mb-3 text-sm text-gray-500">删除后项目会从列表隐藏；历史账单、流水和运行记录保留关联。</p><button disabled={deleting} onClick={deleteRoom} className="rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-60">{deleting ? '删除中...' : '删除项目'}</button></section></div>}

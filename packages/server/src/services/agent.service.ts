@@ -20,6 +20,7 @@ import { tabFilesMapService } from './tab-files-map.service.js'
 import { agentGrowthService } from './agent-growth.service.js'
 import { agentPackageService } from './agent-package.service.js'
 import { remoteAgentConnectorService } from './remote-agent-connector.service.js'
+import { knowledgeService } from './knowledge.service.js'
 
 export interface AgentConfig {
   name: string
@@ -796,7 +797,9 @@ export class AgentService {
 
   async spawnClaudeCode(roomId: string, agentId: string, message: string, options: { timeoutMs?: number; actorUserId?: string; onEvent?: (event: any) => void } & AgentRunContext = {}): Promise<{ response: string; silent: boolean }> {
     const agent = await this.getAgent(agentId)
-    remoteAgentConnectorService.enqueueRun(roomId, agentId, message, options)
+    const knowledge = knowledgeService.getRuntimeContext(roomId, agentId, message)
+    const input = knowledge ? `${knowledge}\n\n【用户/系统请求】\n${message}` : message
+    remoteAgentConnectorService.enqueueRun(roomId, agentId, input, options)
     return { response: '', silent: true }
   }
 

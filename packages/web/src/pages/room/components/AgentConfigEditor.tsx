@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../../lib/api'
 import { TemplatePermissionPanel } from './TemplatePermissionPanel'
+import { KnowledgePanel } from './KnowledgePanel'
 
 const TOOL_KEYS = ['chat', 'task', 'file', 'tab', 'interaction', 'members']
 function fmtCredit(n: any) { return Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
@@ -180,6 +181,8 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
         {canEdit && <pre className="text-xs bg-gray-900 text-gray-100 rounded-xl p-3 overflow-auto max-h-40 whitespace-pre-wrap mt-3">{agent.config?.systemPrompt || '暂无自定义提示词'}</pre>}
       </div>}
     </section>
+
+    {canEdit && <KnowledgePanel scope="agent" agentId={agent.id} feedback={feedback} compact />}
 
     {canEdit && <>
     <section className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">

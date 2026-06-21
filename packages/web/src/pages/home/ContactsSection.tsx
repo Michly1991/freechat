@@ -5,6 +5,7 @@ import { AGENT_TOOL_KEYS, agentToForm } from '../home-agent-form'
 import type { ContactsSectionProps } from './types'
 import { AgentConfigEditor } from '../room/components/AgentConfigEditor'
 import { TemplatePermissionPanel } from '../room/components/TemplatePermissionPanel'
+import { KnowledgePanel } from '../room/components/KnowledgePanel'
 
 function IdentityBadge({ identityType }: { identityType?: string }) {
   const isAgent = identityType === 'agent'
@@ -48,7 +49,7 @@ export function ContactsSection(props: ContactsSectionProps) {
         <div><h2 className="text-lg font-semibold text-gray-800">通讯录</h2><p className="text-xs text-gray-400 mt-0.5">管理好友、已关注 Agent/模型和已购买场景。</p></div>
       </div>
       <div className="overflow-x-auto pb-1 mb-4"><div className="inline-flex min-w-max rounded-xl bg-gray-100 p-1">
-        {[['people', '人员'], ['agents', 'Agent'], ['models', '模型'], ['scenes', '场景']].map(([key, label]) => <button key={key} onClick={() => setContactKind(key as any)} className={`rounded-lg px-4 py-2 text-sm ${contactKind === key ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>{label}</button>)}
+        {[['people', '人员'], ['agents', 'Agent'], ['models', '模型'], ['scenes', '场景'], ['knowledge', '知识']].map(([key, label]) => <button key={key} onClick={() => setContactKind(key as any)} className={`rounded-lg px-4 py-2 text-sm ${contactKind === key ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>{label}</button>)}
       </div></div>
       {contactKind === 'people' && <PeopleContacts
         searchQ={searchQ}
@@ -65,6 +66,7 @@ export function ContactsSection(props: ContactsSectionProps) {
       {contactKind === 'agents' && <AgentContacts agents={agents.filter((a: any) => a.canUse)} reloadAgents={reloadAgents} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} resetAgentEditor={resetAgentEditor} openCreateAgent={openCreateAgent} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} openAgentChat={openAgentChat} />}
       {contactKind === 'models' && <ModelContacts />}
       {contactKind === 'scenes' && <SceneContacts scenes={scenes.filter((s: any) => s.canUse)} agents={agents.filter((a: any) => a.canUse)} reloadScenes={reloadScenes} />}
+      {contactKind === 'knowledge' && <KnowledgePanel scope="public" feedback={{ error: alert, success: () => {} }} compact />}
     </section>
   )
 }
