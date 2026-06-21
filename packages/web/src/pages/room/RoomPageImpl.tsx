@@ -364,11 +364,6 @@ export function RoomPageImpl() {
   )
   return (
     <div className="h-screen flex flex-col bg-gray-50 relative">
-      {activePanel === 'chat' && voiceAvailable && voiceChatEnabled && (
-        <div className="mx-3 mt-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-          {voiceStatus === 'listening' ? '语音中：正在听，2 秒无声后自动发送；房间回复会自动播报。' : voiceStatus === 'transcribing' ? '正在转文字...' : voiceStatus === 'thinking' ? '已发送，等待回复...' : voiceStatus === 'speaking' ? '正在播报房间回复...' : '语音模式已开启，开始说话即可。'}
-        </div>
-      )}
       <RoomHeader
         room={room}
         members={members}

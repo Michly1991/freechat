@@ -103,6 +103,15 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
 
   const toggleExpanded = (messageId: string) => setExpandedMessageIds((prev) => ({ ...prev, [messageId]: !prev[messageId] }))
+  const voiceStatusText = voiceStatus === 'listening'
+    ? '正在听，2 秒无声后自动发送；房间回复会自动播报'
+    : voiceStatus === 'transcribing'
+      ? '正在转文字...'
+      : voiceStatus === 'thinking'
+        ? '已发送，等待回复...'
+        : voiceStatus === 'speaking'
+          ? '正在播报房间回复...'
+          : '语音模式已开启，开始说话即可'
 
   const copyMessage = async (messageId: string, content: string) => {
     if (!content.trim()) return
@@ -181,6 +190,14 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
         <div ref={messagesEndRef} />
         {roomNewMessageCount > 0 && <button onClick={scrollToBottomAndRead} className="fc-pressable sticky bottom-2 mx-auto block rounded-full bg-blue-600 px-4 py-2 text-xs font-medium text-white shadow-lg shadow-blue-500/20">有 {roomNewMessageCount} 条新消息</button>}
       </div>
+      {voiceAvailable && voiceChatEnabled && (
+        <div className="shrink-0 border-t border-emerald-100 bg-emerald-50/95 px-3 py-2 text-xs text-emerald-700 sm:px-4">
+          <div className="mx-auto flex max-w-3xl items-center gap-2 rounded-xl border border-emerald-100 bg-white/70 px-3 py-2 shadow-sm">
+            <span className={`h-2 w-2 rounded-full ${voiceStatus === 'listening' ? 'animate-pulse bg-emerald-500' : voiceStatus === 'speaking' ? 'animate-pulse bg-blue-500' : 'bg-emerald-400'}`} />
+            <span className="min-w-0 flex-1 truncate">{voiceStatusText}</span>
+          </div>
+        </div>
+      )}
       <form onSubmit={sendMessage} className="fc-mobile-glass p-3 sm:p-4 bg-white border-t border-gray-200 shrink-0 relative safe-area-inset-bottom">
         {showMentionPopup && (filteredMembers.length > 0 || filteredAgents.length > 0 || filteredFiles.length > 0) && <div className="fc-sheet-pop absolute bottom-full left-3 right-3 sm:left-4 sm:right-4 bg-white border border-gray-200 rounded-2xl shadow-xl max-h-[45vh] sm:max-h-72 overflow-y-auto z-10 mb-2">
           {filteredMembers.length > 0 && <><div className="px-3 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">成员</div>{filteredMembers.map((m) => <div key={m.id || m.userId} className="px-3 py-2.5 min-h-11 hover:bg-blue-50 cursor-pointer text-sm flex items-center gap-2" onClick={() => insertMention(m, 'member')}>{renderAvatar(getMemberDisplayName(m), getMemberAvatar(m), 'w-6 h-6')}<span className="flex-1">{getMemberDisplayName(m)}</span></div>)}</>}
