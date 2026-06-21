@@ -15,6 +15,19 @@ const BRIDGE_SCRIPT = `
   function scrollToAnchor(anchor) {
     var el = findAnchor(anchor);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return el;
+  }
+  function highlightTarget(data) {
+    var el = null;
+    if (data.selector) { try { el = document.querySelector(data.selector); } catch (_) {} }
+    if (!el) el = findAnchor(data.elementId || data.anchor);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    var oldOutline = el.style.outline;
+    var oldBg = el.style.backgroundColor;
+    el.style.outline = '3px solid #f59e0b';
+    el.style.backgroundColor = 'rgba(245, 158, 11, 0.16)';
+    window.setTimeout(function () { el.style.outline = oldOutline; el.style.backgroundColor = oldBg; }, 2600);
   }
   document.addEventListener('click', function (event) {
     var link = event.target && event.target.closest ? event.target.closest('[data-freechat-tab-id], [data-freechat-tab-title], [data-freechat-anchor]') : null;
@@ -29,6 +42,7 @@ const BRIDGE_SCRIPT = `
   window.addEventListener('message', function (event) {
     var data = event.data || {};
     if (data.type === 'freechat.page.scrollTo') scrollToAnchor(data.anchor);
+    if (data.type === 'freechat.page.highlight') highlightTarget(data);
   });
 })();
 </script>`

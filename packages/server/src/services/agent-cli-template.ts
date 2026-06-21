@@ -43,7 +43,7 @@ function usage() {
     'Commands:',
     '  ./freechat tool list',
     '  ./freechat tool schema <toolName>',
-    '  ./freechat tool call <toolName> \'<jsonArgs>\'',
+    "  ./freechat tool call <toolName> '<jsonArgs>'",
     '  ./freechat chat recent [limit]  (default 30)',
     '  ./freechat chat send <content>',
     '  ./freechat task list [status]',
@@ -79,12 +79,18 @@ function usage() {
     '  ./freechat tab-config add-file <path> [tabKey]',
     '  ./freechat tab-config remove-file <path> [tabKey]',
     '  ./freechat tab list',
+    '  ./freechat tab get <tabId|title>',
+    '  ./freechat tab search <query>',
     '  ./freechat tab create <title> <htmlContent>',
     '  ./freechat tab create-file <title> <projectFilePath>',
     '  ./freechat tab create-local <title> <localPath>',
     '  ./freechat tab update <tabId> <htmlContent>',
     '  ./freechat tab update-file <tabId> <projectFilePath>',
     '  ./freechat tab update-local <tabId> <localPath>',
+    '  ./freechat tab patch <tabId|title> --find <oldText> --replace <newText>',
+    '  ./freechat tab patch-json <localJsonPath>',
+    '  ./freechat tab open <tabId|title> [--anchor <anchor>]',
+    '  ./freechat tab action <tabId|title> <open|scrollTo|highlight> [--anchor <anchor>] [--selector <selector>]',
     '  ./freechat tab delete <tabId>',
     '  ./freechat tab reorder <tabId> [tabId...]',
     '  ./freechat members list',
@@ -126,7 +132,7 @@ function usage() {
     '  ./freechat dm messages <conversationId> [limit]',
     '  ./freechat dm send <conversationId> <content>',
     '  ./freechat selftest smoke',
-    '  ./freechat raw <action> \'<jsonArgs>\'',
+    "  ./freechat raw <action> '<jsonArgs>'",
     '',
     'Compatibility aliases:',
     '  tab create-from-file/update-from-file, tab create-from-local/update-from-local',
@@ -443,6 +449,13 @@ if (domain === 'tool' && cmd === 'list') {
   call('tab.files');
 } else if (domain === 'tab' && cmd === 'list') {
   call('tab.list');
+} else if (domain === 'tab' && ['get', 'read'].includes(cmd)) {
+  if (!rest[0]) die('tabId or title is required');
+  call('tab.get', { target: rest[0] });
+} else if (domain === 'tab' && cmd === 'search') {
+  const query = rest.join(' ').trim();
+  if (!query) die('query is required');
+  call('tab.search', { query });
 } else if (domain === 'tab' && cmd === 'create') {
   const parsed = parseNamedOptions(rest);
   if (!parsed.args[0]) die('title is required');
@@ -464,6 +477,21 @@ if (domain === 'tool' && cmd === 'list') {
 } else if (domain === 'tab' && ['update-local', 'update-from-local'].includes(cmd)) {
   if (!rest[0] || !rest[1]) die('tabId and localPath are required');
   call('tab.update', { tabId: rest[0], content: readLocalFile(rest[1]) });
+} else if (domain === 'tab' && cmd === 'patch') {
+  const parsed = parseNamedOptions(rest);
+  if (!parsed.args[0]) die('tabId or title is required');
+  call('tab.patch', { target: parsed.args[0], find: parsed.options.find || parsed.options.oldText, replace: parsed.options.replace || parsed.options.newText });
+} else if (domain === 'tab' && cmd === 'patch-json') {
+  if (!rest[0]) die('localJsonPath is required');
+  call('tab.patch', JSON.parse(readLocalFile(rest[0])));
+} else if (domain === 'tab' && ['open', 'focus'].includes(cmd)) {
+  const parsed = parseNamedOptions(rest);
+  if (!parsed.args[0]) die('tabId or title is required');
+  call('tab.open', { target: parsed.args[0], anchor: parsed.options.anchor });
+} else if (domain === 'tab' && cmd === 'action') {
+  const parsed = parseNamedOptions(rest);
+  if (!parsed.args[0] || !parsed.args[1]) die('tabId/title and action are required');
+  call('tab.action', { target: parsed.args[0], type: parsed.args[1], anchor: parsed.options.anchor, selector: parsed.options.selector, elementId: parsed.options.elementId });
 } else if (domain === 'tab' && cmd === 'delete') {
   if (!rest[0]) die('tabId is required');
   call('tab.delete', { tabId: rest[0] });

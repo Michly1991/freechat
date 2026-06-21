@@ -40,6 +40,22 @@ export function RoomTabsPanel(props: RoomTabsPanelProps) {
   const [pendingAnchor, setPendingAnchor] = useState<string | null>(null)
 
   useEffect(() => {
+    const handleTabAction = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {}
+      if (detail.tabId) setActiveTabId(detail.tabId)
+      const send = () => {
+        if (!iframeRef.current?.contentWindow) return
+        if (detail.type === 'highlight') iframeRef.current.contentWindow.postMessage({ type: 'freechat.page.highlight', ...detail }, '*')
+        else iframeRef.current.contentWindow.postMessage({ type: 'freechat.page.scrollTo', anchor: detail.anchor || detail.elementId }, '*')
+      }
+      window.setTimeout(send, 120)
+      window.setTimeout(send, 360)
+    }
+    window.addEventListener('freechat:tab-action', handleTabAction as EventListener)
+    return () => window.removeEventListener('freechat:tab-action', handleTabAction as EventListener)
+  }, [setActiveTabId])
+
+  useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const data = event.data || {}
       if (data.type === 'freechat.file.read') {

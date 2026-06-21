@@ -18,7 +18,7 @@ import { sceneTemplateService } from '../services/scene-template.service.js'
 import { tabConfigService } from '../services/tab-config.service.js'
 import { interactionService } from '../services/interaction.service.js'
 import { materializeAgentCreateRequest, materializeTaskPlan } from './interactions.js'
-import { handleAppUiTool } from './agent-tools.app-ui.js'; import { handleFileTool } from './agent-tools-file.js'; import { handleRoomHandoffTool } from './agent-tools-handoff.js'
+import { handleAppUiTool } from './agent-tools.app-ui.js'; import { handleFileTool } from './agent-tools-file.js'; import { handleTabTool } from './agent-tools-tab.js'; import { handleRoomHandoffTool } from './agent-tools-handoff.js'
 import { getGateway } from '../ws/gateway.js'
 import { getActiveAgentStream } from '../ws/agent-stream-events.js'
 import { agentStreamService } from '../services/agent-stream.service.js'
@@ -90,6 +90,10 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
       const fileTool = await handleFileTool({ action: String(action || ''), args, roomId, filesDir, actorUserId, broadcast })
       if (fileTool.handled) {
         return fileTool.response
+      }
+      const tabTool = await handleTabTool({ action: String(action || ''), args, roomId, actorUserId, broadcast })
+      if (tabTool.handled) {
+        return tabTool.response
       }
       switch (action) {
         case 'chat.send': {

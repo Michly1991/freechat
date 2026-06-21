@@ -24,7 +24,7 @@ const TOOL_NAMES = [
   'task.subtask.list', 'task.subtask.add', 'task.subtask.update', 'task.subtask.delete', 'task.subtask.retry',
   'file.list', 'file.read', 'file.info', 'file.write', 'file.mkdir', 'file.delete',
   'tab-config.list', 'tab-config.add-file', 'tab-config.remove-file',
-  'tab.list', 'tab.create', 'tab.create-from-file', 'tab.update', 'tab.delete', 'tab.reorder',
+  'tab.list', 'tab.get', 'tab.search', 'tab.create', 'tab.create-from-file', 'tab.update', 'tab.patch', 'tab.delete', 'tab.reorder', 'tab.set-default', 'tab.open', 'tab.action',
   'members.list', 'members.add', 'profiles.list', 'profiles.update', 'users.get', 'users.search',
   'agent.list-available', 'agent.room-list', 'agent.create-request', 'agent.add', 'agent.remove', 'agent.restart',
   'agent.detail', 'agent.update', 'agent.skill.list', 'agent.skill.create', 'agent.skill.update', 'agent.skill.delete',

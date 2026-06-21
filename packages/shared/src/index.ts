@@ -154,7 +154,7 @@ export const DEFAULT_ASSISTANT_AGENT_CONFIG: AgentRuntimeConfig = {
 
 export const DEFAULT_SPECIALIST_AGENT_CONFIG: AgentRuntimeConfig = {
   behavior: { replyMode: 'mention_only', silentAllowed: true },
-  tools: { chat: true, task: true, file: true, tab: false, interaction: true, members: true },
+  tools: { chat: true, task: true, file: true, tab: true, interaction: true, members: true },
 }
 
 // === Room Types ===

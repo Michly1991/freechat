@@ -161,3 +161,20 @@ CLAUDE.md
 ```
 
 因此 Agent 的文件、任务、handoff 等命令以服务端最新模板为准；客户端不再维护一份过期的简化 CLI。服务端新增 `file write-local/upload/download/promote` 等命令后，客户端在下一次规范刷新后即可使用。
+
+## 页面 Tab API 联动
+
+Agent 除了文件 API，还可以通过 Page/Tab API 查询和维护用户可见页面：
+
+```bash
+./freechat tab list
+./freechat tab get <tabId|title>
+./freechat tab search <query>
+./freechat tab create-local "页面标题" res/page.html
+./freechat tab update-local <tabId> res/page.html
+./freechat tab patch <tabId|title> --find <oldText> --replace <newText>
+./freechat tab open <tabId|title> --anchor summary
+./freechat tab action <tabId|title> highlight --selector '[data-freechat-id="risk-1"]'
+```
+
+页面操作仍由服务端按 room 维度鉴权，并通过前端白名单动作执行；Agent 不拥有任意浏览器 JS 执行权限。详见 `DESIGN-AGENT-PAGE-TAB-TOOLS.md`。

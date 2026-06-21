@@ -23,6 +23,18 @@ export class SystemAdminService {
       WHERE config LIKE '%"defaultRoomAssistant":true%'
          OR config LIKE '%"builtInKey":"default_assistant"%'
     `).run(SYSTEM_ADMIN_USER_ID, now)
+    this.ensureTabToolPermission(now)
+  }
+
+  private ensureTabToolPermission(now: number): void {
+    const rows = db.prepare('SELECT id, config FROM agents').all() as any[]
+    const update = db.prepare('UPDATE agents SET config = ?, updated_at = ? WHERE id = ?')
+    for (const row of rows) {
+      let cfg: any = {}
+      try { cfg = row.config ? JSON.parse(row.config) : {} } catch { cfg = {} }
+      cfg.tools = { chat: true, task: true, file: true, interaction: true, members: true, ...(cfg.tools || {}), tab: true }
+      update.run(JSON.stringify(cfg), now, row.id)
+    }
   }
 }
 

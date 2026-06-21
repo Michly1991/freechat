@@ -86,10 +86,10 @@ async function tick() {
   reconcileStreams(enabledAgents)
   for (const agent of enabledAgents) {
     ensureStream(cfg, agent)
-    if (activeCount() >= cfg.maxConcurrency || activeCount(agent.agentId) >= agent.maxConcurrency) continue
     try {
       await heartbeat(cfg, agent)
       updateAgent(agent.agentId, { status: activeCount(agent.agentId) > 0 ? 'running' : 'idle', lastSeenAt: Date.now() })
+      if (activeCount() >= cfg.maxConcurrency || activeCount(agent.agentId) >= agent.maxConcurrency) continue
       const events = await pollEvents(cfg, agent)
       for (const event of events) {
         if (activeCount() >= cfg.maxConcurrency || activeCount(agent.agentId) >= agent.maxConcurrency) break

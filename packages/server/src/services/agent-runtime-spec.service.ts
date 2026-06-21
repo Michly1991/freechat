@@ -29,6 +29,14 @@ const RUNTIME_RULES = `# FreeChat Agent Runtime Spec
 - 如需在文件 Tab 显示，加 \`--show\` 或执行 \`./freechat file show <path>\`。
 - 如需发布用户可见页面，使用 \`./freechat tab create-local/update-local\`。
 
+## 页面 Tab 工具规则
+
+- 页面 Tab 的查询、创建、更新、局部修改和受控操作都必须通过 \`./freechat tab ...\`。
+- 先用 \`./freechat tab list/get/search\` 查询现有页面，再决定创建还是修改。
+- 大页面先写本地 HTML 文件，再用 \`./freechat tab create-local\` 或 \`update-local\` 发布。
+- 页面需要后续局部修改时，为关键区域增加 \`id\` 或 \`data-freechat-id\`。
+- 页面操作只支持受控动作：\`open\`、\`scrollTo\`、\`highlight\`；不要要求执行任意浏览器 JS。
+
 ## Agent 协作规则
 
 - 普通聊天中不要假 \`@另一个Agent\` 试图触发对方。

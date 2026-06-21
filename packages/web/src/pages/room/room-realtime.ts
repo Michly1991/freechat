@@ -108,6 +108,14 @@ export function createRoomRuntimeActions(deps: any) {
     else if (msg.action === 'error') { const text = msg.payload?.message || msg.payload?.error || '操作失败'; setSendError(text); feedback.error(text); addClientLog('error', 'ws', 'api error', msg.payload || {}) }
     else if (msg.action === 'files.updated') loadFiles()
     else if (msg.action === 'tabs.updated') loadTabs()
+    else if (msg.action === 'tab.open') {
+      setActiveTabId?.(msg.payload?.tabId || null)
+      if (msg.payload?.anchor) window.setTimeout(() => window.dispatchEvent(new CustomEvent('freechat:tab-action', { detail: { type: 'scrollTo', ...msg.payload } })), 150)
+    }
+    else if (msg.action === 'tab.action') {
+      setActiveTabId?.(msg.payload?.tabId || null)
+      window.setTimeout(() => window.dispatchEvent(new CustomEvent('freechat:tab-action', { detail: msg.payload })), 150)
+    }
   }
 
   const sendWs = (action: string, payload: any): boolean => {
