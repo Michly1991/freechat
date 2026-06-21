@@ -166,6 +166,12 @@ export interface Room {
   createdAt: number
   updatedAt: number
   lastActiveAt: number
+  roomKind?: 'project' | 'group' | 'direct_user' | 'direct_agent'
+  currentAssistantAgentId?: string
+  assistantMode?: 'fixed' | 'handoff'
+  assistantHandoffAt?: number
+  assistantHandoffBy?: string
+  assistantHandoffReason?: string
 }
 
 export interface RoomMember {

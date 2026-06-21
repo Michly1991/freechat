@@ -304,7 +304,7 @@ export function RoomPageImpl() {
     if (!primaryAssistant) return roomAgents
     return roomAgents.filter((agent) => !(agent.roleType === 'assistant' && agent.name === primaryAssistant.name && agent.id !== primaryAssistant.id && agent.roomRole !== 'assistant'))
   })()
-  const defaultAssistant = visibleRoomAgents.find((agent) => agent.roleType === 'assistant') || visibleRoomAgents[0]
+  const defaultAssistant = visibleRoomAgents.find((agent) => room?.currentAssistantAgentId ? agent.id === room.currentAssistantAgentId : agent.autoEnabled) || visibleRoomAgents[0]
   const workingAgents = visibleRoomAgents.filter((agent) => getAgentOnlineStatus(agent) === 'working')
   const errorAgents = visibleRoomAgents.filter((agent) => getAgentOnlineStatus(agent) === 'error' || agent.status === 'error')
   const { getActorMember, getActorAgent, getActorAvatar, openMemberProfile, renderAssigneeBadge } = createRoomProfileController({ members, roomAgents: visibleRoomAgents, setSelectedProfile })

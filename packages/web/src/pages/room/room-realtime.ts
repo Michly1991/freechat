@@ -101,6 +101,7 @@ export function createRoomRuntimeActions(deps: any) {
     else if (msg.action === 'chat.edited') setMessages((prev: any[]) => { const next = mergeMessages(prev.map((m) => (m.id === msg.payload.id ? { ...m, ...msg.payload } : m))); if (roomId) writeCachedMessages(roomId, next); return next })
     else if (msg.action === 'chat.deleted') setMessages((prev: any[]) => { const next = prev.filter((m) => m.id !== msg.payload.message_id); if (roomId) writeCachedMessages(roomId, next); return next })
     else if (msg.action === 'room.members_update') { setMembers(msg.payload.members || []); if (Array.isArray(msg.payload.agents)) setRoomAgents(msg.payload.agents) }
+    else if (msg.action === 'room.updated') setRoom(msg.payload.room)
     else if (msg.action === 'agent.status_update') setRoomAgents((prev: any[]) => prev.map((a) => a.id === msg.payload.agentId ? { ...a, ...msg.payload } : a))
     else if (msg.action === 'task.list_result') setTasks(msg.payload.tasks || [])
     else if (msg.action === 'task.changed') { if (msg.payload.action === 'add') setTasks((prev: any[]) => prev.some((t) => t.id === msg.payload.task.id) ? prev.map((t) => (t.id === msg.payload.task.id ? msg.payload.task : t)) : [msg.payload.task, ...prev]); else if (msg.payload.action === 'update') setTasks((prev: any[]) => prev.some((t) => t.id === msg.payload.task.id) ? prev.map((t) => (t.id === msg.payload.task.id ? msg.payload.task : t)) : [msg.payload.task, ...prev]); else if (msg.payload.action === 'delete') setTasks((prev: any[]) => prev.filter((t) => t.id !== msg.payload.task_id)) }

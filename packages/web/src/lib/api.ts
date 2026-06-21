@@ -270,6 +270,8 @@ export const api = {
     request(`/rooms/${roomId}/agents`, { method: 'POST', body: JSON.stringify({ agentId, ...(options || {}) }) }),
   removeRoomAgent: (roomId: string, agentId: string) =>
     request(`/rooms/${roomId}/agents/${agentId}`, { method: 'DELETE' }),
+  handoffRoomAssistant: (roomId: string, agentId: string, reason?: string) =>
+    request<{ room: any; agents: any[] }>(`/rooms/${roomId}/assistant/handoff`, { method: 'POST', body: JSON.stringify({ agentId, reason }) }),
   restartRoomAgent: (roomId: string, agentId: string, clearSession = true, mode: 'soft' | 'force' = 'soft') =>
     request<{ agent: any; pendingSubtasks: any[]; mode: 'soft' | 'force'; stoppedRuntime?: any }>(`/rooms/${roomId}/agents/${agentId}/restart`, { method: 'POST', body: JSON.stringify({ clearSession, mode }) }),
   updateRoomAgentModel: (roomId: string, agentId: string, body: any) =>

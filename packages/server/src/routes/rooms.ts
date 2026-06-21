@@ -135,6 +135,18 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     }
   })
 
+  app.post('/api/rooms/:id/assistant/handoff', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    const { agentId, reason } = request.body as any
+    if (!(await roomService.isMember(id, user.id))) return reply.code(403).send({ success: false, error: { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' } })
+    const room = await roomService.handoffAssistant(id, String(agentId || ''), user.id, reason)
+    const agents = await agentService.getRoomAgents(id)
+    getGateway()?.broadcast(id, { action: 'room.members_update', payload: { members: await roomService.getRoomMembers(id), agents } })
+    getGateway()?.broadcast(id, { action: 'room.updated', payload: { room } })
+    return reply.send({ success: true, data: { room, agents } })
+  })
+
   // Get room tasks
   app.get('/api/rooms/:id/tasks', async (request, reply) => {
     const user = (request as any).user

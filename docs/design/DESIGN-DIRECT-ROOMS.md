@@ -71,3 +71,38 @@
 ## 兼容
 
 旧 `dm_conversations` / `dm_messages` 暂保留，避免破坏历史入口和兼容工具。新的通讯录“发消息”入口改走 Direct Room；后续可评估迁移旧 DM 历史到房间消息。
+
+## 房间当前接待 / Handoff 模式
+
+Agent 模板本身不区分专家/助理；“当前接待”是房间运行时身份。房间支持 handoff：
+
+- `rooms.assistant_mode`：默认 `fixed`，发生转接后为 `handoff`。
+- `rooms.current_assistant_agent_id`：当前接待 Agent。
+- `rooms.assistant_handoff_at/by/reason`：最近一次转接审计信息。
+- `agentService.getAutoAgent(roomId)` 优先读取 `current_assistant_agent_id`，否则回退到 `room_agents.auto_enabled = 1`。
+- 转接时会同步更新 `room_agents`：目标 Agent 设为 `room_role = assistant + auto_enabled = 1`，其他 Agent 设为普通可接待。
+
+API：
+
+```http
+POST /api/rooms/:id/assistant/handoff
+{ "agentId": "agent_xxx", "reason": "刑事案件由张小猫接待" }
+```
+
+Agent 工具 / CLI：
+
+```bash
+./freechat room handoff --agent 张小猫 --reason "刑事案件更适合张小猫接待"
+```
+
+语义边界：
+
+- 客服/接待场景需要另一个 Agent 继续对话时，使用 handoff。
+- 项目协作产出、明确子任务、异步执行事项，使用 task/subtask `--assignee`。
+- 普通聊天中 AI 文本 `@另一个Agent` 不会触发该 Agent；服务端会拦截带转交意图的假 @ 并提示改用 handoff 或任务分派。
+
+前端展示：
+
+- 房间头部显示“接待：Agent 名称”。
+- 成员面板 Agent 行显示“当前接待 / 可接待”。
+- 非当前接待 Agent 可手动点击“接待”切换。

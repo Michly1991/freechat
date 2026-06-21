@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Bot, Crown, Plus, ShieldCheck, UserRound, Wrench, X } from 'lucide-react'
+import { Bot, Crown, Plus, ShieldCheck, UserRound, X } from 'lucide-react'
 import { api } from '../../../lib/api'
 import { AgentRow } from './AgentRow'
 import { getAgentStatusDotClass, getAgentStatusLabel, getMemberAvatar, getMemberDisplayName, renderAgentAvatar, renderAvatar } from '../room-ui-utils'
@@ -58,7 +58,7 @@ function AddContactMembers({ roomId, members, feedback, onMembersChanged, compac
     if (!roomId) return
     try {
       await api.addRoomMember(roomId, userId, 'editor')
-      feedback?.success?.('通讯录成员已添加到项目')
+      feedback?.success?.('通讯录成员已添加到群聊')
       onMembersChanged?.()
       setFriends((items) => [...items])
     } catch (err: any) {
@@ -82,7 +82,7 @@ function AddContactMembers({ roomId, members, feedback, onMembersChanged, compac
             {friend.avatar ? <img src={friend.avatar} alt="头像" className="w-8 h-8 rounded-full object-cover border border-gray-200" /> : <span className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-white text-xs font-semibold">{(friend.nickname || friend.username || '?')[0].toUpperCase()}</span>}
             <div className="min-w-0"><p className="flex items-center gap-1 text-sm font-medium text-gray-800"><span className="truncate">{friend.nickname || friend.username || '未命名用户'}</span><IdentityBadge identityType={friend.identityType} compact /></p>{friend.username && <p className="text-xs text-gray-400 truncate">@{friend.username}</p>}</div>
           </div>
-          {already ? <span className="text-xs text-gray-400 shrink-0">已在项目</span> : <button onClick={() => addMember(friendId)} className="text-xs text-blue-600 hover:text-blue-700 shrink-0">添加</button>}
+          {already ? <span className="text-xs text-gray-400 shrink-0">已在群聊</span> : <button onClick={() => addMember(friendId)} className="text-xs text-blue-600 hover:text-blue-700 shrink-0">添加</button>}
         </div>
       })}
     </div>}
@@ -104,11 +104,11 @@ function AddAvailableAgents({ roomId, roomAgents, feedback, onMembersChanged, co
     if (!roomId) return
     try {
       if (!agent.isOwner) {
-        const ok = feedback?.confirm ? await feedback.confirm({ title: '启用收费 Agent？', message: `「${agent.name}」按 token 收取 Agent 服务费，实际运行时会扣除 credit。确认添加到项目？`, confirmText: '确认添加' }) : window.confirm(`「${agent.name}」按 token 收取 Agent 服务费，实际运行时会扣除 credit。确认添加到项目？`)
+        const ok = feedback?.confirm ? await feedback.confirm({ title: '启用收费 Agent？', message: `「${agent.name}」按 token 收取 Agent 服务费，实际运行时会扣除 credit。确认添加到群聊？`, confirmText: '确认添加' }) : window.confirm(`「${agent.name}」按 token 收取 Agent 服务费，实际运行时会扣除 credit。确认添加到群聊？`)
         if (!ok) return
       }
       await api.addRoomAgent(roomId, agent.id, { roomRole: asAssistant ? 'assistant' : 'specialist', autoEnabled: asAssistant })
-      feedback?.success?.('Agent 已添加到项目')
+      feedback?.success?.('Agent 已添加到群聊')
       onMembersChanged?.()
       const data = await api.getAgents()
       setAgents((data.agents || []).filter((item: any) => item.canUse))
@@ -129,8 +129,8 @@ function AddAvailableAgents({ roomId, roomAgents, feedback, onMembersChanged, co
         const already = roomAgents.some((item: any) => item.id === agent.id || item.sourceTemplateId === agent.id)
         return <div key={agent.id} className="rounded-lg bg-white border border-gray-100 p-2 space-y-2">
           <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0"><p className="text-sm font-medium text-gray-800 truncate">{agent.name}<span className="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-600">{agent.roleType === 'assistant' ? '助理' : '专家'}</span></p>{agent.description && <p className="text-xs text-gray-400 mt-1 line-clamp-2">{agent.description}</p>}</div>
-            {already ? <span className="text-xs text-gray-400 shrink-0">已在项目</span> : <div className="flex flex-col gap-1 shrink-0"><button onClick={() => addAgent(agent, false)} className="text-xs text-green-600 hover:text-green-700">作为专家</button><button onClick={() => addAgent(agent, true)} className="text-xs text-blue-600 hover:text-blue-700">自动助理</button></div>}
+            <div className="min-w-0"><p className="text-sm font-medium text-gray-800 truncate">{agent.name}</p>{agent.description && <p className="text-xs text-gray-400 mt-1 line-clamp-2">{agent.description}</p>}</div>
+            {already ? <span className="text-xs text-gray-400 shrink-0">已在群聊</span> : <div className="flex flex-col gap-1 shrink-0"><button onClick={() => addAgent(agent, false)} className="text-xs text-green-600 hover:text-green-700">添加</button><button onClick={() => addAgent(agent, true)} className="text-xs text-blue-600 hover:text-blue-700">设为接待</button></div>}
           </div>
         </div>
       })}
@@ -162,11 +162,12 @@ export function DesktopMembersPanel({ showMembers, setShowMembers, members, room
   const orderedMembers = useMemo(() => sortedMembers(members), [members])
   const admins = orderedMembers.filter((member: any) => member.role === 'owner')
   const payer = orderedMembers.find((member: any) => (member.userId || member.id) === room?.createdBy)
+  const handoffAgent = async (agent: any) => { if (!roomId) return; try { await api.handoffRoomAssistant(roomId, agent.id, `手动切换当前接待为 ${agent.name}`); feedback?.success?.(`已切换当前接待为 ${agent.name}`); onMembersChanged?.() } catch (err: any) { feedback?.error?.(err?.message || '切换接待失败') } }
   const removeAgent = async (agent: any) => {
     if (!roomId) return
-    const ok = feedback?.confirm ? await feedback.confirm({ title: '移除 Agent？', message: `确认把「${agent.name}」从当前项目移除？不会删除通讯录里的 Agent。`, confirmText: '确认移除' }) : window.confirm(`确认把「${agent.name}」从当前项目移除？不会删除通讯录里的 Agent。`)
+    const ok = feedback?.confirm ? await feedback.confirm({ title: '移除 Agent？', message: `确认把「${agent.name}」从当前群聊移除？不会删除通讯录里的 Agent。`, confirmText: '确认移除' }) : window.confirm(`确认把「${agent.name}」从当前群聊移除？不会删除通讯录里的 Agent。`)
     if (!ok) return
-    try { await api.removeRoomAgent(roomId, agent.id); feedback?.success?.('Agent 已从项目移除'); onMembersChanged?.() } catch (err: any) { feedback?.error?.(err?.message || '移除 Agent 失败') }
+    try { await api.removeRoomAgent(roomId, agent.id); feedback?.success?.('Agent 已从群聊移除'); onMembersChanged?.() } catch (err: any) { feedback?.error?.(err?.message || '移除 Agent 失败') }
   }
   if (!showMembers) return null
   return <div className="order-first w-64 border-r border-gray-200 bg-white overflow-y-auto shrink-0 hidden md:block relative">
@@ -178,7 +179,7 @@ export function DesktopMembersPanel({ showMembers, setShowMembers, members, room
       <AddContactMembers roomId={roomId} members={members} feedback={feedback} onMembersChanged={onMembersChanged} />
       <AddAvailableAgents roomId={roomId} roomAgents={roomAgents} feedback={feedback} onMembersChanged={onMembersChanged} />
       <div className="space-y-1">{orderedMembers.map((member: any) => <MemberListItem key={member.id || member.userId} member={member} room={room} openMemberProfile={openMemberProfile} />)}</div>
-      {roomAgents.length > 0 && <><h3 className="text-sm font-semibold text-gray-700 mt-6 mb-4 flex items-center justify-between">AI Agents<span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{roomAgents.length}</span></h3><div className="space-y-1">{roomAgents.map((agent: any) => <AgentRow key={agent.id} agent={agent} openMemberProfile={openMemberProfile} restartAgent={restartAgent} openModelConfig={openModelConfig} removeAgent={removeAgent} />)}</div></>}
+      {roomAgents.length > 0 && <><h3 className="text-sm font-semibold text-gray-700 mt-6 mb-4 flex items-center justify-between">AI Agents<span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{roomAgents.length}</span></h3><div className="space-y-1">{roomAgents.map((agent: any) => <AgentRow key={agent.id} agent={agent} room={room} openMemberProfile={openMemberProfile} restartAgent={restartAgent} openModelConfig={openModelConfig} removeAgent={removeAgent} handoffAgent={handoffAgent} />)}</div></>}
     </div>
   </div>
 }
@@ -187,11 +188,12 @@ export function MobileMembersDrawer({ showMobileMembers, setShowMobileMembers, m
   const orderedMembers = useMemo(() => sortedMembers(members), [members])
   const admins = orderedMembers.filter((member: any) => member.role === 'owner')
   const payer = orderedMembers.find((member: any) => (member.userId || member.id) === room?.createdBy)
+  const handoffAgent = async (agent: any) => { if (!roomId) return; try { await api.handoffRoomAssistant(roomId, agent.id, `手动切换当前接待为 ${agent.name}`); feedback?.success?.(`已切换当前接待为 ${agent.name}`); onMembersChanged?.() } catch (err: any) { feedback?.error?.(err?.message || '切换接待失败') } }
   const removeAgent = async (agent: any) => {
     if (!roomId) return
-    const ok = feedback?.confirm ? await feedback.confirm({ title: '移除 Agent？', message: `确认把「${agent.name}」从当前项目移除？不会删除通讯录里的 Agent。`, confirmText: '确认移除' }) : window.confirm(`确认把「${agent.name}」从当前项目移除？不会删除通讯录里的 Agent。`)
+    const ok = feedback?.confirm ? await feedback.confirm({ title: '移除 Agent？', message: `确认把「${agent.name}」从当前群聊移除？不会删除通讯录里的 Agent。`, confirmText: '确认移除' }) : window.confirm(`确认把「${agent.name}」从当前群聊移除？不会删除通讯录里的 Agent。`)
     if (!ok) return
-    try { await api.removeRoomAgent(roomId, agent.id); feedback?.success?.('Agent 已从项目移除'); onMembersChanged?.() } catch (err: any) { feedback?.error?.(err?.message || '移除 Agent 失败') }
+    try { await api.removeRoomAgent(roomId, agent.id); feedback?.success?.('Agent 已从群聊移除'); onMembersChanged?.() } catch (err: any) { feedback?.error?.(err?.message || '移除 Agent 失败') }
   }
   if (!showMobileMembers) return null
   return <div className="md:hidden fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={() => setShowMobileMembers(false)}>
@@ -204,7 +206,7 @@ export function MobileMembersDrawer({ showMobileMembers, setShowMobileMembers, m
         <AddAvailableAgents roomId={roomId} roomAgents={roomAgents} feedback={feedback} onMembersChanged={onMembersChanged} compact />
         <h4 className="px-1 text-xs font-semibold text-gray-500 uppercase tracking-wide">在线成员</h4>
         {orderedMembers.map((member: any) => <MemberListItem key={member.id || member.userId} member={member} room={room} openMemberProfile={openMemberProfile} mobile />)}
-        {roomAgents.length > 0 && <><h4 className="px-1 pt-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">AI Agents</h4>{roomAgents.map((agent: any) => <AgentRow key={agent.id} agent={agent} openMemberProfile={openMemberProfile} restartAgent={restartAgent} openModelConfig={openModelConfig} removeAgent={removeAgent} mobile />)}</>}
+        {roomAgents.length > 0 && <><h4 className="px-1 pt-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">AI Agents</h4>{roomAgents.map((agent: any) => <AgentRow key={agent.id} agent={agent} room={room} openMemberProfile={openMemberProfile} restartAgent={restartAgent} openModelConfig={openModelConfig} removeAgent={removeAgent} handoffAgent={handoffAgent} mobile />)}</>}
       </div>
     </div>
   </div>
@@ -220,7 +222,7 @@ export function ProfileModal({ selectedProfile, setSelectedProfile, restartAgent
         <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2"><span className="text-gray-500">状态</span><span className="font-medium text-gray-700 inline-flex items-center gap-1.5">{selectedProfile.kind === 'agent' && <span className={`w-2 h-2 rounded-full ${getAgentStatusDotClass(selectedProfile)}`}></span>}{selectedProfile.status}</span></div>
         {selectedProfile.kind === 'member' && <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2"><span className="text-gray-500">身份</span><IdentityBadge identityType={selectedProfile.identityType || selectedProfile.type} /></div>}
         {selectedProfile.kind === 'member' && <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2"><span className="text-gray-500">房间角色</span><MemberRoleBadge role={selectedProfile.roomRole} /></div>}
-        {selectedProfile.kind === 'agent' && <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2"><span className="text-gray-500">角色</span><span className="font-medium text-gray-700 inline-flex items-center gap-1">{selectedProfile.roleType === 'assistant' ? <ShieldCheck className="w-4 h-4" /> : <Wrench className="w-4 h-4" />}{selectedProfile.roleType === 'assistant' ? '助理' : '专家'}</span></div>}
+        {selectedProfile.kind === 'agent' && <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2"><span className="text-gray-500">房间状态</span><span className="font-medium text-gray-700 inline-flex items-center gap-1"><ShieldCheck className="w-4 h-4" />{selectedProfile.autoEnabled ? '当前接待' : '可接待'}</span></div>}
         {selectedProfile.specialties?.length > 0 && <div className="flex flex-wrap gap-1.5 pt-1">{selectedProfile.specialties.map((s: string) => <span key={s} className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full">{s}</span>)}</div>}
         {selectedProfile.kind === 'agent' && <button onClick={() => restartAgent?.(selectedProfile)} className="mt-2 w-full rounded-xl bg-blue-50 px-3 py-2 text-sm font-medium text-blue-600 hover:bg-blue-100">软重启 Agent</button>}
       </div>

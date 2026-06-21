@@ -22,7 +22,8 @@ export function writeRunContext(cfg: ClientConfig, agent: AgentCredential, event
     agentId: event.agentId,
     runId: event.runId,
   }, null, 2))
-  writeFileSync(join(cwd, 'CLAUDE.md'), `# FreeChat Agent Client\n\n你运行在用户自己的 Agent Client 中。\n\n- 普通聊天/私聊：直接把最终回复输出到 stdout，Agent Client 会自动发回房间；不要再调用 ./freechat chat send，避免重复回复。\n- 需要中途汇报、多条消息或执行工具时，才使用 ./freechat chat send <内容> 或 ./freechat tool <action> '<jsonArgs>'。\n- 群聊/项目交付文件必须通过 FreeChat 工具写回，不能只留在本地。\n`, 'utf8')
+  writeFileSync(join(cwd, 'CLAUDE.md'), `# FreeChat Agent Client\n\n你运行在用户自己的 Agent Client 中。\n\n- 普通聊天/私聊：直接把最终回复输出到 stdout，Agent Client 会自动发回房间；不要再调用 ./freechat chat send，避免重复回复。\n- 需要中途汇报、多条消息或执行工具时，才使用 ./freechat chat send <内容> 或 ./freechat tool <action> '<jsonArgs>'。\n- 如果需要把当前接待/助理转给房间内另一个 Agent，使用 ./freechat room handoff --agent <名称> --reason <原因>，不要普通聊天里假 @。
+- 群聊/项目交付文件必须通过 FreeChat 工具写回，不能只留在本地。\n`, 'utf8')
 }
 
 function renderFreechatCli() {
@@ -47,6 +48,7 @@ else if (cmd === 'task' && sub === 'subtask' && rest[0] === 'list') await post('
 else if (cmd === 'task' && sub === 'subtask' && rest[0] === 'add') { const args=rest.slice(1); const assignee=takeFlag(args,'--assignee'); await post('task.subtask.add', { taskId: args[0], title: args[1], description: args.slice(2).join(' '), assigneeName: assignee }) }
 else if (cmd === 'members' && sub === 'list') await post('members.list', {})
 else if (cmd === 'room' && sub === 'info') await post('room.info', {})
+else if (cmd === 'room' && sub === 'handoff') { const args=[...rest]; const agent=takeFlag(args,'--agent') || args.shift(); const reason=takeFlag(args,'--reason') || args.join(' '); await post('room.handoff', { agent, reason }) }
 else { console.error('Usage: ./freechat chat send <text> | ./freechat tool <action> <json>'); process.exit(2) }
 `
 }

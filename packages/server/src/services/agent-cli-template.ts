@@ -95,6 +95,7 @@ function usage() {
     '  ./freechat agent create-request <name> --description <desc> --specialties <a,b>',
     '  ./freechat agent create-json <localJsonPath>',
     '  ./freechat room info',
+    '  ./freechat room handoff --agent <agentNameOrId> [--reason <reason>]',
     '  ./freechat room update [--name <name>] [--description <desc>]',
     '  ./freechat room invite [--max-uses <n>] [--expires-in-days <n>]',
     '  ./freechat interaction confirm <title> [description]',
@@ -415,6 +416,9 @@ if (domain === 'tool' && cmd === 'list') {
   call('agent.create_request', JSON.parse(readLocalFile(rest[0])));
 } else if (domain === 'room' && cmd === 'info') {
   call('room.info');
+} else if (domain === 'room' && cmd === 'handoff') {
+  const opts = parseNamedOptions(rest).options;
+  call('room.handoff', { agent: opts.agent || rest[0], reason: opts.reason || rest.slice(1).join(' ') });
 } else if (domain === 'room' && cmd === 'update') {
   const opts = parseNamedOptions(rest).options;
   call('room.update', { name: opts.name, description: opts.description || opts.desc });

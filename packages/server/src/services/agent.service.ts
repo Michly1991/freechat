@@ -463,28 +463,16 @@ export class AgentService {
   }
 
   async getAutoAgent(roomId: string): Promise<Agent | null> {
-    const row = db.prepare(`
+    const select = `
       SELECT a.*, COALESCE(u.nickname, u.username) owner_name, ra.room_role, ra.auto_enabled, ra.priority as room_priority,
-        CASE WHEN b.room_id IS NULL THEN NULL ELSE json_object(
-          'modelProfileId', b.model_profile_id,
-          'model', b.model,
-          'runtime', b.runtime,
-          'maxTokens', b.max_tokens,
-          'temperature', b.temperature
-        ) END as room_model_config, (
-        SELECT MAX(last_active_at)
-        FROM agent_sessions s
-        WHERE s.room_id = ra.room_id AND s.agent_id = a.id
-      ) as agent_last_active_at
-      FROM agents a
-      INNER JOIN room_agents ra ON a.id = ra.agent_id
+        CASE WHEN b.room_id IS NULL THEN NULL ELSE json_object('modelProfileId', b.model_profile_id, 'model', b.model, 'runtime', b.runtime, 'maxTokens', b.max_tokens, 'temperature', b.temperature) END as room_model_config,
+        (SELECT MAX(last_active_at) FROM agent_sessions s WHERE s.room_id = ra.room_id AND s.agent_id = a.id) as agent_last_active_at
+      FROM agents a INNER JOIN room_agents ra ON a.id = ra.agent_id
       LEFT JOIN users u ON u.id = a.owner_id
-      LEFT JOIN room_agent_model_bindings b ON b.room_id = ra.room_id AND b.agent_id = ra.agent_id
-      WHERE ra.room_id = ? AND ra.auto_enabled = 1 AND a.status != 'inactive'
-      ORDER BY ra.priority ASC, ra.added_at ASC
-      LIMIT 1
-    `).get(roomId) as AgentRow | undefined
-    return row ? rowToAgent(row) : null
+      LEFT JOIN room_agent_model_bindings b ON b.room_id = ra.room_id AND b.agent_id = ra.agent_id`
+    const current = db.prepare(`${select} INNER JOIN rooms r ON r.id = ra.room_id WHERE ra.room_id = ? AND r.current_assistant_agent_id = a.id AND a.status != 'inactive' LIMIT 1`).get(roomId) as AgentRow | undefined
+    const fallback = current || db.prepare(`${select} WHERE ra.room_id = ? AND ra.auto_enabled = 1 AND a.status != 'inactive' ORDER BY ra.priority ASC, ra.added_at ASC LIMIT 1`).get(roomId) as AgentRow | undefined
+    return fallback ? rowToAgent(fallback) : null
   }
 
   /**
@@ -646,7 +634,7 @@ export class AgentService {
       isRoomAssistant
         ? '4. 你是当前房间唯一的助理入口和调度者；用户未明确 @ 其他 Agent 时，只代表自己/房间助理响应。遇到复合任务、长内容任务、或明显命中其他 Agent 专长的任务，必须先用 ./freechat task list 查看已有任务，再用 members.list 查看协作者；有匹配 Agent 时禁止自己直接产出最终成品，必须复用已有任务或用 ./freechat task plan create-json 创建真实交互卡，或用 task/subtask --assignee 分派。禁止只用普通聊天文本/Markdown 表格假装任务计划。用户给出大致题材但缺少时长/受众等细节时，不要只追问；应先用合理默认假设创建计划卡，并在计划说明里写清可后续调整。'
         : '4. 你是普通 Agent，只处理人类明确 @ 或任务分派给自己的事项；不要抢房间助理的入口职责。',
-      '5. 不要通过普通聊天 @ 另一个 Agent 来制造自动对话；多 Agent 协作优先通过任务/子任务分派。',
+      '5. 不要通过普通聊天 @ 另一个 Agent 来制造自动对话；客服/接待场景需要另一个 Agent 继续对话时用 ./freechat room handoff --agent <名称> --reason <原因>；项目协作产出才优先通过任务/子任务分派。',
       '6. 回复要简洁、面向当前项目上下文。',
       '7. Agent 完成父任务时不要让任务直接隐藏；提交完成应进入 review/待审核，等待人类确认后才算 done。',
     ].filter(Boolean).join('\n')

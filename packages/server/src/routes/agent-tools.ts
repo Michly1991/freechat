@@ -18,7 +18,7 @@ import { sceneTemplateService } from '../services/scene-template.service.js'
 import { tabConfigService } from '../services/tab-config.service.js'
 import { interactionService } from '../services/interaction.service.js'
 import { materializeAgentCreateRequest, materializeTaskPlan } from './interactions.js'
-import { handleAppUiTool } from './agent-tools.app-ui.js'
+import { handleAppUiTool } from './agent-tools.app-ui.js'; import { handleRoomHandoffTool } from './agent-tools-handoff.js'
 import { getGateway } from '../ws/gateway.js'
 import { getActiveAgentStream } from '../ws/agent-stream-events.js'
 import { agentStreamService } from '../services/agent-stream.service.js'
@@ -27,7 +27,6 @@ import { tabFilesMapService } from '../services/tab-files-map.service.js'
 import { notificationService } from '../services/notification.service.js'
 import { remoteAgentConnectorService } from '../services/remote-agent-connector.service.js'
 import { assertProjectFilePathAllowed, broadcast, buildFileTree, buildSubtaskWakePrompt, invokeAssignedAgent, resolveAgentAssignee, safeRelativePath, throwTabNotFound, validateTabIds } from './agent-tools.helpers.js'
-
 export async function registerAgentToolRoutes(app: FastifyInstance) {
   app.post('/api/agent-tools/:roomId', async (request, reply) => {
     const { roomId } = request.params as any
@@ -96,7 +95,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           const selfMention = new RegExp(`@\\s*${escapedAgentName}`)
           if (selfMention.test(content) && /(?:通知|转发|提醒|交给|让|叫|已通知|已转发|已提醒)/.test(content)) throw { code: 'AGENT_SELF_MENTION_FORBIDDEN', message: `你就是 ${agent.name}，不要通知/转发/提醒 @自己；请直接处理并用第一人称汇报。` }
           const fakeMention = (await agentService.getRoomAgents(roomId)).find((item) => item.id !== agent.id && new RegExp(`@\\s*${item.name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}`).test(content))
-          if (fakeMention && /(?:请|通知|转发|提醒|交给|让|叫|协助|处理|提供|帮忙|麻烦)/.test(content)) throw { code: 'AGENT_FAKE_MENTION_FORBIDDEN', message: `普通聊天里 @${fakeMention.name} 不会触发该 Agent；请改用 ./freechat task create <标题> <说明> --assignee ${fakeMention.name} 或 ./freechat task subtask add <任务ID> <标题> <说明> --assignee ${fakeMention.name}。` }
+          if (fakeMention && /(?:请|通知|转发|提醒|交给|让|叫|协助|处理|提供|帮忙|麻烦)/.test(content)) throw { code: 'AGENT_FAKE_MENTION_FORBIDDEN', message: `普通聊天里 @${fakeMention.name} 不会触发该 Agent；接待转交用 ./freechat room handoff --agent ${fakeMention.name} --reason <原因>；任务协作用 task/subtask --assignee ${fakeMention.name}。` }
           const msg = await messageService.createMessage(roomId, agent.id, agent.name, 'ai', content)
           broadcast(roomId, 'chat.message', msg)
           return { success: true, data: { message: msg } }
@@ -545,6 +544,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           }
           return { success: true, data: result }
         }
+        case 'room.handoff': return handleRoomHandoffTool(roomId, agent, actorUserId, args)
         case 'agent.add': {
           await agentService.assertRoomAssistant(roomId, agent.id)
           const target = await agentService.resolveAvailableAgentForRoom(roomId, agent.id, args.agent || args.agentId || args.name)

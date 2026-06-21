@@ -131,6 +131,11 @@ export class RoomService {
       directKey: row.direct_key || undefined,
       directTargetType: row.direct_target_type || undefined,
       directTargetId: row.direct_target_id || undefined,
+      assistantMode: row.assistant_mode || 'fixed',
+      currentAssistantAgentId: row.current_assistant_agent_id || undefined,
+      assistantHandoffAt: row.assistant_handoff_at || undefined,
+      assistantHandoffBy: row.assistant_handoff_by || undefined,
+      assistantHandoffReason: row.assistant_handoff_reason || undefined,
     } as any
   }
 
@@ -154,9 +159,22 @@ export class RoomService {
       directKey: row.direct_key || undefined,
       directTargetType: row.direct_target_type || undefined,
       directTargetId: row.direct_target_id || undefined,
+      currentAssistantAgentId: row.current_assistant_agent_id || undefined,
       memberRole: row.member_role,
       canDelete: row.member_role === 'owner'
     } as any))
+  }
+
+  async handoffAssistant(roomId: string, agentId: string, by: string, reason?: string): Promise<Room> {
+    const exists = db.prepare('SELECT 1 FROM room_agents ra JOIN agents a ON a.id = ra.agent_id WHERE ra.room_id = ? AND ra.agent_id = ? AND a.status != ?').get(roomId, agentId, 'inactive')
+    if (!exists) throw { code: 'AGENT_NOT_IN_ROOM', message: 'Agent is not active in this room' }
+    const now = Date.now()
+    db.transaction(() => {
+      db.prepare("UPDATE room_agents SET auto_enabled = 0, room_role = 'specialist' WHERE room_id = ?").run(roomId)
+      db.prepare("UPDATE room_agents SET auto_enabled = 1, room_role = 'assistant' WHERE room_id = ? AND agent_id = ?").run(roomId, agentId)
+      db.prepare("UPDATE rooms SET assistant_mode = 'handoff', current_assistant_agent_id = ?, assistant_handoff_at = ?, assistant_handoff_by = ?, assistant_handoff_reason = ?, updated_at = ? WHERE id = ?").run(agentId, now, by, reason || null, now, roomId)
+    })()
+    return this.getRoom(roomId)
   }
 
   async updateRoom(roomId: string, name?: string, description?: string): Promise<Room> {
