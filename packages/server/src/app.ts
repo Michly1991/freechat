@@ -8,6 +8,7 @@ import { registerAuthRoutes } from './routes/auth.js'
 import { registerRoomRoutes } from './routes/rooms.js'
 import { registerDirectRoomRoutes } from './routes/direct-rooms.js'
 import { registerFileRoutes } from './routes/files.js'
+import { registerAgentFileRoutes } from './routes/agent-files.js'
 import { registerTabRoutes } from './routes/tabs.js'
 import { registerTabConfigRoutes } from './routes/tab-config.js'
 import { registerAgentRoutes } from './routes/agents.js'
@@ -98,7 +99,7 @@ async function buildApp() {
   app.addHook('preHandler', async (request, reply) => {
     const path = request.url.split('?')[0]
     const publicApiPaths = new Set(['/api/health', '/api/auth/register', '/api/auth/login'])
-    if (path.startsWith('/api/') && !publicApiPaths.has(path) && !path.startsWith('/api/agent-tools/') && !path.startsWith('/api/remote-agents/')) {
+    if (path.startsWith('/api/') && !publicApiPaths.has(path) && !path.startsWith('/api/agent-tools/') && !path.startsWith('/api/agent-files/') && !path.startsWith('/api/remote-agents/')) {
       await authenticate(request, reply)
     }
   })
@@ -108,6 +109,7 @@ async function buildApp() {
   await registerDirectRoomRoutes(app)
   await registerRoomRoutes(app)
   await registerFileRoutes(app)
+  await registerAgentFileRoutes(app)
   await registerTabRoutes(app)
   await registerTabConfigRoutes(app)
   await registerAgentRoutes(app)

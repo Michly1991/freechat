@@ -59,14 +59,21 @@ function usage() {
     '  ./freechat task subtask delete <subtaskId>',
     '  ./freechat task plan create-json <localJsonPath>',
     '  ./freechat file list',
-    '  ./freechat file read <path>',
+    '  ./freechat file glob <pattern>',
+    '  ./freechat file read <path> [--limit <chars>] [--offset <chars>]',
     '  ./freechat file info <path>',
+    '  ./freechat file download <path> [localPath]',
+    '  ./freechat file upload <localPath> [projectPath] [--show]',
     '  ./freechat file write <path> <content> [--show|--hide]',
     '  ./freechat file write-local <path> <localPath> [--show|--hide]',
     '  ./freechat file mkdir <path> [--show|--hide]',
     '  ./freechat file delete <path>',
     '  ./freechat file show <path> [tabKey]',
     '  ./freechat file hide <path> [tabKey]',
+    '  ./freechat workspace ls [path]',
+    '  ./freechat workspace glob <pattern>',
+    '  ./freechat workspace grep <query> [--glob <pattern>]',
+    '  ./freechat workspace cat <path>',
     '  ./freechat tab files',
     '  ./freechat tab-config list [tabKey]',
     '  ./freechat tab-config add-file <path> [tabKey]',
@@ -215,6 +222,63 @@ async function callValue(action, args = {}) {
   return data.data ?? data;
 }
 
+function safeWorkspacePath(input = '.') {
+  const resolved = path.resolve(process.cwd(), input);
+  const root = process.cwd();
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) die('Path escapes current workspace: ' + input);
+  return resolved;
+}
+
+function globToRegExp(pattern) {
+  let out = '';
+  const text = String(pattern || '*');
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '*' && text[i + 1] === '*') { out += '.*'; i++; continue; }
+    if (ch === '*') { out += '[^/]*'; continue; }
+    if (ch === '?') { out += '[^/]'; continue; }
+    if ('\\\\.+^$(){}|[]'.includes(ch)) out += '\\\\' + ch; else out += ch;
+  }
+  return new RegExp('^' + out + '$', 'i');
+}
+
+function walkLocal(dir, prefix = '', out = []) {
+  for (const name of fs.readdirSync(dir)) {
+    if (name === 'node_modules' || name === '.git') continue;
+    const full = path.join(dir, name);
+    const rel = prefix ? prefix + '/' + name : name;
+    const st = fs.statSync(full);
+    if (st.isDirectory()) walkLocal(full, rel, out); else out.push({ path: rel, size: st.size });
+  }
+  return out;
+}
+
+async function downloadProjectFile(projectPath, localPath) {
+  if (!projectPath) die('path is required');
+  const target = safeWorkspacePath(localPath || path.join('.freechat', 'files', projectPath));
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const url = API_URL + '/api/agent-files/' + ROOM_ID + '/download?path=' + encodeURIComponent(projectPath);
+  const res = await fetch(url, { headers: { Authorization: 'Bearer ' + TOKEN } });
+  if (!res.ok) die(await res.text());
+  const buf = Buffer.from(await res.arrayBuffer());
+  fs.writeFileSync(target, buf);
+  console.log(JSON.stringify({ path: projectPath, localPath: target, size: buf.length }, null, 2));
+}
+
+async function uploadProjectFile(localPath, projectPath, addToTab) {
+  if (!localPath) die('localPath is required');
+  const full = safeWorkspacePath(localPath);
+  if (!fs.existsSync(full)) die('Local file not found: ' + localPath);
+  const form = new FormData();
+  form.append('file', new Blob([fs.readFileSync(full)]), path.basename(full));
+  if (projectPath) form.append('path', projectPath);
+  if (addToTab) form.append('addToTab', 'true');
+  const res = await fetch(API_URL + '/api/agent-files/' + ROOM_ID + '/upload', { method: 'POST', headers: { Authorization: 'Bearer ' + TOKEN }, body: form });
+  const text = await res.text();
+  if (!res.ok) die(text);
+  console.log(text);
+}
+
 async function selftestSmoke() {
   const marker = '__selftest__/smoke-' + Date.now() + '.txt';
   const checks = [];
@@ -301,12 +365,21 @@ if (domain === 'tool' && cmd === 'list') {
   call('task.plan.create', JSON.parse(readLocalFile(rest[1])));
 } else if (domain === 'file' && cmd === 'list') {
   call('file.list');
+} else if (domain === 'file' && cmd === 'glob') {
+  if (!rest[0]) die('pattern is required');
+  call('file.glob', { pattern: rest[0] });
 } else if (domain === 'file' && cmd === 'read') {
-  if (!rest[0]) die('path is required');
-  call('file.read', { path: rest[0] });
+  const parsed = parseNamedOptions(rest);
+  if (!parsed.args[0]) die('path is required');
+  call('file.read', { path: parsed.args[0], limit: parsed.options.limit, offset: parsed.options.offset, force: parsed.options.force === true });
 } else if (domain === 'file' && cmd === 'info') {
   if (!rest[0]) die('path is required');
   call('file.info', { path: rest[0] });
+} else if (domain === 'file' && cmd === 'download') {
+  downloadProjectFile(rest[0], rest[1]);
+} else if (domain === 'file' && cmd === 'upload') {
+  const parsed = parseNamedOptions(rest);
+  uploadProjectFile(parsed.args[0], parsed.args[1], parsed.options.show === true || parsed.options.addToTab === true);
 } else if (domain === 'file' && cmd === 'write') {
   const parsed = parseShowFlag(rest);
   if (!parsed.args[0]) die('path is required');
@@ -330,6 +403,29 @@ if (domain === 'tool' && cmd === 'list') {
 } else if (domain === 'file' && cmd === 'hide') {
   if (!rest[0]) die('path is required');
   call('tab-config.remove-file', { path: rest[0], tabKey: rest[1] || 'files' });
+} else if (domain === 'workspace' && cmd === 'ls') {
+  const dir = safeWorkspacePath(rest[0] || '.');
+  console.log(JSON.stringify(fs.readdirSync(dir, { withFileTypes: true }).map(e => ({ name: e.name, type: e.isDirectory() ? 'directory' : 'file' })), null, 2));
+} else if (domain === 'workspace' && cmd === 'glob') {
+  if (!rest[0]) die('pattern is required');
+  const re = globToRegExp(rest[0]);
+  console.log(JSON.stringify(walkLocal(process.cwd()).filter(f => re.test(f.path)), null, 2));
+} else if (domain === 'workspace' && cmd === 'grep') {
+  const parsed = parseNamedOptions(rest);
+  const query = parsed.args.join(' ').trim();
+  if (!query) die('query is required');
+  const fileRe = parsed.options.glob ? globToRegExp(parsed.options.glob) : null;
+  const matches = [];
+  for (const f of walkLocal(process.cwd()).filter(x => !fileRe || fileRe.test(x.path))) {
+    if (f.size > 2_000_000) continue;
+    const full = safeWorkspacePath(f.path);
+    const text = fs.readFileSync(full, 'utf8');
+    text.split('\\n').forEach((line, i) => { if (line.includes(query) && matches.length < 200) matches.push({ path: f.path, line: i + 1, text: line.replace(/\\r$/, '') }); });
+  }
+  console.log(JSON.stringify({ query, matches, truncated: matches.length >= 200 }, null, 2));
+} else if (domain === 'workspace' && cmd === 'cat') {
+  if (!rest[0]) die('path is required');
+  process.stdout.write(fs.readFileSync(safeWorkspacePath(rest[0]), 'utf8'));
 } else if (domain === 'tab-config' && cmd === 'list') {
   call('tab-config.list', { tabKey: rest[0] || 'files' });
 } else if (domain === 'tab-config' && cmd === 'add-file') {

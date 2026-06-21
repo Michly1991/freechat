@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify'
-import { mkdir, readdir, readFile, writeFile, stat, rm } from 'fs/promises'
-import { join, dirname, normalize } from 'path'
+import { readdir, readFile } from 'fs/promises'
+import { join, normalize } from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import db from '../storage/db.js'
 import { config } from '../config.js'
@@ -18,7 +18,7 @@ import { sceneTemplateService } from '../services/scene-template.service.js'
 import { tabConfigService } from '../services/tab-config.service.js'
 import { interactionService } from '../services/interaction.service.js'
 import { materializeAgentCreateRequest, materializeTaskPlan } from './interactions.js'
-import { handleAppUiTool } from './agent-tools.app-ui.js'; import { handleRoomHandoffTool } from './agent-tools-handoff.js'
+import { handleAppUiTool } from './agent-tools.app-ui.js'; import { handleFileTool } from './agent-tools-file.js'; import { handleRoomHandoffTool } from './agent-tools-handoff.js'
 import { getGateway } from '../ws/gateway.js'
 import { getActiveAgentStream } from '../ws/agent-stream-events.js'
 import { agentStreamService } from '../services/agent-stream.service.js'
@@ -26,7 +26,7 @@ import { roomAnalyticsService } from '../services/room-analytics.service.js'
 import { tabFilesMapService } from '../services/tab-files-map.service.js'
 import { notificationService } from '../services/notification.service.js'
 import { remoteAgentConnectorService } from '../services/remote-agent-connector.service.js'
-import { assertProjectFilePathAllowed, broadcast, buildFileTree, buildSubtaskWakePrompt, invokeAssignedAgent, resolveAgentAssignee, safeRelativePath, throwTabNotFound, validateTabIds } from './agent-tools.helpers.js'
+import { assertProjectFilePathAllowed, broadcast, buildSubtaskWakePrompt, invokeAssignedAgent, resolveAgentAssignee, safeRelativePath, throwTabNotFound, validateTabIds } from './agent-tools.helpers.js'
 export async function registerAgentToolRoutes(app: FastifyInstance) {
   app.post('/api/agent-tools/:roomId', async (request, reply) => {
     const { roomId } = request.params as any
@@ -86,6 +86,10 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
       const appUiTool = await handleAppUiTool({ action: String(action || ''), args, roomId, actorUserId, agentId: agent.id, broadcast })
       if (appUiTool.handled) {
         return appUiTool.response
+      }
+      const fileTool = await handleFileTool({ action: String(action || ''), args, roomId, filesDir, broadcast })
+      if (fileTool.handled) {
+        return fileTool.response
       }
       switch (action) {
         case 'chat.send': {
@@ -315,48 +319,6 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           const interaction = interactionService.consume(roomId, args.id || args.interactionId, agent.id)
           broadcast(roomId, 'interaction.updated', { interaction })
           return { success: true, data: { interaction } }
-        }
-        case 'file.list': {
-          await mkdir(filesDir, { recursive: true })
-          const files = await buildFileTree(filesDir)
-          const tab = await tabConfigService.getTab(roomId, 'files')
-          return { success: true, data: { files: tabConfigService.filterFileTree(files, tab), tabConfig: tab } }
-        }
-        case 'file.read': {
-          const rel = safeRelativePath(args.path)
-          const content = await readFile(join(filesDir, rel), 'utf8')
-          return { success: true, data: { path: rel, content } }
-        }
-        case 'file.info': {
-          const rel = safeRelativePath(args.path)
-          const info = await stat(join(filesDir, rel))
-          return { success: true, data: { path: rel, name: rel.split('/').pop(), size: info.size, modifiedAt: info.mtime.getTime(), type: info.isDirectory() ? 'directory' : 'file' } }
-        }
-        case 'file.write': {
-          const rel = safeRelativePath(args.path)
-          assertProjectFilePathAllowed(rel)
-          const fullPath = join(filesDir, rel)
-          await mkdir(dirname(fullPath), { recursive: true })
-          await writeFile(fullPath, String(args.content || ''), 'utf8')
-          if (args.showInTab === true || args.addToTab === true) { await tabConfigService.addFile(roomId, String(args.tabKey || 'files'), rel); await tabFilesMapService.writeRoomMap(roomId) }
-          broadcast(roomId, 'files.updated', { path: rel })
-          const hint = /\.html?$/i.test(rel) ? `HTML 文件已写入项目文件区，但不会自动显示在页面区域。如需显示，请继续执行：./freechat tab create-file "页面标题" "${rel}" --default。写文件/页面前可随时执行 ./freechat tab files 查看目录地图。` : `文件已写入项目文件区${args.addToTab === true || args.showInTab === true ? '并加入文件 Tab' : '。如需在文件 Tab 显示，请加 --show 或执行 ./freechat file show ' + rel}。`
-          return { success: true, data: { path: rel, hint } }
-        }
-        case 'file.mkdir': {
-          const rel = safeRelativePath(args.path)
-          assertProjectFilePathAllowed(rel)
-          await mkdir(join(filesDir, rel), { recursive: true })
-          if (args.showInTab === true || args.addToTab === true) { await tabConfigService.addDir(roomId, String(args.tabKey || 'files'), rel); await tabFilesMapService.writeRoomMap(roomId) }
-          broadcast(roomId, 'files.updated', { path: rel })
-          return { success: true, data: { path: rel } }
-        }
-        case 'file.delete': {
-          const rel = safeRelativePath(args.path)
-          await rm(join(filesDir, rel), { recursive: true, force: true })
-          await tabConfigService.removeFile(roomId, String(args.tabKey || 'files'), rel).catch(() => {}); await tabFilesMapService.writeRoomMap(roomId).catch(() => {})
-          broadcast(roomId, 'files.updated', { path: rel })
-          return { success: true, data: { path: rel } }
         }
         case 'tab-config.list': {
           const tab = await tabConfigService.getTab(roomId, String(args.tabKey || 'files'))
