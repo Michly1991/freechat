@@ -147,11 +147,18 @@ export async function registerConversationRoutes(app: FastifyInstance) {
     }
 
     ensurePref(user.id, type, id)
+    const now = Date.now()
     db.prepare(`
       UPDATE conversation_prefs
       SET last_read_at = ?, updated_at = ?
       WHERE user_id = ? AND conversation_type = ? AND conversation_id = ?
-    `).run(Date.now(), Date.now(), user.id, type, id)
+    `).run(now, now, user.id, type, id)
+    if (type === 'project') {
+      db.prepare(`
+        UPDATE notifications SET read_at = ?
+        WHERE user_id = ? AND room_id = ? AND read_at IS NULL AND created_at <= ?
+      `).run(now, user.id, id, now)
+    }
 
     return reply.send({ success: true })
   })
