@@ -75,7 +75,7 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
   return (
     <FeedbackContext.Provider value={value}>
       {children}
-      <div className="fixed right-3 top-3 z-[80] flex w-[calc(100vw-24px)] max-w-sm flex-col gap-2 sm:right-4 sm:top-4">
+      <div className="pointer-events-none fixed right-3 top-3 z-[80] flex w-[calc(100vw-24px)] max-w-sm flex-col gap-2 sm:right-4 sm:top-4">
         {toasts.map((item) => (
           <div key={item.id} className={`rounded-lg px-4 py-3 text-sm shadow-lg ${styles[item.type]}`}>
             {item.message}
