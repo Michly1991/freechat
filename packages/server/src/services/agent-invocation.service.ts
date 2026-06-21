@@ -3,6 +3,7 @@ import { agentService } from './agent.service.js'
 import { agentArtifactService } from './agent-artifact.service.js'
 import { agentTaskCompletionService } from './agent-task-completion.service.js'
 import { messageService } from './message.service.js'
+import { remoteAgentConnectorService } from './remote-agent-connector.service.js'
 import { getGateway } from '../ws/gateway.js'
 import type { AgentRunContext } from './agent-runtime.service.js'
 
@@ -29,7 +30,9 @@ export class AgentInvocationService {
     void (async () => {
       try {
         await agentService.updateAgent(agent.id, { status: 'working' } as any)
-        broadcast(roomId, 'agent.status_update', { agentId: agent.id, status: 'working', onlineStatus: 'working', lastActiveAt: Date.now() })
+        const connector = agent.deployment === 'client' ? remoteAgentConnectorService.getConnectorSummary(agent.id) : null
+        const onlineStatus = agent.deployment === 'client' && connector?.clientConnectorStatus !== 'online' && connector?.clientConnectorStatus !== 'working' ? 'offline' : 'working'
+        broadcast(roomId, 'agent.status_update', { agentId: agent.id, status: 'working', onlineStatus, queued: onlineStatus === 'offline', lastActiveAt: Date.now() })
         const result = await agentService.spawnClaudeCode(roomId, agent.id, input, { ...options, timeoutMs: options.timeoutMs || config.agent.taskTimeoutMs })
         await agentArtifactService.publishDeclaredArtifacts(roomId, agent.id, input)
         const completed = options.taskId || options.subtaskId ? await agentTaskCompletionService.autoCompleteFromRun(input, result.response || '') : null

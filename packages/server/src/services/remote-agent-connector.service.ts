@@ -9,6 +9,8 @@ import { creditWalletService } from './credit-wallet.service.js'
 
 const ACCESS_EXPIRES_IN = '7d'
 const PAIRING_TTL_MS = 10 * 60 * 1000
+const CONNECTOR_ONLINE_TTL_MS = 45 * 1000
+const DELIVERED_EVENT_REQUEUE_MS = 2 * 60 * 1000
 
 export type ConnectorAuth = {
   connectorId: string
@@ -72,12 +74,14 @@ export class RemoteAgentConnectorService {
       ORDER BY COALESCE(last_seen_at, created_at) DESC
     `).all(agentId) as any[]
     const latest = rows[0]
+    const fresh = latest?.lastSeenAt && Date.now() - Number(latest.lastSeenAt) <= CONNECTOR_ONLINE_TTL_MS
+    const status = rows.length === 0 ? undefined : (fresh ? latest?.status : 'offline')
     return {
       managedByClient: rows.length > 0,
       clientConnectorCount: rows.length,
       clientConnectorId: latest?.id,
       clientConnectorName: latest?.name || undefined,
-      clientConnectorStatus: latest?.status || undefined,
+      clientConnectorStatus: status || undefined,
       clientLastSeenAt: latest?.lastSeenAt || undefined,
     }
   }
@@ -203,6 +207,8 @@ export class RemoteAgentConnectorService {
     db.prepare("UPDATE agent_connectors SET status = 'online', capabilities_json = COALESCE(?, capabilities_json), last_seen_at = ? WHERE id = ? AND status != 'revoked'")
       .run(metadata.capabilities ? JSON.stringify(metadata.capabilities) : null, now, auth.connectorId)
     db.prepare('UPDATE agent_connector_tokens SET last_used_at = ? WHERE id = ?').run(now, auth.tokenId)
+    this.requeueStaleDeliveredEvents(auth.agentId)
+    this.pushPendingEvents(auth.agentId)
     return { ok: true, now }
   }
 
@@ -254,6 +260,7 @@ export class RemoteAgentConnectorService {
     if (!set) { set = new Set(); this.subscribers.set(auth.agentId, set) }
     set.add(sub)
     this.heartbeat(auth, { capabilities: { sse: true } })
+    this.requeueStaleDeliveredEvents(auth.agentId)
     this.pushPendingEvents(auth.agentId)
     return () => {
       const current = this.subscribers.get(auth.agentId)
@@ -314,6 +321,16 @@ export class RemoteAgentConnectorService {
     db.prepare("UPDATE agent_connectors SET status = 'online', last_seen_at = ? WHERE id = ?").run(now, auth.connectorId)
     db.prepare("UPDATE agents SET status = 'error', updated_at = ? WHERE id = ?").run(now, auth.agentId)
     return { ok: true }
+  }
+
+  private requeueStaleDeliveredEvents(agentId: string) {
+    const cutoff = Date.now() - DELIVERED_EVENT_REQUEUE_MS
+    db.prepare(`
+      UPDATE remote_agent_events
+      SET status = 'pending', delivered_at = NULL
+      WHERE agent_id = ? AND status = 'delivered' AND COALESCE(delivered_at, created_at) < ?
+        AND run_id IN (SELECT id FROM agent_runs WHERE status = 'running')
+    `).run(agentId, cutoff)
   }
 
   private allowedPollAgentIds(auth: ConnectorAuth, requested: string[]) {

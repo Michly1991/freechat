@@ -558,7 +558,12 @@ export class AgentService {
       WHERE ra.room_id = ?
       ORDER BY ra.auto_enabled DESC, ra.priority ASC, ra.added_at ASC
     `).all(roomId) as AgentRow[]
-    const agents = rows.map(r => rowToAgent(r))
+    const agents = rows.map(r => {
+      const agent = rowToAgent(r)
+      if (agent.deployment !== 'client') return agent
+      const summary = remoteAgentConnectorService.getConnectorSummary(agent.id)
+      return { ...agent, ...summary, onlineStatus: summary.clientConnectorStatus === 'working' ? 'working' : summary.clientConnectorStatus === 'online' ? 'online' : 'offline' } as any
+    })
     const hasPrimaryAssistant = agents.some((agent) => agent.roomRole === 'assistant' && agent.autoEnabled)
     return hasPrimaryAssistant
       ? agents.filter((agent) => !(this.isBuiltInDefaultAssistant(agent) && agent.roomRole !== 'assistant'))

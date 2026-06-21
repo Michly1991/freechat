@@ -164,3 +164,13 @@ Agent Client 不保存或判断“谁是当前接待”，只作为执行器：
 
 - `room_assistant_handoff_requests`：记录请求阶段，包含 `pending/accepted/rejected/expired` 状态、来源、原因、决策时间。
 - `room_assistant_handoffs`：记录最终已执行的接待权切换。
+
+## Agent 在线状态与离线续处理
+
+客户端执行的 Agent 以 Connector 心跳作为在线依据：
+
+- 服务端按最近 `agent_connectors.last_seen_at` 计算 `clientConnectorStatus`，超过在线 TTL 视为 `offline`。
+- 房间 Agent 列表中的 `onlineStatus` 对 client deployment Agent 优先使用 Connector 状态，而不是只看 `agents.status`。
+- 如果目标 Agent 离线，服务端仍可创建 remote event 并写入 `remote_agent_events.status = pending`；Agent Client 上线/重连后通过 WebSocket/SSE/poll 拉取继续处理。
+- 若事件已 delivered 但客户端中途断开导致未 complete/fail，客户端后续心跳会把超时 delivered 且 run 仍 running 的事件重新置为 pending，保证上线后可继续处理。
+- AgentInvocationService 广播 `agent.status_update` 时，如果 client Agent 当前离线，会携带 `onlineStatus = offline` 和 `queued = true`，前端可显示为排队等待上线，而不是误判为在线工作中。
