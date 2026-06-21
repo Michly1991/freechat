@@ -12,6 +12,7 @@ import { notificationService } from '../services/notification.service.js'
 import { sceneTemplateService } from '../services/scene-template.service.js'
 import { marketEngagementService } from '../services/market-engagement.service.js'
 import { creditWalletService } from '../services/credit-wallet.service.js'
+import { invokeAssignedAgent } from './agent-tools.helpers.js'
 
 export async function registerRoomRoutes(app: FastifyInstance) {
   // Get user's rooms
@@ -142,8 +143,10 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     if (!(await roomService.isMember(id, user.id))) return reply.code(403).send({ success: false, error: { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' } })
     const room = await roomService.handoffAssistant(id, String(agentId || ''), user.id, reason)
     const agents = await agentService.getRoomAgents(id)
+    const target = agents.find((agent: any) => agent.id === String(agentId || ''))
     getGateway()?.broadcast(id, { action: 'room.members_update', payload: { members: await roomService.getRoomMembers(id), agents } })
     getGateway()?.broadcast(id, { action: 'room.updated', payload: { room } })
+    if (target) void invokeAssignedAgent(id, target.id, user.id, `你已接手成为本房间当前接待 Agent。转接原因：${reason || '用户手动切换当前接待'}。请直接继续接待用户，结合最近上下文给出下一步回复。`, user.id)
     return reply.send({ success: true, data: { room, agents } })
   })
 
