@@ -10,7 +10,7 @@ export function JoinRoomModal({ show, inviteCode, joining, setInviteCode, setSho
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/50 p-0 sm:items-center sm:p-4">
       <div className="w-full max-w-md max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-t-2xl bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-xl sm:max-h-[85vh] sm:rounded-xl sm:p-6">
-        <h3 className="text-lg font-semibold mb-4">加入项目</h3>
+        <h3 className="text-lg font-semibold mb-4">加入群聊</h3>
         <form onSubmit={handleJoinRoom} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">邀请码</label>
@@ -90,18 +90,18 @@ export function CreateRoomModal(props: CreateRoomModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/50 p-0 sm:items-center sm:p-4">
       <div className="w-full max-w-md max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-t-2xl bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-xl sm:max-h-[85vh] sm:rounded-xl sm:p-6">
-        <h3 className="text-lg font-semibold mb-4">新建项目</h3>
+        <h3 className="text-lg font-semibold mb-4">新建群聊</h3>
         <form onSubmit={handleCreate} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">项目名称</label>
-            <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="输入项目名称" required />
+            <label className="block text-sm font-medium text-gray-700 mb-1">群聊名称</label>
+            <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="输入群聊名称" required />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">描述（可选）</label>
-            <textarea value={newDesc} onChange={(e) => setNewDesc(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="项目描述" rows={3} />
+            <textarea value={newDesc} onChange={(e) => setNewDesc(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="群聊描述" rows={3} />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">项目场景（可选）</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">群聊场景（可选）</label>
             <select value={selectedSceneId} onChange={(e) => {
               const nextSceneId = e.target.value
               setSelectedSceneId(nextSceneId)
@@ -112,10 +112,10 @@ export function CreateRoomModal(props: CreateRoomModalProps) {
                 setSelectedAgents([])
               }
             }} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
-              <option value="">空白项目</option>
+              <option value="">空白群聊</option>
               {scenes.map((scene) => <option key={scene.id} value={scene.id}>{scene.name}</option>)}
             </select>
-            {selectedSceneId && <p className="text-xs text-gray-500 mt-1">场景会把默认 Agent、页面和初始内容克隆到项目；后续修改不会影响外部模板。</p>}
+            {selectedSceneId && <p className="text-xs text-gray-500 mt-1">场景会把默认 Agent、页面和初始内容克隆到群聊；后续修改不会影响外部模板。</p>}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">选择协作者（可选）</label>
@@ -171,14 +171,13 @@ function CollaboratorPicker({ friends, agents, selectedFriendIds, selectedAgents
                   <label className="flex items-center gap-2 min-w-0 cursor-pointer flex-1">
                     <input type="checkbox" checked={!!selected} onChange={() => toggleSelectedAgent(a.id)} />
                     <span className="truncate">{a.name}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-600 shrink-0">{a.roleType === 'assistant' ? '助理' : '专家'}</span>
                   </label>
-                  {selected && <select value={selected.autoEnabled ? 'auto' : 'specialist'} onChange={(e) => setAgentAutoEnabled(a.id, e.target.value === 'auto')} className="text-xs border border-gray-200 rounded px-2 py-1"><option value="specialist">专家</option><option value="auto">自动助理</option></select>}
+                  {selected && <select value={selected.autoEnabled ? 'auto' : 'normal'} onChange={(e) => setAgentAutoEnabled(a.id, e.target.value === 'auto')} className="text-xs border border-gray-200 rounded px-2 py-1"><option value="normal">普通 Agent</option><option value="auto">房间助理</option></select>}
                 </div>
               )
             })}
           </div>
-          {selectedAgents.filter((a) => a.autoEnabled).length > 1 && <p className="text-xs text-orange-500 mt-1">只会启用第一个自动助理，其他会自动作为专家加入。</p>}
+          <p className="text-xs text-gray-500 mt-1">每个群聊只有一个房间助理；默认第一个选中的 Agent 作为房间助理。</p>
         </div>
       )}
       {friends.length === 0 && agents.length === 0 && <p className="text-sm text-gray-400">通讯录暂无可选协作者。</p>}

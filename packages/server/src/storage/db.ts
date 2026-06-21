@@ -13,7 +13,6 @@ import { ensureVoiceSchema } from './voice-schema.js'
 mkdirSync(dirname(config.database.path), { recursive: true })
 
 const db = new Database(config.database.path)
-
 db.pragma('journal_mode = WAL')
 db.pragma('foreign_keys = ON')
 
@@ -77,7 +76,7 @@ export function initDatabase() {
       created_by TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      last_active_at INTEGER NOT NULL,
+      last_active_at INTEGER NOT NULL, room_kind TEXT DEFAULT 'project', direct_key TEXT, direct_target_type TEXT, direct_target_id TEXT,
       scene_template_id TEXT,
       scene_template_version INTEGER,
       deleted_at INTEGER,
@@ -87,10 +86,13 @@ export function initDatabase() {
   `)
 
   const roomCols = db.prepare('PRAGMA table_info(rooms)').all() as any[]
+  if (!roomCols.some((col) => col.name === 'room_kind')) db.exec("ALTER TABLE rooms ADD COLUMN room_kind TEXT DEFAULT 'project'"); if (!roomCols.some((col) => col.name === 'direct_key')) db.exec('ALTER TABLE rooms ADD COLUMN direct_key TEXT')
+  if (!roomCols.some((col) => col.name === 'direct_target_type')) db.exec('ALTER TABLE rooms ADD COLUMN direct_target_type TEXT'); if (!roomCols.some((col) => col.name === 'direct_target_id')) db.exec('ALTER TABLE rooms ADD COLUMN direct_target_id TEXT')
   if (!roomCols.some((col) => col.name === 'scene_template_id')) db.exec('ALTER TABLE rooms ADD COLUMN scene_template_id TEXT')
   if (!roomCols.some((col) => col.name === 'scene_template_version')) db.exec('ALTER TABLE rooms ADD COLUMN scene_template_version INTEGER')
   if (!roomCols.some((col) => col.name === 'deleted_at')) db.exec('ALTER TABLE rooms ADD COLUMN deleted_at INTEGER')
   if (!roomCols.some((col) => col.name === 'deleted_by')) db.exec('ALTER TABLE rooms ADD COLUMN deleted_by TEXT')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_rooms_direct_key ON rooms(direct_key)')
 
   // Room members table
   db.exec(`

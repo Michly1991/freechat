@@ -71,7 +71,7 @@ export async function registerConversationRoutes(app: FastifyInstance) {
     const projects = db.prepare(`
       SELECT r.*, rm.role as member_role FROM rooms r
       INNER JOIN room_members rm ON r.id = rm.room_id
-      WHERE rm.user_id = ?
+      WHERE rm.user_id = ? AND r.deleted_at IS NULL
     `).all(user.id) as any[]
 
     const dms = db.prepare(`
@@ -87,10 +87,13 @@ export async function registerConversationRoutes(app: FastifyInstance) {
       const lastActiveAt = last?.created_at || room.last_active_at || room.updated_at || room.created_at
       return {
         id: room.id,
-        type: 'project',
+        type: 'room',
+        prefType: 'project',
+        roomKind: room.room_kind === 'project' ? 'group' : (room.room_kind || 'group'),
+        displayType: room.room_kind === 'direct_agent' ? 'AI' : room.room_kind === 'direct_user' ? '真人' : '群聊',
         title: room.name,
         avatar: null,
-        subtitle: room.description || '项目房间',
+        subtitle: room.room_kind === 'direct_agent' ? 'AI 私聊 · 可添加成员/Agent' : room.room_kind === 'direct_user' ? '真人私聊 · 可添加成员/Agent' : (room.description || '群聊房间'),
         lastMessage: last ? { actorName: last.actor_name, content: last.content, createdAt: last.created_at } : null,
         lastActiveAt,
         unreadCount: countProjectUnread(room.id, user.id, pref.last_read_at),

@@ -83,38 +83,40 @@ export class AgentInvocationHandler {
   private async sendCommandDenied(roomId: string, actorUserId?: string) {
     const creatorId = this.getRoomCreator(roomId)
     const creator = creatorId ? db.prepare('SELECT nickname, username FROM users WHERE id = ?').get(creatorId) as any : null
-    const creatorName = creator?.nickname || creator?.username || '项目创建人'
-    const msg = await messageService.createMessage(roomId, 'system', '系统', 'ai', `只有项目创建人「${creatorName}」可以指挥 Agent；本项目的 Agent 和模型运行费用也由创建人承担。`, undefined, undefined, 'system_notice', { reason: 'creator_only_agent_command', actorUserId, payerUserId: creatorId })
+    const creatorName = creator?.nickname || creator?.username || '群聊创建人'
+    const msg = await messageService.createMessage(roomId, 'system', '系统', 'ai', `只有群聊创建人「${creatorName}」可以指挥 Agent；本群聊的 Agent 和模型运行费用也由创建人承担。`, undefined, undefined, 'system_notice', { reason: 'creator_only_agent_command', actorUserId, payerUserId: creatorId })
     this.broadcastToRoom(roomId, { msgId: msg.id, roomId, type: 'broadcast', action: 'chat.message', payload: msg, timestamp: Date.now() })
   }
 
   async maybeAutoInvokeAssistant(roomId: string, actorName: string, content: string, mentions: any[] = [], actorUserId?: string) {
     if (!this.isCreatorCommand(roomId, actorUserId)) return
+    const room = db.prepare('SELECT room_kind FROM rooms WHERE id = ?').get(roomId) as any
+    const isDirectAgentRoom = room?.room_kind === 'direct_agent'
     const pendingInteractions = interactionService.list(roomId, { status: 'pending' }).slice(0, 5)
     const pendingReplyText = pendingInteractions.length > 0 && /^(确认|可以|同意|开始|继续|取消|不要|不用|否|好|好的|ok|OK|yes|no)[。.!！?？]*$/.test(String(content || '').trim())
-    if (!shouldConsiderAssistantAutoReply(content, { hasPendingInteraction: pendingInteractions.length > 0 })) return
+    if (!isDirectAgentRoom && !shouldConsiderAssistantAutoReply(content, { hasPendingInteraction: pendingInteractions.length > 0 })) return
 
     const now = Date.now()
     const last = this.assistantAutoReplyCooldowns.get(roomId) || 0
     const cooldownMs = 30_000
-    if (!pendingReplyText && now - last < cooldownMs) return
+    if (!isDirectAgentRoom && !pendingReplyText && now - last < cooldownMs) return
 
     const assistant = await agentService.getAutoAgent(roomId)
     if (!assistant) return
 
-    this.assistantAutoReplyCooldowns.set(roomId, now)
+    if (!isDirectAgentRoom) this.assistantAutoReplyCooldowns.set(roomId, now)
 
     if (await this.maybeCreateObviousExpertTaskPlan(roomId, assistant, content)) return
 
-    const recentMessages = await messageService.getMessages(roomId, 12)
+    const recentMessages = await messageService.getMessages(roomId, isDirectAgentRoom ? 6 : 12)
     const context = recentMessages
       .filter((m: any) => m.kind !== 'agent_receipt')
-      .slice(-10)
+      .slice(isDirectAgentRoom ? -4 : -10)
       .map((m) => `${m.actorRole === 'ai' ? 'AI' : '用户'} ${m.actorName}: ${m.content}`)
       .join('\n')
 
-    const contentWithFiles = `${content}${await fileMentionContextService.build(roomId, mentions)}`
-    const decision = pendingInteractions.length === 0 ? await longTaskService.decideWithAgent(roomId, assistant, contentWithFiles, context, actorUserId) : { mode: 'chat' as const }
+    const contentWithFiles = `${content}${mentions.length > 0 ? await fileMentionContextService.build(roomId, mentions) : ''}`
+    const decision = !isDirectAgentRoom && pendingInteractions.length === 0 ? await longTaskService.decideWithAgent(roomId, assistant, contentWithFiles, context, actorUserId) : { mode: 'chat' as const }
     if (decision.mode === 'long_task') {
       const plan = await longTaskService.createPlan(roomId, actorUserId, assistant, contentWithFiles, context, decision)
       const responseMsg = await messageService.createMessage(roomId, assistant.id, assistant.name, 'ai', plan.summaryMessage)
@@ -126,12 +128,19 @@ export class AgentInvocationHandler {
       return
     }
 
-    const prompt = buildAssistantAutoPrompt({
-      context,
-      actorName,
-      content: contentWithFiles,
-      pendingInteractions: pendingInteractions.map((item) => ({ id: item.id, type: item.type, title: item.title, description: item.description })),
-    })
+    const prompt = isDirectAgentRoom
+      ? [
+          '你正在和用户一对一私聊。直接回答用户最新消息，不需要判断是否介入，不要输出 [SILENT]，不要分派其他 Agent。',
+          context ? `最近对话：\n${context}` : '',
+          `最新消息来自 ${actorName}: ${contentWithFiles}`,
+          '请用简短、自然、面向当前用户的中文回复。',
+        ].filter(Boolean).join('\n\n')
+      : buildAssistantAutoPrompt({
+          context,
+          actorName,
+          content: contentWithFiles,
+          pendingInteractions: pendingInteractions.map((item) => ({ id: item.id, type: item.type, title: item.title, description: item.description })),
+        })
 
     await this.invokeMentionedAgents(roomId, prompt, [{ id: assistant.id, name: assistant.name, role: 'ai' }], 'auto', actorUserId)
   }
@@ -152,6 +161,26 @@ export class AgentInvocationHandler {
       if (!roomAgentIds.has(agentId)) continue
       const agent = roomAgents.find((a) => a.id === agentId)
       if (!agent) continue
+
+      const receiptMsg = await messageService.createMessage(
+        roomId,
+        agentId,
+        agent.name,
+        'ai',
+        receiptReason === 'task' ? '收到任务，处理中…' : '收到，处理中…',
+        undefined,
+        undefined,
+        'agent_receipt',
+        { accepted: true, reason: receiptReason }
+      )
+      this.broadcastToRoom(roomId, {
+        msgId: receiptMsg.id,
+        roomId,
+        type: 'broadcast',
+        action: 'chat.message',
+        payload: receiptMsg,
+        timestamp: Date.now()
+      })
 
       this.broadcastToRoom(roomId, {
         msgId: uuidv4(),
@@ -189,10 +218,12 @@ export class AgentInvocationHandler {
 
       try {
         await agentService.updateAgent(agentId, { status: 'working' } as any)
-        const selfMentionContext = agentMentions.some((m) => m.id === agentId)
+        const selfMentionContext = receiptReason === 'mention' && agentMentions.some((m) => m.id === agentId)
           ? `用户明确 @ 了你本人（${agent.name}, ${agent.id}）。你就是被 @ 的 Agent；不要转发、通知或提醒同名 Agent，请直接处理用户请求。\n\n`
-          : ''
-        const contentWithFiles = `${selfMentionContext}${content}${await fileMentionContextService.build(roomId, mentions)}`
+          : receiptReason === 'auto'
+            ? `系统已将当前消息交给你处理。你就是本次应答 Agent，请直接回复用户，不要说“已通知/转发/提醒”自己。\n\n`
+            : ''
+        const contentWithFiles = `${selfMentionContext}${content}${mentions.length > 0 ? await fileMentionContextService.build(roomId, mentions) : ''}`
         const timeoutMs = receiptReason === 'task' ? config.agent.taskTimeoutMs : config.agent.chatTimeoutMs
         const runtimeActivity = agentStreamService.addActivity(streamMessageId, { text: '正在调用 Agent Runtime' })
         this.broadcastToRoom(roomId, { msgId: uuidv4(), roomId, type: 'broadcast', action: 'agent.stream.activity', payload: { id: streamMessageId, agentId, ...runtimeActivity }, timestamp: Date.now() })

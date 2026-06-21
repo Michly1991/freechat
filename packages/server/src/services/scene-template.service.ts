@@ -222,12 +222,11 @@ export class SceneTemplateService {
       clonedAgents.push({ ...sceneAgent, cloned })
     }
     const now = Date.now()
-    const primaryAssistant = clonedAgents.find((agent) => agent.cloned.roleType === 'assistant' && agent.autoEnabled)
-      || clonedAgents.find((agent) => agent.cloned.roleType === 'assistant')
+    const primaryAssistant = clonedAgents.find((agent) => agent.autoEnabled) || clonedAgents[0]
     const tx = db.transaction(() => {
       db.prepare('UPDATE rooms SET scene_template_id = ?, scene_template_version = ? WHERE id = ?').run(sceneId, scene.version || 1, roomId)
-      const sceneHasAssistant = clonedAgents.some((agent) => agent.cloned.roleType === 'assistant')
-      if (sceneHasAssistant) {
+      const sceneHasAgent = clonedAgents.length > 0
+      if (sceneHasAgent) {
         const defaultAssistantRows = db.prepare(`
           SELECT a.id FROM agents a
           INNER JOIN room_agents ra ON a.id = ra.agent_id
@@ -241,7 +240,6 @@ export class SceneTemplateService {
           UPDATE room_agents
           SET auto_enabled = 0, room_role = 'specialist'
           WHERE room_id = ?
-            AND agent_id IN (SELECT id FROM agents WHERE role_type = 'assistant')
         `).run(roomId)
       }
       if (clonedAgents.some((agent) => agent.autoEnabled)) db.prepare('UPDATE room_agents SET auto_enabled = 0 WHERE room_id = ?').run(roomId)

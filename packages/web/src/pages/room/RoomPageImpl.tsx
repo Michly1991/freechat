@@ -8,7 +8,6 @@ import { PanelLeftOpen } from 'lucide-react'
 import { AgentRecoveryBanner } from './components/AgentRecoveryBanner'
 import { InteractionCard } from './components/InteractionCard'
 import { RoomMainPanel } from './components/RoomMainPanel'
-import { VoiceChatModeBar } from '../../features/voice/VoiceChatModeBar'
 import { DesktopMembersPanel, MobileMembersDrawer, ProfileModal } from './components/RoomMembers'
 import { RoomSettingsSidePanel } from './components/RoomSettingsSidePanel'
 import { AgentModelDialog } from './components/AgentModelDialog'
@@ -19,6 +18,7 @@ import { createRoomRuntimeActions } from './room-realtime'
 import { createMessagePaginationActions, INITIAL_MESSAGE_LIMIT } from './room-message-pagination'
 import { getAgentOnlineStatus, getMemberDisplayName } from './room-ui-utils'
 import { createRoomProfileController } from './room-profile-controller'
+import { useStreamingVoicePlayback } from '../../features/voice/useStreamingVoicePlayback'
 import { mergeMessages, readCachedMessages, writeCachedMessages, type FileNode, type Message, type Panel, type Tab } from '../room-page-model'
 
 export function RoomPageImpl() {
@@ -73,8 +73,7 @@ export function RoomPageImpl() {
   const [submittingInteractions, setSubmittingInteractions] = useState<Record<string, boolean>>({})
   const [pendingInteractions, setPendingInteractions] = useState<any[]>([])
   const [voiceChatEnabled, setVoiceChatEnabled] = useState(false)
-  const [voiceAutoSend, setVoiceAutoSend] = useState(false)
-  const [voiceAutoPlay, setVoiceAutoPlay] = useState(true)
+  const [voiceAvailable, setVoiceAvailable] = useState(false)
   const [voicePlaybackBusy, setVoicePlaybackBusy] = useState(false)
   const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'transcribing' | 'thinking' | 'speaking' | 'error'>('idle')
   const wsRef = useRef<WebSocket | null>(null)
@@ -84,9 +83,7 @@ export function RoomPageImpl() {
   const wsConnectIdRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement>(null), messagesScrollRef = useRef<HTMLDivElement>(null), initialScrollDoneRef = useRef(false), suppressNextAutoScrollRef = useRef(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const voiceChatEnabledRef = useRef(false), voiceAutoPlayRef = useRef(true), voiceAudioRef = useRef<HTMLAudioElement | null>(null)
-  useEffect(() => { voiceChatEnabledRef.current = voiceChatEnabled }, [voiceChatEnabled])
-  useEffect(() => { voiceAutoPlayRef.current = voiceAutoPlay }, [voiceAutoPlay])
+
   const getCurrentToken = () => {
     if (token) return token
     try {
@@ -174,6 +171,24 @@ export function RoomPageImpl() {
     scrollToBottom('auto')
   }, [activePanel, messages.length, scrollToBottom])
 
+  useEffect(() => {
+    let cancelled = false
+    api.getVoiceConfigs()
+      .then(({ configs }) => {
+        if (cancelled) return
+        const active = (configs || []).filter((cfg: any) => cfg.status !== 'deleted')
+        const hasAsr = active.some((cfg: any) => cfg.asrEnabled)
+        const hasTts = active.some((cfg: any) => cfg.ttsEnabled)
+        const available = hasAsr && hasTts
+        setVoiceAvailable(available)
+        if (!available) setVoiceChatEnabled(false)
+      })
+      .catch(() => {
+        if (!cancelled) { setVoiceAvailable(false); setVoiceChatEnabled(false) }
+      })
+    return () => { cancelled = true }
+  }, [])
+
   const { handleMessagesScroll } = createMessagePaginationActions({
     roomId,
     messages,
@@ -193,34 +208,15 @@ export function RoomPageImpl() {
     if (el && initialScrollDoneRef.current && !loadingOlderMessages && hasMoreMessages && messages.length > 0 && el.scrollHeight <= el.clientHeight + 24) void handleMessagesScroll()
   }, [messages.length, hasMoreMessages, loadingOlderMessages, handleMessagesScroll])
 
-  const interruptVoicePlayback = useCallback(() => {
-    if (voiceAudioRef.current) {
-      voiceAudioRef.current.pause()
-      voiceAudioRef.current.currentTime = 0
-      voiceAudioRef.current = null
-    }
-    setVoicePlaybackBusy(false)
-    setVoiceStatus('idle')
-  }, [])
-  const handleIncomingMessage = useCallback((msg: any) => {
-    if (!voiceChatEnabledRef.current || !voiceAutoPlayRef.current || msg?.actorRole !== 'ai' || !msg?.content?.trim() || msg?.kind === 'agent_stream' || msg?.kind === 'agent_receipt') return
-    setVoicePlaybackBusy(true)
-    setVoiceStatus('speaking')
-    api.synthesizeVoice({ text: msg.content, roomId, messageId: msg.id })
-      .then((res) => {
-        const audio = new Audio(res.audioUrl)
-        voiceAudioRef.current = audio
-        audio.onended = () => { if (voiceAudioRef.current === audio) voiceAudioRef.current = null; setVoicePlaybackBusy(false); setVoiceStatus('idle') }
-        audio.onerror = () => { setVoicePlaybackBusy(false); setVoiceStatus('error') }
-        void audio.play()
-      })
-      .catch((err: any) => { setVoicePlaybackBusy(false); setVoiceStatus('error'); feedback.error(err?.message || 'AI 回复语音播放失败，请检查语音配置') })
-  }, [roomId, feedback])
+  const { primeVoicePlayback, interruptVoicePlayback, handleIncomingMessage, handleAgentStreamDelta, handleAgentStreamCompleted } = useStreamingVoicePlayback({ roomId, enabled: voiceChatEnabled, feedback, setVoicePlaybackBusy, setVoiceStatus })
   const { loadRoom, connectWs, sendWs, loadFiles, loadTabs } = createRoomRuntimeActions({
     roomId, navigate, feedback, user, activePanel, wsRef, reconnectTimerRef, reconnectAttemptsRef,
     manuallyClosedRef, wsConnectIdRef, isChatNearBottom, getCurrentToken, setRoom, setMembers,
     setFiles, setTabs, setActiveTabId, setRoomAgents, setTasks, setMessages, setWsStatus, setSendError,
-    setPendingInteractions, setLastReadAt, setRoomNewMessageCount, setHasMoreMessages, onIncomingMessage: handleIncomingMessage,
+    setPendingInteractions, setLastReadAt, setRoomNewMessageCount, setHasMoreMessages,
+    onIncomingMessage: handleIncomingMessage,
+    onAgentStreamDelta: handleAgentStreamDelta,
+    onAgentStreamCompleted: handleAgentStreamCompleted,
   })
   const buildMentionsForSend = (content: string) => {
     const mentions = [...selectedMentions]
@@ -275,15 +271,19 @@ export function RoomPageImpl() {
     if (await sendTextMessage(input)) setInput('')
   }
   const handleVoiceTranscript = async (text: string) => {
-    if (voiceChatEnabled && voiceAutoSend) {
-      setVoiceStatus('thinking')
-      if (await sendTextMessage(text)) setInput('')
-      else setVoiceStatus('error')
-      return
-    }
-    setInput((prev) => `${prev}${prev.trim() ? '\n' : ''}${text}`)
+    setVoiceStatus('thinking')
+    if (await sendTextMessage(text)) setInput('')
+    else setVoiceStatus('error')
+  }
+  const enableVoiceChat = () => {
+    setVoiceChatEnabled(true)
     setVoiceStatus('idle')
-    inputRef.current?.focus()
+    primeVoicePlayback()
+  }
+  const disableVoiceChat = () => {
+    setVoiceChatEnabled(false)
+    interruptVoicePlayback()
+    setVoiceStatus('idle')
   }
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value
@@ -364,6 +364,11 @@ export function RoomPageImpl() {
   )
   return (
     <div className="h-screen flex flex-col bg-gray-50 relative">
+      {activePanel === 'chat' && voiceAvailable && voiceChatEnabled && (
+        <div className="mx-3 mt-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+          {voiceStatus === 'listening' ? '语音中：正在听，2 秒无声后自动发送；房间回复会自动播报。' : voiceStatus === 'transcribing' ? '正在转文字...' : voiceStatus === 'thinking' ? '已发送，等待回复...' : voiceStatus === 'speaking' ? '正在播报房间回复...' : '语音模式已开启，开始说话即可。'}
+        </div>
+      )}
       <RoomHeader
         room={room}
         members={members}
@@ -377,24 +382,6 @@ export function RoomPageImpl() {
       />
       <DesktopPanelTabs activePanel={activePanel} setActivePanel={setActivePanel} agentWorking={workingAgents.length > 0} />
       <AgentRecoveryBanner errorAgents={errorAgents} restartAllAgents={restartAllErrorAgents} />
-      {activePanel === 'chat' && (
-        <VoiceChatModeBar
-          enabled={voiceChatEnabled}
-          autoSend={voiceAutoSend}
-          autoPlay={voiceAutoPlay}
-          busy={voicePlaybackBusy}
-          status={voiceStatus}
-          roomId={roomId}
-          onEnable={() => { setVoiceChatEnabled(true); setVoiceAutoSend(true); setVoiceAutoPlay(true); setVoiceStatus('idle') }}
-          onDisable={() => { setVoiceChatEnabled(false); interruptVoicePlayback(); setVoiceStatus('idle') }}
-          onAutoSendChange={setVoiceAutoSend}
-          onAutoPlayChange={setVoiceAutoPlay}
-          onInterrupt={interruptVoicePlayback}
-          onRecordingChange={(recording: boolean) => setVoiceStatus(recording ? 'listening' : 'transcribing')}
-          onBusyChange={(busy: boolean) => { if (busy) setVoiceStatus('transcribing') }}
-          onTranscript={handleVoiceTranscript}
-        />
-      )}
       {activePanel === 'chat' && pendingInteractions.length > 0 && (
         <div className="mx-3 mb-2 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
           <span>？有 {pendingInteractions.length} 个待你处理的请求</span>
@@ -414,7 +401,7 @@ export function RoomPageImpl() {
         )}
         <div className="flex-1 flex flex-col overflow-hidden">
           <RoomMainPanel
-            {...{ roomId, activePanel, messages, user, unreadMarkerAt, messagesScrollRef, messagesEndRef, roomNewMessageCount, scrollToBottomAndRead, sendMessage, showMentionPopup, filteredMembers, filteredAgents, filteredFiles, insertMention, inputRef, input, handleInputChange, sendError, wsNoticeDismissed, setWsNoticeDismissed, renderInteractionCard, getActorAvatar, getActorMember, getActorAgent, openMemberProfile, handleMessagesScroll, loadingOlderMessages, hasMoreMessages, files, currentFile, setCurrentFile, fileDirty, setFileDirty, openFile, saveFile, deleteFile, createFile, createFolder, uploadLocalFile, activeTabId, tabs, roomAgents: visibleRoomAgents, feedback, showCreateTab, setShowCreateTab, newTabName, setNewTabName, newTabContent, setNewTabContent, createTab, deleteTab, editingTabId, setEditingTabId, editingTabTitle, setEditingTabTitle, editingTabContent, setEditingTabContent, updateTab, beginEditTab, tabError, tasks, newTaskTitle, setNewTaskTitle, creatingTask, createTask, expandedTaskIds, toggleTaskExpanded, newSubtaskTitles, setNewSubtaskTitles, showArchivedTasks, setShowArchivedTasks, updateTaskStatus, retryTaskFailedItems, deleteTask, createSubtask, updateSubtaskStatus, retrySubtask, deleteSubtask, renderAssigneeBadge, setActiveTabId, restartAgent }}
+            {...{ roomId, activePanel, messages, user, unreadMarkerAt, messagesScrollRef, messagesEndRef, roomNewMessageCount, scrollToBottomAndRead, sendMessage, showMentionPopup, filteredMembers, filteredAgents, filteredFiles, insertMention, inputRef, input, handleInputChange, voiceAvailable, voiceChatEnabled, voiceStatus, voiceBusy: voicePlaybackBusy, onVoiceEnable: enableVoiceChat, onVoiceDisable: disableVoiceChat, onVoiceTranscript: handleVoiceTranscript, onVoiceRecordingChange: (recording: boolean) => { if (recording) setVoiceStatus('listening') }, onVoiceBusyChange: (busy: boolean) => { if (busy) setVoiceStatus('transcribing') }, sendError, wsNoticeDismissed, setWsNoticeDismissed, renderInteractionCard, getActorAvatar, getActorMember, getActorAgent, openMemberProfile, handleMessagesScroll, loadingOlderMessages, hasMoreMessages, files, currentFile, setCurrentFile, fileDirty, setFileDirty, openFile, saveFile, deleteFile, createFile, createFolder, uploadLocalFile, activeTabId, tabs, roomAgents: visibleRoomAgents, feedback, showCreateTab, setShowCreateTab, newTabName, setNewTabName, newTabContent, setNewTabContent, createTab, deleteTab, editingTabId, setEditingTabId, editingTabTitle, setEditingTabTitle, editingTabContent, setEditingTabContent, updateTab, beginEditTab, tabError, tasks, newTaskTitle, setNewTaskTitle, creatingTask, createTask, expandedTaskIds, toggleTaskExpanded, newSubtaskTitles, setNewSubtaskTitles, showArchivedTasks, setShowArchivedTasks, updateTaskStatus, retryTaskFailedItems, deleteTask, createSubtask, updateSubtaskStatus, retrySubtask, deleteSubtask, renderAssigneeBadge, setActiveTabId, restartAgent }}
           />
         </div>
         <DesktopMembersPanel

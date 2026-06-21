@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Check, Copy, FileText, X } from 'lucide-react'
 import { VoicePlaybackButton } from '../../../features/voice/VoicePlaybackButton'
-import { VoiceRecorderButton } from '../../../features/voice/VoiceRecorderButton'
+import { VoiceConversationButton } from '../../../features/voice/VoiceConversationButton'
 import type { FileNode, Message } from '../../room-page-model'
 import { getAgentStatusLabel, getMemberAvatar, getMemberDisplayName, renderAgentAvatar, renderAvatar, renderMessageContent } from '../room-ui-utils'
 
@@ -68,7 +68,15 @@ interface RoomChatPanelProps {
   inputRef: React.RefObject<HTMLTextAreaElement>
   input: string
   handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void
-  onVoiceTranscript?: (text: string) => void
+  voiceAvailable?: boolean
+  voiceChatEnabled?: boolean
+  voiceStatus?: string
+  voiceBusy?: boolean
+  onVoiceEnable?: () => void
+  onVoiceDisable?: () => void
+  onVoiceTranscript?: (text: string) => void | Promise<void>
+  onVoiceRecordingChange?: (recording: boolean) => void
+  onVoiceBusyChange?: (busy: boolean) => void
   sendError: string
   wsNoticeDismissed: boolean
   setWsNoticeDismissed: (value: boolean) => void
@@ -87,7 +95,9 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
     roomId, messages, user, unreadMarkerAt, messagesScrollRef, messagesEndRef, roomNewMessageCount, scrollToBottomAndRead,
     sendMessage, showMentionPopup, filteredMembers, filteredAgents, filteredFiles, insertMention, inputRef, input, handleInputChange,
     sendError, wsNoticeDismissed, setWsNoticeDismissed, renderInteractionCard, getActorAvatar, getActorMember,
-    getActorAgent, openMemberProfile, onMessagesScroll, loadingOlderMessages, hasMoreMessages, onVoiceTranscript,
+    getActorAgent, openMemberProfile, onMessagesScroll, loadingOlderMessages, hasMoreMessages,
+    voiceAvailable = false, voiceChatEnabled = false, voiceStatus, voiceBusy, onVoiceEnable, onVoiceDisable, onVoiceTranscript,
+    onVoiceRecordingChange, onVoiceBusyChange,
   } = props
   const [expandedMessageIds, setExpandedMessageIds] = useState<Record<string, boolean>>({})
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
@@ -131,7 +141,7 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
                       <button type="button" onClick={() => msg.actorRole === 'ai' ? openMemberProfile(actorAgent, 'agent') : actorMember && openMemberProfile(actorMember, 'member')} className={`min-w-0 truncate text-xs text-left ${isAgentReceipt || isAgentStream ? 'text-gray-400' : (isOwn ? 'text-blue-200' : 'text-gray-400 hover:text-blue-500')}`}>{msg.actorRole === 'ai' ? 'AI · ' : ''}{displayName}</button>
                       {sentTime && <time dateTime={new Date(msg.createdAt).toISOString()} title={fullSentTime} className={`shrink-0 text-[10px] ${isAgentReceipt || isAgentStream ? 'text-gray-400' : (isOwn ? 'text-blue-100/80' : 'text-gray-400')}`}>{sentTime}</time>}
                     </div>
-                    {msg.content?.trim() && !isAgentStream && <div className="flex items-center gap-1"><VoicePlaybackButton text={msg.content} roomId={roomId} messageId={msg.id} own={isOwn} /><button type="button" onClick={() => copyMessage(msg.id, msg.content)} className={`fc-pressable shrink-0 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] ${isOwn ? 'text-blue-100 hover:bg-blue-500/30' : 'text-gray-400 hover:bg-gray-100 hover:text-blue-500'}`} title="复制消息">
+                    {msg.content?.trim() && !isAgentStream && <div className="flex items-center gap-1">{voiceAvailable && <VoicePlaybackButton text={msg.content} roomId={roomId} messageId={msg.id} own={isOwn} />}<button type="button" onClick={() => copyMessage(msg.id, msg.content)} className={`fc-pressable shrink-0 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] ${isOwn ? 'text-blue-100 hover:bg-blue-500/30' : 'text-gray-400 hover:bg-gray-100 hover:text-blue-500'}`} title="复制消息">
                       {copiedMessageId === msg.id ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                       <span className="hidden sm:inline">{copiedMessageId === msg.id ? '已复制' : '复制'}</span>
                     </button></div>}
@@ -180,8 +190,8 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
         {sendError && !wsNoticeDismissed && <div className="mb-2 flex items-center justify-between gap-2 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700"><span>{sendError.replace('正在重连...', '实时同步暂不可用，但消息可正常发送')}</span><button type="button" onClick={() => setWsNoticeDismissed(true)} className="text-amber-500 hover:text-amber-700" title="关闭"><X className="w-4 h-4" /></button></div>}
         <div className="flex gap-2 items-center rounded-2xl bg-gray-50 border border-gray-200 p-1.5 shadow-inner focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-300 transition-all">
           <textarea ref={inputRef} value={input} onChange={handleInputChange} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) sendMessage(e) }} rows={1} placeholder="输入消息，@提及成员..." className="min-w-0 flex-1 max-h-32 resize-none bg-transparent px-3 py-2.5 text-base sm:text-sm border-0 rounded-xl focus:ring-0 focus:outline-none overflow-y-auto leading-6" />
-          {onVoiceTranscript && <VoiceRecorderButton roomId={roomId} onTranscript={onVoiceTranscript} />}
-          <button type="submit" disabled={!input.trim()} className="fc-pressable fc-mobile-touch bg-blue-600 text-white px-4 sm:px-6 py-2 rounded-xl hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed shadow-sm shadow-blue-500/20">发送</button>
+          {voiceAvailable && onVoiceTranscript && onVoiceEnable && onVoiceDisable && <VoiceConversationButton roomId={roomId} enabled={voiceChatEnabled} busy={voiceBusy} status={voiceStatus} onEnable={onVoiceEnable} onDisable={onVoiceDisable} onTranscript={onVoiceTranscript} onRecordingChange={onVoiceRecordingChange} onBusyChange={onVoiceBusyChange} />}
+          {!voiceChatEnabled && <button type="submit" disabled={!input.trim()} className="fc-pressable fc-mobile-touch bg-blue-600 text-white px-4 sm:px-6 py-2 rounded-xl hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed shadow-sm shadow-blue-500/20">发送</button>}
         </div>
       </form>
     </div>

@@ -47,10 +47,10 @@ export function HomeHeader({
                 添加好友
               </button>
               <button onClick={onShowJoin} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50">
-                加入项目
+                加入群聊
               </button>
               <button onClick={onShowCreate} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50">
-                新建项目
+                新建群聊
               </button>
             </div>
           )}

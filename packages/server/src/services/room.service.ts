@@ -19,7 +19,7 @@ function getUserIdentityType(userId: string): 'human' | 'agent' {
 }
 
 export class RoomService {
-  async createRoom(name: string, description: string | null, userId: string, initialMemberIds: string[] = [], initialAgents: InitialRoomAgent[] = [], options: { skipDefaultAssistant?: boolean } = {}): Promise<Room> {
+  async createRoom(name: string, description: string | null, userId: string, initialMemberIds: string[] = [], initialAgents: InitialRoomAgent[] = [], options: { skipDefaultAssistant?: boolean; roomKind?: string; directKey?: string; directTargetType?: string; directTargetId?: string } = {}): Promise<Room> {
     const id = `room_${uuidv4()}`
     const assistantAgentId = `agent_${uuidv4()}`
     const now = Date.now()
@@ -53,9 +53,9 @@ export class RoomService {
 
     const create = db.transaction(() => {
       db.prepare(`
-        INSERT INTO rooms (id, name, description, created_by, created_at, updated_at, last_active_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(id, name, description, userId, now, now, now)
+        INSERT INTO rooms (id, name, description, created_by, created_at, updated_at, last_active_at, room_kind, direct_key, direct_target_type, direct_target_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, name, description, userId, now, now, now, options.roomKind || 'project', options.directKey || null, options.directTargetType || null, options.directTargetId || null)
 
       // Add creator as owner
       db.prepare(`
@@ -126,8 +126,12 @@ export class RoomService {
       createdBy: row.created_by,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      lastActiveAt: row.last_active_at
-    }
+      lastActiveAt: row.last_active_at,
+      roomKind: row.room_kind || 'project',
+      directKey: row.direct_key || undefined,
+      directTargetType: row.direct_target_type || undefined,
+      directTargetId: row.direct_target_id || undefined,
+    } as any
   }
 
   async getUserRooms(userId: string): Promise<Room[]> {
@@ -146,9 +150,13 @@ export class RoomService {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       lastActiveAt: row.last_active_at,
+      roomKind: row.room_kind || 'project',
+      directKey: row.direct_key || undefined,
+      directTargetType: row.direct_target_type || undefined,
+      directTargetId: row.direct_target_id || undefined,
       memberRole: row.member_role,
       canDelete: row.member_role === 'owner'
-    }))
+    } as any))
   }
 
   async updateRoom(roomId: string, name?: string, description?: string): Promise<Room> {

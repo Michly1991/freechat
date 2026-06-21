@@ -51,7 +51,7 @@ export async function registerRoomRoutes(app: FastifyInstance) {
       if (sceneId) sceneTemplateService.ensureBuiltInScenes(user.id)
       if (sceneId && !marketEngagementService.canUseScene(user, String(sceneId))) return reply.code(403).send({ success: false, error: { code: 'SCENE_NOT_PURCHASED', message: '请先购买或选择已拥有的场景' } })
       const sceneProvidesAssistant = sceneId ? sceneTemplateService.sceneHasAssistant(String(sceneId)) : false
-      const room = await roomService.createRoom(name, description || null, user.id, initialMemberIds, [], { skipDefaultAssistant: sceneProvidesAssistant })
+      const room = await roomService.createRoom(name, description || null, user.id, initialMemberIds, [], { skipDefaultAssistant: sceneProvidesAssistant, roomKind: 'group' })
       try {
         if (sceneId) await sceneTemplateService.applySceneToRoom(String(sceneId), room.id, user.id)
         if (!sceneId) {

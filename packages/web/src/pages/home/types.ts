@@ -68,6 +68,7 @@ export type ContactsSectionProps = {
   acceptFriendRequest: (requestId: string) => void
   rejectFriendRequest: (requestId: string) => void
   openDm: (friendId: string) => void
+  openAgentChat: (agentId: string) => void
   toggleAgentTool: (key: AgentToolKey) => void
   createAgentFromContacts: () => void
   openEditAgent: (agent: any) => void

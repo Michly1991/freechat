@@ -6,6 +6,7 @@ import { resolve } from 'path'
 import { mkdirSync } from 'fs'
 import { registerAuthRoutes } from './routes/auth.js'
 import { registerRoomRoutes } from './routes/rooms.js'
+import { registerDirectRoomRoutes } from './routes/direct-rooms.js'
 import { registerFileRoutes } from './routes/files.js'
 import { registerTabRoutes } from './routes/tabs.js'
 import { registerTabConfigRoutes } from './routes/tab-config.js'
@@ -104,6 +105,7 @@ async function buildApp() {
 
   // Register routes
   await registerAuthRoutes(app)
+  await registerDirectRoomRoutes(app)
   await registerRoomRoutes(app)
   await registerFileRoutes(app)
   await registerTabRoutes(app)

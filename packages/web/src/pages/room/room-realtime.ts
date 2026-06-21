@@ -4,7 +4,7 @@ import { playNotificationSound } from '../../features/notifications/notification
 import { mergeMessages, writeCachedMessages } from '../room-page-model'
 
 export function createRoomRuntimeActions(deps: any) {
-  const { roomId, navigate, feedback, user, activePanel, wsRef, reconnectTimerRef, reconnectAttemptsRef, manuallyClosedRef, wsConnectIdRef, isChatNearBottom, getCurrentToken, setRoom, setMembers, setFiles, setTabs, setActiveTabId, setRoomAgents, setTasks, setMessages, setWsStatus, setSendError, setPendingInteractions, setLastReadAt, setRoomNewMessageCount, setHasMoreMessages, onIncomingMessage } = deps
+  const { roomId, navigate, feedback, user, activePanel, wsRef, reconnectTimerRef, reconnectAttemptsRef, manuallyClosedRef, wsConnectIdRef, isChatNearBottom, getCurrentToken, setRoom, setMembers, setFiles, setTabs, setActiveTabId, setRoomAgents, setTasks, setMessages, setWsStatus, setSendError, setPendingInteractions, setLastReadAt, setRoomNewMessageCount, setHasMoreMessages, onIncomingMessage, onAgentStreamDelta, onAgentStreamCompleted } = deps
 
   const loadFiles = async () => { if (!roomId) return; try { const fd = await api.getFiles(roomId); setFiles(fd.files || []) } catch (err: any) { feedback.error(err?.message || '加载文件失败'); addClientLog('error', 'ui', 'load files failed', { message: err?.message }) } }
   const applyTabs = (td: { tabs?: any[]; defaultTabId?: string | null }) => {
@@ -86,8 +86,10 @@ export function createRoomRuntimeActions(deps: any) {
       }))
     } else if (msg.action === 'agent.stream.delta') {
       setMessages((prev: any[]) => prev.map((m) => (m.id === msg.payload.id ? { ...m, content: msg.payload.content || m.content, payload: { ...(m.payload || {}), status: 'streaming' } } : m)))
+      onAgentStreamDelta?.(msg.payload)
     } else if (msg.action === 'agent.stream.completed') {
       setMessages((prev: any[]) => msg.payload.silent ? prev.filter((m) => m.id !== msg.payload.id) : prev.map((m) => m.id === msg.payload.id ? { ...m, content: msg.payload.content || m.content, payload: { ...(m.payload || {}), status: 'completed', finalMessageId: msg.payload.finalMessageId } } : m))
+      if (!msg.payload.silent) onAgentStreamCompleted?.(msg.payload)
     } else if (msg.action === 'agent.stream.failed') {
       setMessages((prev: any[]) => prev.map((m) => m.id === msg.payload.id ? { ...m, payload: { ...(m.payload || {}), status: 'failed', error: msg.payload.error, activities: [...(m.payload?.activities || []), { text: `处理失败：${msg.payload.error}`, timestamp: Date.now() }] } } : m))
     } else if (msg.action === 'interaction.created') {

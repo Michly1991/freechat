@@ -10,7 +10,7 @@
 
 其中“消息”Tab 混合展示：
 
-- 好友单聊 DM
+- 好友单聊 DM（新入口逐步改为 Direct Room，见 `DESIGN-DIRECT-ROOMS.md`）
 - 项目房间 Project Room
 
 并支持：

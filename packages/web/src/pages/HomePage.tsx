@@ -159,7 +159,11 @@ export default function HomePage() {
   }
 
   const openDm = async (friendId: string) => {
-    try { const data = await api.openDm(friendId); navigate(`/dm/${data.conversation.id}`) } catch (err: any) { feedback.error(err.message || '操作失败') }
+    try { const data = await api.openDirectUserRoom(friendId); navigate(`/room/${data.room.id}`) } catch (err: any) { feedback.error(err.message || '操作失败') }
+  }
+
+  const openAgentChat = async (agentId: string) => {
+    try { const data = await api.openDirectAgentRoom(agentId); navigate(`/room/${data.room.id}`) } catch (err: any) { feedback.error(err.message || '操作失败') }
   }
 
   const resetAgentEditor = () => {
@@ -205,7 +209,7 @@ export default function HomePage() {
   const toggleConversationPref = async (conv: any, key: 'pinned' | 'muted' | 'hidden', e?: React.MouseEvent) => {
     e?.stopPropagation()
     try {
-      await api.updateConversationPrefs(conv.type, conv.id, { [key]: !conv[key] })
+      await api.updateConversationPrefs(conv.prefType || conv.type, conv.id, { [key]: !conv[key] })
       if (key === 'pinned') feedback.success(conv.pinned ? '已取消置顶' : '已置顶')
       if (key === 'muted') feedback.success(conv.muted ? '已取消免打扰' : '已设为免打扰')
       if (key === 'hidden') feedback.success('会话已隐藏')
@@ -219,21 +223,21 @@ export default function HomePage() {
 
   const deleteConversation = async (conv: any, e?: React.MouseEvent) => {
     e?.stopPropagation()
-    if (conv.type === 'project') {
+    if (conv.type === 'room' && conv.roomKind === 'group') {
       await handleDeleteRoom(conv, e as any)
       return
     }
-    const ok = await feedback.confirm({ title: '不显示这个私聊？', message: '当前会话会从消息列表隐藏，之后可从通讯录重新打开。', confirmText: '不显示', danger: true })
+    const ok = await feedback.confirm({ title: '不显示这个会话？', message: '当前会话会从消息列表隐藏，之后可从通讯录重新打开。', confirmText: '不显示', danger: true })
     if (!ok) return
-    await api.updateConversationPrefs(conv.type, conv.id, { hidden: true })
-    feedback.success('私聊已隐藏')
+    await api.updateConversationPrefs(conv.prefType || conv.type, conv.id, { hidden: true })
+    feedback.success('会话已隐藏')
     loadConversations()
   }
 
   const getConversationActions = (conv: any): SwipeAction[] => [
     { label: conv.pinned ? '取消置顶' : '置顶', color: 'blue', onClick: () => toggleConversationPref(conv, 'pinned') },
     { label: '不显示', color: 'gray', onClick: () => hideConversation(conv) },
-    { label: conv.type === 'project' ? '删除' : '隐藏', color: 'red', onClick: () => deleteConversation(conv) },
+    { label: conv.roomKind === 'group' ? '删除' : '隐藏', color: 'red', onClick: () => deleteConversation(conv) },
   ]
 
   const toggleSelectedFriend = (friendId: string) => {
@@ -241,17 +245,17 @@ export default function HomePage() {
   }
 
   const toggleSelectedAgent = (agentId: string) => {
-    const agent = agents.find((item) => item.id === agentId)
-    const shouldAuto = agent?.roleType === 'assistant'
     setSelectedAgents((prev) => {
-      if (prev.some((a) => a.agentId === agentId)) return prev.filter((a) => a.agentId !== agentId)
-      const next = shouldAuto ? prev.map((a) => ({ ...a, autoEnabled: false })) : prev
-      return [...next, { agentId, autoEnabled: shouldAuto }]
+      if (prev.some((a) => a.agentId === agentId)) {
+        const next = prev.filter((a) => a.agentId !== agentId)
+        return next.some((a) => a.autoEnabled) || next.length === 0 ? next : next.map((a, index) => ({ ...a, autoEnabled: index === 0 }))
+      }
+      return [...prev, { agentId, autoEnabled: prev.length === 0 }]
     })
   }
 
   const setAgentAutoEnabled = (agentId: string, autoEnabled: boolean) => {
-    setSelectedAgents((prev) => prev.map((a) => a.agentId === agentId ? { ...a, autoEnabled } : a))
+    setSelectedAgents((prev) => prev.map((a) => a.agentId === agentId ? { ...a, autoEnabled } : { ...a, autoEnabled: autoEnabled ? false : a.autoEnabled }))
   }
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -310,17 +314,17 @@ export default function HomePage() {
   const handleDeleteRoom = async (room: any, e: React.MouseEvent) => {
     e?.stopPropagation()
     if (!room.canDelete && room.memberRole !== 'owner') {
-      feedback.warning('你没有权限删除该项目')
+      feedback.warning('你没有权限删除该群聊')
       return
     }
-    const ok = await feedback.confirm({ title: `删除项目「${room.name}」？`, message: '项目会从列表隐藏，历史账单、流水和运行记录仍保留关联。', confirmText: '删除项目', danger: true })
+    const ok = await feedback.confirm({ title: `删除群聊「${room.name}」？`, message: '群聊会从列表隐藏，历史账单、流水和运行记录仍保留关联。', confirmText: '删除群聊', danger: true })
     if (!ok) return
     try {
       setDeletingId(room.id)
       await api.deleteRoom(room.id)
-      feedback.success('项目已删除')
+      feedback.success('群聊已删除')
       setRooms((prev) => prev.filter((r) => r.id !== room.id))
-      setConversations((prev) => prev.filter((conv) => !(conv.type === 'project' && conv.id === room.id)))
+      setConversations((prev) => prev.filter((conv) => !(conv.type === 'room' && conv.id === room.id)))
     } catch (err: any) {
       feedback.error('删除失败: ' + (err.message || JSON.stringify(err)))
     } finally {
@@ -346,7 +350,7 @@ export default function HomePage() {
           <MessagesSection conversations={conversations} deletingId={deletingId} openSwipeId={openSwipeId} setOpenSwipeId={setOpenSwipeId} loadConversations={loadConversations} getConversationActions={getConversationActions} toggleConversationPref={toggleConversationPref} deleteConversation={deleteConversation} navigateTo={navigate} />
         )}
         {activeHomeTab === 'contacts' && (
-          <ContactsSection contactKind={contactKind} setContactKind={setContactKind} searchQ={searchQ} setSearchQ={setSearchQ} searchResults={searchResults} friends={friends} agents={agents} scenes={scenes} reloadScenes={loadScenes} reloadAgents={loadAgents} friendRequests={friendRequests} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} searchUsers={searchUsers} sendFriendRequest={sendFriendRequest} acceptFriendRequest={acceptFriendRequest} rejectFriendRequest={rejectFriendRequest} openDm={openDm} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />
+          <ContactsSection contactKind={contactKind} setContactKind={setContactKind} searchQ={searchQ} setSearchQ={setSearchQ} searchResults={searchResults} friends={friends} agents={agents} scenes={scenes} reloadScenes={loadScenes} reloadAgents={loadAgents} friendRequests={friendRequests} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} searchUsers={searchUsers} sendFriendRequest={sendFriendRequest} acceptFriendRequest={acceptFriendRequest} rejectFriendRequest={rejectFriendRequest} openDm={openDm} openAgentChat={openAgentChat} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />
         )}
         {activeHomeTab === 'market' && <MarketSection marketKind={marketKind} setMarketKind={setMarketKind} agents={agents} scenes={scenes} reloadScenes={loadScenes} reloadAgents={loadAgents} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />}
         {activeHomeTab === 'billing' && <BillingPanel />}
