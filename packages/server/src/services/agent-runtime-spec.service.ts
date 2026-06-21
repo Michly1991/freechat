@@ -40,7 +40,8 @@ const RUNTIME_RULES = `# FreeChat Agent Runtime Spec
 ## Agent 协作规则
 
 - 普通聊天中不要假 \`@另一个Agent\` 试图触发对方。
-- 客服/接待转交使用 \`./freechat room handoff --agent <名称> --reason <原因>\`。
+- 用户要求“切到/切换到/转接给/换成/让某 Agent 接待”时，当前接待 Agent 必须显式调用 \`./freechat room handoff --agent <名称> --reason <原因>\`。
+- 没有 handoff 工具成功结果前，禁止说“已切换/已转接/我是目标 Agent”，也禁止冒充目标 Agent 回复。
 - 项目协作使用 \`./freechat task create/subtask add --assignee <Agent名称>\`。
 - 简单单 Agent 任务直接完成；复杂、长期、跨 Agent 的事项再创建任务。
 `

@@ -56,6 +56,20 @@ export function validateTabIds(roomId: string, tabIds: string[]) {
   if (missing.length > 0) throwTabNotFound(missing.join(', '))
 }
 
+export async function assertNoFakeHandoffText(roomId: string, currentAgent: any, content: string): Promise<void> {
+  const text = String(content || '')
+  if (!/(?:我是|已切换|已经切换|切换到|已转接|转接给|接手|接待|换成|交接给)/.test(text)) return
+  const roomAgents = await agentService.getRoomAgents(roomId)
+  const target = roomAgents.find((item) => item.id !== currentAgent.id && text.includes(item.name))
+  if (!target) return
+  if (/(?:我是|已切换|已经切换|切换到|已转接|转接给|接手|接待|换成|交接给)/.test(text)) {
+    throw {
+      code: 'HANDOFF_TOOL_REQUIRED',
+      message: `你不能用普通聊天声明已切换/冒充 ${target.name}。要转交当前接待，必须调用：./freechat room handoff --agent ${target.name} --reason <原因>；handoff 成功后由服务端通知目标 Agent 回复。`
+    }
+  }
+}
+
 export async function resolveAgentAssignee(roomId: string, args: any): Promise<{ assigneeId?: string; assigneeName?: string; assigneeType?: 'human' | 'agent' }> {
   const raw = args.assigneeId || args.assignee_id || args.assignee || args.assigneeName || args.assignee_name
   if (!raw && !args.assigneeType && !args.assignee_type) return {}

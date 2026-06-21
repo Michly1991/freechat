@@ -192,3 +192,22 @@ Agent Client 不保存或判断“谁是当前接待”，只作为执行器：
 
 - 如果服务端/平台需要提供默认助手或官方 Agent，应由 admin 账号创建/拥有。
 - 这些 Agent 仍是 client deployment，通过 admin 登录的 Agent Client 接管执行，而不是服务端直接运行。
+
+## Handoff 工具强制规则
+
+房间当前接待切换的主流程是：当前接待 Agent 显式调用 `room.handoff`，服务端负责校验、裁决、状态更新、广播和唤醒目标 Agent。
+
+用户说“切到/切换到/转接给/换成/让某 Agent 接待”时：
+
+1. 当前接待 Agent 必须调用：
+   ```bash
+   ./freechat room handoff --agent <目标Agent名称> --reason <原因>
+   ```
+2. 服务端校验调用方是否为当前接待 Agent，目标 Agent 是否在房间内。
+3. 默认 auto accept，更新 `rooms.current_assistant_agent_id` 和 `room_agents.auto_enabled`。
+4. 服务端广播 `room.assistant_handoff_*`、`room.updated`、`room.members_update`。
+5. 服务端唤醒目标 Agent Client，由目标 Agent 继续回复。
+
+禁止 Agent 用普通聊天假装切换，例如“我是张小猫，已经切换完成”。`chat.send` 会拦截包含其他 Agent 名称且声明“已切换/已转接/我是目标 Agent/接手”的内容，返回 `HANDOFF_TOOL_REQUIRED`，要求改用 `room.handoff`。
+
+服务端仍保留对明显用户 handoff 命令的自动识别作为兜底，但产品语义上主路径是“原当前接待 Agent 显式发起 handoff request，服务端处理转换”。

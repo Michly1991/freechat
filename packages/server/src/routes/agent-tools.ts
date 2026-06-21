@@ -26,7 +26,7 @@ import { roomAnalyticsService } from '../services/room-analytics.service.js'
 import { tabFilesMapService } from '../services/tab-files-map.service.js'
 import { notificationService } from '../services/notification.service.js'
 import { remoteAgentConnectorService } from '../services/remote-agent-connector.service.js'
-import { assertProjectFilePathAllowed, broadcast, buildSubtaskWakePrompt, invokeAssignedAgent, resolveAgentAssignee, safeRelativePath, throwTabNotFound, validateTabIds } from './agent-tools.helpers.js'
+import { assertNoFakeHandoffText, assertProjectFilePathAllowed, broadcast, buildSubtaskWakePrompt, invokeAssignedAgent, resolveAgentAssignee, safeRelativePath, throwTabNotFound, validateTabIds } from './agent-tools.helpers.js'
 export async function registerAgentToolRoutes(app: FastifyInstance) {
   app.post('/api/agent-tools/:roomId', async (request, reply) => {
     const { roomId } = request.params as any
@@ -99,6 +99,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
         case 'chat.send': {
           const content = String(args.content || '').trim()
           if (!content) throw { code: 'VALIDATION_ERROR', message: 'content is required' }
+          await assertNoFakeHandoffText(roomId, agent, content)
           const escapedAgentName = agent.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
           const selfMention = new RegExp(`@\\s*${escapedAgentName}`)
           if (selfMention.test(content) && /(?:通知|转发|提醒|交给|让|叫|已通知|已转发|已提醒)/.test(content)) throw { code: 'AGENT_SELF_MENTION_FORBIDDEN', message: `你就是 ${agent.name}，不要通知/转发/提醒 @自己；请直接处理并用第一人称汇报。` }
