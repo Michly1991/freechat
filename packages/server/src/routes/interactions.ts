@@ -79,7 +79,7 @@ export async function materializeAgentCreateRequest(roomId: string, interaction:
   const created = await agentService.createAgent(ownerId, {
     name: String(spec.name).trim(),
     roleType: spec.roleType === 'assistant' ? 'assistant' : 'specialist',
-    deployment: spec.deployment === 'client' ? 'client' : 'server',
+    deployment: 'client',
     description: spec.description,
     specialties: Array.isArray(spec.specialties) ? spec.specialties : [],
     config: spec.config,

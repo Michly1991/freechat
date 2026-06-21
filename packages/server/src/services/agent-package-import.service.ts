@@ -136,7 +136,7 @@ export class AgentPackageImportService {
     let agentId = existing?.agent_id
     let agent: any
     if (!agentId) {
-      const created = await agentService.createAgent(userId, { name, roleType, deployment: 'server', description, specialties, config } as any)
+      const created = await agentService.createAgent(userId, { name, roleType, deployment: 'client', description, specialties, config } as any)
       agent = created.agent
       agentId = agent.id
     } else {

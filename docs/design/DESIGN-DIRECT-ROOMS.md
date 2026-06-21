@@ -174,3 +174,21 @@ Agent Client 不保存或判断“谁是当前接待”，只作为执行器：
 - 如果目标 Agent 离线，服务端仍可创建 remote event 并写入 `remote_agent_events.status = pending`；Agent Client 上线/重连后通过 WebSocket/SSE/poll 拉取继续处理。
 - 若事件已 delivered 但客户端中途断开导致未 complete/fail，客户端后续心跳会把超时 delivered 且 run 仍 running 的事件重新置为 pending，保证上线后可继续处理。
 - AgentInvocationService 广播 `agent.status_update` 时，如果 client Agent 当前离线，会携带 `onlineStatus = offline` 和 `queued = true`，前端可显示为排队等待上线，而不是误判为在线工作中。
+
+## 统一客户端部署 Agent
+
+产品口径调整为：FreeChat Server 不再执行普通 Agent Runtime；所有 Agent 统一使用 `deployment = client`，由 Agent Client 连接中心服务器后接管执行。
+
+规则：
+
+- 新建 Agent、导入 Agent 包、市场内置 Agent、场景克隆 Agent 均强制写入 `deployment = client`。
+- 历史 `deployment = server` 的 Agent 在服务端启动时迁移为 `client`。
+- `agentService.spawnClaudeCode` 不再走服务端本地 Claude Runtime，统一写入 remote agent event，由 Agent Client 拉取执行。
+- 新建群聊/项目不再自动创建默认房间助手；助手由用户或 admin 平台 Agent 按需添加到房间。
+- 没有 Connector 的 Agent 仍可加入房间，但显示为离线/未接管；被调用时事件会进入队列，待 Agent Client 绑定/上线后处理。
+- 系统 admin 用户沿用 `user_freechat_admin / freechat_admin / FreeChat 管理员`，启动时确保角色为 admin，并在当前开发阶段把密码重置为 `1234`。
+
+特殊平台 Agent：
+
+- 如果服务端/平台需要提供默认助手或官方 Agent，应由 admin 账号创建/拥有。
+- 这些 Agent 仍是 client deployment，通过 admin 登录的 Agent Client 接管执行，而不是服务端直接运行。

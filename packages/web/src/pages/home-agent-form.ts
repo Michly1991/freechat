@@ -40,7 +40,7 @@ export function buildAgentPayload(form: AgentFormState) {
   return {
     name: form.name.trim(),
     roleType: form.roleType,
-    deployment: 'server' as const,
+    deployment: 'client' as const,
     description: form.description,
     specialties: form.specialties.split(',').map((s) => s.trim()).filter(Boolean),
     config: {

@@ -513,7 +513,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
               agentCreate: {
                 name,
                 roleType,
-                deployment: args.deployment || 'server',
+                deployment: 'client',
                 description: args.description,
                 specialties,
                 config: args.config || undefined,

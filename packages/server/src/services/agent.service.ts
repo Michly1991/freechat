@@ -8,7 +8,7 @@ import { config } from '../config.js'
 import { createAgentToolToken } from '../agent-tool-token.js'
 import { renderAgentCliCjs, renderAgentCliWrapper } from './agent-cli-template.js'
 import { renderAgentApiDoc, renderAgentGuide } from './agent-workspace-template.js'
-import { AgentRuntimeService, type AgentRunContext } from './agent-runtime.service.js'
+import type { AgentRunContext } from './agent-runtime.service.js'
 import { searchMarketplaceAgents } from './agent-marketplace.js'
 import type { Agent, AgentRuntimeConfig, AgentToolPermissions, RoomAgentModelConfig, RoomAgentRole } from '@freechat/shared'
 import { DEFAULT_AGENT_TOOLS } from '@freechat/shared'
@@ -62,7 +62,6 @@ function sanitizeRoomModelConfig(value: any): RoomAgentModelConfig | null {
 }
 
 export class AgentService {
-  private runtime = new AgentRuntimeService()
   async createAgent(ownerId: string, cfg: AgentConfig): Promise<AgentCreateResult> {
     const id = `agent_${uuidv4()}`
     const now = Date.now()
@@ -81,7 +80,7 @@ export class AgentService {
       ownerId,
       cfg.name,
       cfg.roleType,
-      cfg.deployment,
+      'client',
       cfg.description || null,
       cfg.specialties ? JSON.stringify(cfg.specialties) : null,
       JSON.stringify(mergedConfig),
@@ -231,7 +230,7 @@ export class AgentService {
       ownerId,
       overrides.name || template.name,
       template.role_type,
-      template.deployment,
+      'client',
       template.description,
       template.specialties,
       JSON.stringify(clonedConfig),
@@ -292,7 +291,7 @@ export class AgentService {
     }
     if (updates.deployment !== undefined) {
       fields.push('deployment = ?')
-      values.push(updates.deployment)
+      values.push('client')
     }
     if (updates.description !== undefined) {
       fields.push('description = ?')
@@ -788,28 +787,17 @@ export class AgentService {
   }
 
   forceStopAgentRuntime(roomId: string, agentId: string, reason?: string) {
-    return this.runtime.forceStopAgentProcess(roomId, agentId, reason)
+    return null
   }
 
   getActiveAgentRuntime(roomId: string, agentId: string) {
-    return this.runtime.getActiveProcess(roomId, agentId)
+    return null
   }
 
   async spawnClaudeCode(roomId: string, agentId: string, message: string, options: { timeoutMs?: number; actorUserId?: string; onEvent?: (event: any) => void } & AgentRunContext = {}): Promise<{ response: string; silent: boolean }> {
     const agent = await this.getAgent(agentId)
-    if (agent.deployment === 'client') {
-      remoteAgentConnectorService.enqueueRun(roomId, agentId, message, options)
-      return { response: '', silent: true }
-    }
-    return this.runtime.spawnClaudeCode(
-      roomId,
-      agentId,
-      message,
-      (id) => this.getAgent(id),
-      (targetRoomId, agent, actorUserId) => this.prepareAgentWorkspace(targetRoomId, agent, actorUserId),
-      (agent) => this.buildAgentSystemPrompt(agent),
-      options
-    )
+    remoteAgentConnectorService.enqueueRun(roomId, agentId, message, options)
+    return { response: '', silent: true }
   }
 
 
