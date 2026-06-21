@@ -7,5 +7,5 @@ export async function handleRoomHandoffTool(roomId: string, agent: any, actorUse
   const roomAgents = await agentService.getRoomAgents(roomId)
   const targetAgent = roomAgents.find((item: any) => item.id === target || item.name === target || item.name.includes(target) || String(target).includes(item.name))
   if (!targetAgent) throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found in room' }
-  return { success: true, data: await roomAssistantService.handoff({ roomId, targetAgentId: targetAgent.id, requestedBy: agent.id, requestedByType: 'agent', reason: args.reason || '', source: 'agent_tool', wake: true }) }
+  return { success: true, data: await roomAssistantService.requestHandoff({ roomId, targetAgentId: targetAgent.id, requestedBy: agent.id, requestedByType: 'agent', reason: args.reason || '', source: 'agent_tool', policy: 'auto', wake: true }) }
 }

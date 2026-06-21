@@ -141,7 +141,7 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     const { id } = request.params as any
     const { agentId, reason } = request.body as any
     if (!(await roomService.isMember(id, user.id))) return reply.code(403).send({ success: false, error: { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' } })
-    const result = await roomAssistantService.handoff({ roomId: id, targetAgentId: String(agentId || ''), requestedBy: user.id, requestedByType: 'human', reason, source: 'web', wake: true })
+    const result = await roomAssistantService.requestHandoff({ roomId: id, targetAgentId: String(agentId || ''), requestedBy: user.id, requestedByType: 'human', reason, source: 'web', policy: 'auto', wake: true })
     return reply.send({ success: true, data: result })
   })
 

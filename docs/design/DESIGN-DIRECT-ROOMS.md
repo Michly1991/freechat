@@ -144,3 +144,23 @@ Agent Client 不保存或判断“谁是当前接待”，只作为执行器：
 2. 根据 payload 中的 `input/runSource/responseMode/metadata` 运行本地 Claude Code。
 3. `responseMode = final_to_chat` 时自动把最终输出回传为聊天消息；`tool_only` 时不自动发送 stdout。
 4. 本地 `./freechat room handoff` 只是薄 wrapper，调用服务端 `room.handoff` 工具，不直接修改房间状态。
+
+## Handoff Request / 默认自动接受
+
+当前接待 Agent 不直接“拥有并修改”管理权，而是向服务端发起管理权转交请求；服务端作为唯一裁决方默认自动接受：
+
+1. 当前接待 Agent 调用 `room.handoff` / `./freechat room handoff --agent <名称> --reason <原因>`。
+2. 服务端创建 `room_assistant_handoff_requests`，广播 `room.assistant_handoff_requested`。
+3. 默认策略 `policy = auto`，服务端立即接受请求，广播 `room.assistant_handoff_accepted`。
+4. 服务端调用 `RoomAssistantService.handoff` 切换当前接待，广播 `room.assistant_handoff`、`room.updated`、`room.members_update`。
+5. 服务端通过 `AgentInvocationService` 下发 `runSource = handoff`、`responseMode = final_to_chat` 的 Agent 事件给目标 Agent Client。
+
+权限约束：
+
+- `requestedByType = agent` 时，只有当前接待 Agent 可以发起 handoff request；普通 Agent 不能擅自交换管理权。
+- Web 手动切换仍可由房间成员发起，但也走 request + auto accept 流程，方便后续统一改成人工确认或策略裁决。
+
+新增审计表：
+
+- `room_assistant_handoff_requests`：记录请求阶段，包含 `pending/accepted/rejected/expired` 状态、来源、原因、决策时间。
+- `room_assistant_handoffs`：记录最终已执行的接待权切换。

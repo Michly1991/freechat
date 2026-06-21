@@ -17,4 +17,11 @@ export function ensureRoomHandoffSchema(db: Database.Database) {
     reason TEXT, created_at INTEGER NOT NULL
   )`)
   db.exec('CREATE INDEX IF NOT EXISTS idx_room_assistant_handoffs_room ON room_assistant_handoffs(room_id, created_at DESC)')
+  db.exec(`CREATE TABLE IF NOT EXISTS room_assistant_handoff_requests (
+    id TEXT PRIMARY KEY, room_id TEXT NOT NULL, from_agent_id TEXT, to_agent_id TEXT NOT NULL,
+    requested_by TEXT NOT NULL, requested_by_type TEXT NOT NULL, source TEXT NOT NULL,
+    reason TEXT, status TEXT NOT NULL DEFAULT 'pending', policy TEXT DEFAULT 'auto',
+    decision_reason TEXT, created_at INTEGER NOT NULL, decided_at INTEGER
+  )`)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_room_assistant_handoff_requests_room ON room_assistant_handoff_requests(room_id, created_at DESC)')
 }
