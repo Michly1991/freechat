@@ -260,7 +260,7 @@ export class AgentInvocationHandler {
         const timeoutMs = receiptReason === 'task' ? config.agent.taskTimeoutMs : config.agent.chatTimeoutMs
         const runtimeActivity = agentStreamService.addActivity(streamMessageId, { text: '正在调用 Agent Runtime' })
         this.broadcastToRoom(roomId, { msgId: uuidv4(), roomId, type: 'broadcast', action: 'agent.stream.activity', payload: { id: streamMessageId, agentId, ...runtimeActivity }, timestamp: Date.now() })
-        const result = await agentService.spawnClaudeCode(roomId, agentId, contentWithFiles, {
+        const result = await agentService.enqueueAgentRun(roomId, agentId, contentWithFiles, {
           timeoutMs,
           actorUserId,
           onEvent: (event) => {

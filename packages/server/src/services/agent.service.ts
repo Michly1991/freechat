@@ -8,7 +8,7 @@ import { config } from '../config.js'
 import { createAgentToolToken } from '../agent-tool-token.js'
 import { renderAgentCliCjs, renderAgentCliWrapper } from './agent-cli-template.js'
 import { renderAgentApiDoc, renderAgentGuide } from './agent-workspace-template.js'
-import type { AgentRunContext } from './agent-runtime.service.js'
+import type { AgentRunContext } from './agent-run-context.js'
 import { searchMarketplaceAgents } from './agent-marketplace.js'
 import type { Agent, AgentRuntimeConfig, AgentToolPermissions, RoomAgentModelConfig, RoomAgentRole } from '@freechat/shared'
 import { DEFAULT_AGENT_TOOLS } from '@freechat/shared'
@@ -20,7 +20,6 @@ import { tabFilesMapService } from './tab-files-map.service.js'
 import { agentGrowthService } from './agent-growth.service.js'
 import { agentPackageService } from './agent-package.service.js'
 import { remoteAgentConnectorService } from './remote-agent-connector.service.js'
-import { knowledgeService } from './knowledge.service.js'
 
 export interface AgentConfig {
   name: string
@@ -50,7 +49,7 @@ function sanitizeRoomModelConfig(value: any): RoomAgentModelConfig | null {
   const out: RoomAgentModelConfig = {}
   if (value.modelProfileId) out.modelProfileId = String(value.modelProfileId)
   if (value.model) out.model = String(value.model)
-  if (value.runtime === 'provider-api' || value.runtime === 'claude-code') out.runtime = value.runtime
+  if (value.runtime === 'claude-code') out.runtime = value.runtime
   if (value.maxTokens !== undefined) {
     const n = Number(value.maxTokens)
     if (Number.isFinite(n) && n > 0) out.maxTokens = Math.trunc(n)
@@ -487,7 +486,7 @@ export class AgentService {
    * List agents in a room
    */
   recoverStaleRuns(roomId?: string): void {
-    const cutoff = Date.now() - ((config.agent.hardTimeoutMs || config.agent.taskTimeoutMs || config.agent.timeoutMs || 120000) + (config.agent.killGraceMs || 3000) + 30000)
+    const cutoff = Date.now() - ((config.agent.hardTimeoutMs || config.agent.taskTimeoutMs || 120000) + (config.agent.killGraceMs || 3000) + 30000)
     const runningRows = db.prepare(`
       SELECT DISTINCT room_id, agent_id
       FROM agent_runs
@@ -527,7 +526,7 @@ export class AgentService {
       const prompt = ['你上次处理任务时运行中断了，请恢复处理，不要重新创建父任务。', task ? `父任务ID: ${task.id}` : '', task ? `父任务标题: ${task.title}` : '', item ? `子任务ID: ${item.id}` : '', item ? `子任务标题: ${item.title}` : '', '', '必须先执行 ./freechat task list 查看当前房间已有任务；如果有子任务ID，还要执行 ./freechat task subtask list <父任务ID>。之后基于已有任务继续推进，用 progress/update 写进展。'].filter(Boolean).join('\n')
       db.prepare("UPDATE agent_runs SET status = 'resumed', error = COALESCE(error, 'Queued for automatic resume') WHERE id = ?").run(row.id)
       db.prepare("UPDATE agents SET status = 'working', updated_at = ? WHERE id = ?").run(Date.now(), row.agent_id)
-      void this.spawnClaudeCode(row.room_id, row.agent_id, prompt, { actorUserId: row.actor_user_id || undefined, runSource: 'resume', taskId: row.task_id || item?.task_id, subtaskId: row.subtask_id || undefined, parentRunId: row.id, resumeAttempt: Number(row.resume_attempt || 0) + 1 }).then(() => {
+      void this.enqueueAgentRun(row.room_id, row.agent_id, prompt, { actorUserId: row.actor_user_id || undefined, runSource: 'resume', taskId: row.task_id || item?.task_id, subtaskId: row.subtask_id || undefined, parentRunId: row.id, resumeAttempt: Number(row.resume_attempt || 0) + 1 }).then(() => {
         db.prepare("UPDATE agents SET status = 'active', updated_at = ? WHERE id = ? AND status = 'working'").run(Date.now(), row.agent_id)
       }).catch((err) => {
         db.prepare("UPDATE agent_runs SET status = 'failed', error = COALESCE(error, ?), finished_at = COALESCE(finished_at, ?) WHERE id = ?").run(err?.message || String(err), Date.now(), row.id)
@@ -795,11 +794,9 @@ export class AgentService {
     return null
   }
 
-  async spawnClaudeCode(roomId: string, agentId: string, message: string, options: { timeoutMs?: number; actorUserId?: string; onEvent?: (event: any) => void } & AgentRunContext = {}): Promise<{ response: string; silent: boolean }> {
-    const agent = await this.getAgent(agentId)
-    const knowledge = knowledgeService.getRuntimeContext(roomId, agentId, message)
-    const input = knowledge ? `${knowledge}\n\n【用户/系统请求】\n${message}` : message
-    remoteAgentConnectorService.enqueueRun(roomId, agentId, input, options)
+  async enqueueAgentRun(roomId: string, agentId: string, message: string, options: { timeoutMs?: number; actorUserId?: string; onEvent?: (event: any) => void } & AgentRunContext = {}): Promise<{ response: string; silent: boolean }> {
+    await this.getAgent(agentId)
+    remoteAgentConnectorService.enqueueRun(roomId, agentId, message, options)
     return { response: '', silent: true }
   }
 

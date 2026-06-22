@@ -551,7 +551,7 @@ export function initDatabase() {
 
   ensureBillingSchema(db)
 
-  // Agent conversation history used by provider-api runtime
+  // Historical Agent conversation cache retained for existing schema compatibility
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_messages (
       id TEXT PRIMARY KEY,

@@ -5,7 +5,7 @@ import { agentTaskCompletionService } from './agent-task-completion.service.js'
 import { messageService } from './message.service.js'
 import { remoteAgentConnectorService } from './remote-agent-connector.service.js'
 import { getGateway } from '../ws/gateway.js'
-import type { AgentRunContext } from './agent-runtime.service.js'
+import type { AgentRunContext } from './agent-run-context.js'
 
 type ResponseMode = 'final_to_chat' | 'tool_only' | 'silent'
 
@@ -33,7 +33,7 @@ export class AgentInvocationService {
         const connector = agent.deployment === 'client' ? remoteAgentConnectorService.getConnectorSummary(agent.id) : null
         const onlineStatus = agent.deployment === 'client' && connector?.clientConnectorStatus !== 'online' && connector?.clientConnectorStatus !== 'working' ? 'offline' : 'working'
         broadcast(roomId, 'agent.status_update', { agentId: agent.id, status: 'working', onlineStatus, queued: onlineStatus === 'offline', lastActiveAt: Date.now() })
-        const result = await agentService.spawnClaudeCode(roomId, agent.id, input, { ...options, timeoutMs: options.timeoutMs || config.agent.taskTimeoutMs })
+        const result = await agentService.enqueueAgentRun(roomId, agent.id, input, { ...options, timeoutMs: options.timeoutMs || config.agent.taskTimeoutMs })
         await agentArtifactService.publishDeclaredArtifacts(roomId, agent.id, input)
         const completed = options.taskId || options.subtaskId ? await agentTaskCompletionService.autoCompleteFromRun(input, result.response || '') : null
         if (completed) broadcast(roomId, 'task.changed', { action: 'update', task: completed.task })

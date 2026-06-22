@@ -34,18 +34,11 @@ export const config = {
     runMinute: parseInt(process.env.AGENT_GROWTH_RUN_MINUTE || '10')
   },
   agent: {
-    runtime: process.env.AGENT_RUNTIME || 'claude-code',
-    timeoutMs: parseInt(process.env.AGENT_TIMEOUT_MS || '120000'),
-    chatTimeoutMs: parseInt(process.env.AGENT_CHAT_TIMEOUT_MS || process.env.AGENT_TIMEOUT_MS || '180000'),
+    chatTimeoutMs: parseInt(process.env.AGENT_CHAT_TIMEOUT_MS || '180000'),
     deciderTimeoutMs: parseInt(process.env.AGENT_DECIDER_TIMEOUT_MS || '15000'),
     taskTimeoutMs: parseInt(process.env.AGENT_TASK_TIMEOUT_MS || '600000'),
-    idleTimeoutMs: parseInt(process.env.AGENT_IDLE_TIMEOUT_MS || '120000'),
     hardTimeoutMs: parseInt(process.env.AGENT_HARD_TIMEOUT_MS || '900000'),
     killGraceMs: parseInt(process.env.AGENT_KILL_GRACE_MS || '5000'),
-    historyLimit: parseInt(process.env.AGENT_HISTORY_LIMIT || '80'),
-    sessionRetentionDays: parseInt(process.env.AGENT_SESSION_RETENTION_DAYS || '30'),
-    sessionMaxRuns: parseInt(process.env.AGENT_SESSION_MAX_RUNS || '30'),
-    sessionMaxAgeHours: parseInt(process.env.AGENT_SESSION_MAX_AGE_HOURS || '24'),
     chatRecentDefaultLimit: parseInt(process.env.AGENT_CHAT_RECENT_DEFAULT_LIMIT || '30')
   },
   cors: {

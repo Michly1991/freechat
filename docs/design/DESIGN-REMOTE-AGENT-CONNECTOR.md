@@ -200,7 +200,9 @@ Agent Client 只连接一个 FreeChat 中心服务器，但可以管理多个 Ag
 
 - 配置中心服务器地址和保存 FreeChat Server 账号；
 - 自动登录服务端并只展示当前账号 owner 的 Agent；
-- 新建并发布 Agent、编辑 Agent、上架/下架到市场；
+- 新建并发布 Agent、上架/下架到市场；
+- Agent 列表只做浏览、状态和快捷操作，编辑进入独立 Agent 编辑页；
+- 独立 Agent 编辑页维护中心配置，并展示本客户端知识库、工作区和运行规范缓存状态；
 - 将 owner Agent 接管到本客户端执行；
 - 查看托管房间的只读消息视图；
 - 暂停/恢复接收请求；
@@ -219,12 +221,12 @@ AGENT_CLIENT_ADMIN_PASSWORD='strong-password'
 
 ## Agent 迁移原则
 
-FreeChat Server 是唯一中心服务器，长期目标是让非系统助理 Agent 逐步迁移到 Agent Client 执行：
+FreeChat Server 是唯一中心服务器，但不再承载实际 Agent Runtime：
 
-- 系统助理继续保留在服务端，保证无客户端时仍有默认入口和调度能力；
-- 业务 Agent、专家 Agent、自定义 Agent、付费 Agent 可以迁移为 `deployment='client'`；
-- 服务端负责 Agent 身份、权限、调度、run、账单和消息；
-- 客户端负责本机执行器、工作目录、日志、启停、并发和环境检测。
+- 所有 Agent 统一为 `deployment='client'`；即使服务端保存 Agent 记录，也只是中心配置、权限、调度、run、账单和消息。
+- 业务 Agent、专家 Agent、自定义 Agent、付费 Agent 都由 Agent Client 接管执行。
+- 客户端负责本机执行器、工作目录、日志、启停、并发、环境检测和 Agent 知识库。
+- Agent 知识库存在客户端上，服务端不默认保存知识库正文；服务端最多保存/展示客户端上报的状态或元数据。
 
 ## SSE 推送
 
@@ -274,3 +276,13 @@ GET /api/managed-agent-rooms?limit=50
 该接口返回当前用户拥有且已被 connector 接管的 Agent 所在房间、托管 Agent 列表和最近消息，用于 Agent Client 的“托管房间”只读视图。服务端会过滤内部 runtime init 日志，客户端也要防御性隐藏 `{"type":"system","subtype":"init"}` 这类运行时消息。
 
 当 connector 注册或用户把 Agent 加入房间时，服务端会按 `owner_id + name + role_type` 查找已接管版本并迁移/优先使用它，避免房间挂到同名但没有 connector 的副本，导致 `@Agent` 事件一直 pending 无人消费。
+
+## 服务端不再直接启动 Claude Code
+
+当前架构中 FreeChat Server 是中心控制面，不是 Agent Runtime：
+
+- Server 负责 Agent 身份、发布、房间绑定、调度事件、运行记录和计费。
+- Server 不再保存或执行本地 Claude Code Runtime，也不再通过 `spawn('claude')` 直接启动 Agent。
+- Agent 被唤起时，Server 只创建 `agent_runs` 和 `remote_agent_events`，等待已绑定的 Agent Client 拉取并执行。
+- Claude Code、模型配置、本地工具和 Agent 知识库均由 Agent Client 所在机器维护。
+- 没有在线 Client 的 Agent 可以被加入房间，但运行事件会保持排队，直到 Client 绑定/上线后处理。

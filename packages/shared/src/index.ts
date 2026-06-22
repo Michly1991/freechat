@@ -58,7 +58,7 @@ export interface AgentRuntimeConfig {
 export interface RoomAgentModelConfig {
   modelProfileId?: string
   model?: string
-  runtime?: 'claude-code' | 'provider-api'
+  runtime?: 'claude-code'
   maxTokens?: number
   temperature?: number
 }

@@ -1,6 +1,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'http'
 import { randomBytes, timingSafeEqual } from 'crypto'
-import { loadConfig, removeAgent, saveConfig, updateAgent, upsertAgent } from '../config/store.js'
+import { existsSync, readdirSync, statSync } from 'fs'
+import { join } from 'path'
+import { loadConfig, removeAgent, saveConfig, updateAgent, upsertAgent, workRoot } from '../config/store.js'
 import { pairAgent as pairAgentRemote } from '../connector/api.js'
 import { createPairingCode, createServerAgent, getServerMe, listManagedRooms, listServerAgents, loginServer, testServer, updateServerAgent } from '../connector/server-admin.js'
 import { healthSnapshot } from '../health/checks.js'
@@ -37,6 +39,39 @@ function requireAuth(req: IncomingMessage, res: ServerResponse) {
   if (token && sessions.has(token)) return true
   json(res, 401, { success: false, error: { code: 'UNAUTHORIZED', message: '请先登录客户端控制台' } })
   return false
+}
+
+function summarizeStore(label: string, kind: string, path: string) {
+  if (!existsSync(path)) return { label, kind, path, exists: false, fileCount: 0, dirCount: 0, entries: [] }
+  const entries = readdirSync(path, { withFileTypes: true }).slice(0, 20).map((entry) => ({ name: entry.name, type: entry.isDirectory() ? 'dir' : 'file' }))
+  const all = readdirSync(path, { withFileTypes: true })
+  let updatedAt = 0
+  try { updatedAt = statSync(path).mtimeMs } catch {}
+  return {
+    label,
+    kind,
+    path,
+    exists: true,
+    fileCount: all.filter((entry) => entry.isFile()).length,
+    dirCount: all.filter((entry) => entry.isDirectory()).length,
+    updatedAt,
+    entries,
+  }
+}
+
+function agentKnowledgeSummary(agentId: string) {
+  const cfg = loadConfig()
+  const localAgent = cfg.agents.find((agent) => agent.agentId === agentId)
+  const base = localAgent?.workdir || join(workRoot(), agentId)
+  return {
+    agentId,
+    localAgent: localAgent ? { agentId: localAgent.agentId, name: localAgent.name, enabled: localAgent.enabled, status: localAgent.status } : null,
+    stores: [
+      summarizeStore('Agent 客户端知识库', 'knowledge', join(base, 'knowledge')),
+      summarizeStore('Agent 工作区', 'workspace', base),
+      summarizeStore('运行规范缓存', 'runtime', join(base, '.freechat')),
+    ],
+  }
 }
 
 export function startLocalServer() {
@@ -135,6 +170,8 @@ export function startLocalServer() {
         upsertAgent(agent); json(res, 200, { success: true, data: { agent: { ...agent, accessToken: undefined, connectorToken: undefined } } }); return
       }
       if (path === '/agents/pair' && req.method === 'POST') { const body = await readBody(req); const agent = await pairAgentRemote(loadConfig(), body.pairingCode, body.name); upsertAgent(agent); json(res, 200, { success: true, data: { ...agent, accessToken: undefined, connectorToken: undefined } }); return }
+      const agentKnowledge = path.match(/^\/agents\/([^/]+)\/knowledge$/)
+      if (agentKnowledge && req.method === 'GET') { json(res, 200, { success: true, data: agentKnowledgeSummary(decodeURIComponent(agentKnowledge[1])) }); return }
       const agentPatch = path.match(/^\/agents\/([^/]+)$/)
       if (agentPatch && req.method === 'PATCH') { const body = await readBody(req); const agent = updateAgent(decodeURIComponent(agentPatch[1]), body); json(res, 200, { success: true, data: { ...agent, accessToken: undefined, connectorToken: undefined } }); return }
       if (agentPatch && req.method === 'DELETE') { removeAgent(decodeURIComponent(agentPatch[1])); json(res, 200, { success: true }); return }

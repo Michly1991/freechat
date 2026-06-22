@@ -37,7 +37,7 @@ async function invokeAssignedAgent(roomId: string, assigneeId: string | undefine
     try {
       await agentService.updateAgent(assigned.id, { status: 'working' } as any)
       broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'working', onlineStatus: 'working', lastActiveAt: Date.now() })
-      const result = await agentService.spawnClaudeCode(roomId, assigned.id, prompt, { actorUserId, runSource: context.subtaskId ? 'subtask' : 'task', taskId: context.taskId, subtaskId: context.subtaskId })
+      const result = await agentService.enqueueAgentRun(roomId, assigned.id, prompt, { actorUserId, runSource: context.subtaskId ? 'subtask' : 'task', taskId: context.taskId, subtaskId: context.subtaskId })
       await agentService.updateAgent(assigned.id, { status: 'active' } as any)
       broadcast(roomId, 'agent.status_update', { agentId: assigned.id, status: 'active', onlineStatus: 'online', lastActiveAt: Date.now() })
       if (result.silent || !result.response) return

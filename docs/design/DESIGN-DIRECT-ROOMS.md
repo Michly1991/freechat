@@ -128,7 +128,7 @@ Web API `POST /api/rooms/:id/assistant/handoff` 和 Agent 工具 `room.handoff` 
 负责统一 Agent 调用，不关心调用来源是人类 @、自动助理、任务分派还是 handoff：
 
 - 更新 Agent working/active/error 状态。
-- 调用 `agentService.spawnClaudeCode`，由 Agent deployment 决定走服务端 runtime 还是远程 Agent Client。
+- 调用 `agentService.enqueueAgentRun`，服务端只创建运行记录和 remote agent event，由 Agent Client 拉取执行。
 - 发布 Agent 产物、处理任务完成检测、广播最终聊天消息。
 - 支持 `runSource` 和 `responseMode`：
   - `runSource = handoff`：表示当前接待转交唤醒。
@@ -177,13 +177,14 @@ Agent Client 不保存或判断“谁是当前接待”，只作为执行器：
 
 ## 统一客户端部署 Agent
 
-产品口径调整为：FreeChat Server 不再执行普通 Agent Runtime；所有 Agent 统一使用 `deployment = client`，由 Agent Client 连接中心服务器后接管执行。
+产品口径调整为：FreeChat Server 不再执行 Agent Runtime，也不再保留直接启动 Claude Code 的代码；所有 Agent 统一使用 `deployment = client`，由 Agent Client 连接中心服务器后接管执行。
 
 规则：
 
 - 新建 Agent、导入 Agent 包、市场内置 Agent、场景克隆 Agent 均强制写入 `deployment = client`。
 - 历史 `deployment = server` 的 Agent 在服务端启动时迁移为 `client`。
-- `agentService.spawnClaudeCode` 不再走服务端本地 Claude Runtime，统一写入 remote agent event，由 Agent Client 拉取执行。
+- `agentService.enqueueAgentRun` 不走服务端本地 Claude Runtime，统一写入 `agent_runs` 和 `remote_agent_events`，由 Agent Client 拉取执行。
+- 服务端已删除本地 Claude Code 子进程实现，`AGENT_RUNTIME` / `provider-api` 服务端运行模式不再作为 Agent 执行路径。
 - 新建群聊/项目不再自动创建默认房间助手；助手由用户或 admin 平台 Agent 按需添加到房间。
 - 没有 Connector 的 Agent 仍可加入房间，但显示为离线/未接管；被调用时事件会进入队列，待 Agent Client 绑定/上线后处理。
 - 系统 admin 用户沿用 `user_freechat_admin / freechat_admin / FreeChat 管理员`，启动时确保角色为 admin，并在当前开发阶段把密码重置为 `1234`。

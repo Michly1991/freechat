@@ -485,7 +485,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
       await agentService.updateAgent(agentId, { status: 'working' } as any)
 
       try {
-        const result = await agentService.spawnClaudeCode(roomId, agentId, message, { actorUserId: user.id })
+        const result = await agentService.enqueueAgentRun(roomId, agentId, message, { actorUserId: user.id })
 
         // Mark agent as active again
         await agentService.updateAgent(agentId, { status: 'active' } as any)
