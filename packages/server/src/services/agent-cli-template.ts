@@ -95,6 +95,10 @@ function usage() {
     '  ./freechat tab reorder <tabId> [tabId...]',
     '  ./freechat members list',
     '  ./freechat members add <userId> [role]',
+    '  ./freechat workgroup info',
+    '  ./freechat workgroup members',
+    '  ./freechat workgroup agents',
+    '  ./freechat workgroup rooms',
     '  ./freechat profiles list',
     '  ./freechat profiles update-json <memberId> <localJsonPath>',
     '  ./freechat users get <userId>',
@@ -108,6 +112,8 @@ function usage() {
     '  ./freechat agent create-request <name> --description <desc> --specialties <a,b>',
     '  ./freechat agent create-json <localJsonPath>',
     '  ./freechat room info',
+    '  ./freechat room create <name> [--description <desc>] [--members <a,b>] [--agents <a,b>] [--auto-agent <agent>] [--initial-message <text>]',
+    '  ./freechat room create-json <localJsonPath>',
     '  ./freechat room handoff --agent <agentNameOrId> [--reason <reason>]',
     '  ./freechat room update [--name <name>] [--description <desc>]',
     '  ./freechat room invite [--max-uses <n>] [--expires-in-days <n>]',
@@ -506,6 +512,14 @@ if (domain === 'tool' && cmd === 'list') {
 } else if (domain === 'members' && cmd === 'add') {
   if (!rest[0]) die('userId is required');
   call('members.add', { userId: rest[0], role: rest[1] || 'editor' });
+} else if (domain === 'workgroup' && cmd === 'info') {
+  call('workgroup.info');
+} else if (domain === 'workgroup' && cmd === 'members') {
+  call('workgroup.members');
+} else if (domain === 'workgroup' && cmd === 'agents') {
+  call('workgroup.agents');
+} else if (domain === 'workgroup' && cmd === 'rooms') {
+  call('workgroup.rooms');
 } else if (domain === 'profiles' && cmd === 'list') {
   call('profiles.list');
 } else if (domain === 'profiles' && cmd === 'update-json') {
@@ -545,6 +559,14 @@ if (domain === 'tool' && cmd === 'list') {
   call('agent.create_request', JSON.parse(readLocalFile(rest[0])));
 } else if (domain === 'room' && cmd === 'info') {
   call('room.info');
+} else if (domain === 'room' && cmd === 'create') {
+  if (!rest[0]) die('room name is required');
+  const opts = parseNamedOptions(rest.slice(1)).options;
+  const split = (value) => value ? String(value).split(',').map(s => s.trim()).filter(Boolean) : [];
+  call('room.create', { name: rest[0], description: opts.description || opts.desc, kind: opts.kind || 'service', members: split(opts.members), agents: split(opts.agents), autoAgent: opts.autoAgent, includeActor: opts.includeActor !== 'false', initialMessage: opts.initialMessage, reason: opts.reason });
+} else if (domain === 'room' && cmd === 'create-json') {
+  if (!rest[0]) die('localJsonPath is required');
+  call('room.create', JSON.parse(readLocalFile(rest[0])));
 } else if (domain === 'room' && cmd === 'handoff') {
   const opts = parseNamedOptions(rest).options;
   call('room.handoff', { agent: opts.agent || rest[0], reason: opts.reason || rest.slice(1).join(' ') });

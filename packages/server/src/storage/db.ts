@@ -6,6 +6,7 @@ import { ensureAgentDreamSchema } from './agent-dream-schema.js'
 import { ensureAgentGrowthSchema } from './agent-growth-schema.js'
 import { ensureNotificationSchema } from './notification-schema.js'
 import { ensureBillingSchema } from './billing-schema.js'
+import { ensureWorkgroupSchema } from './workgroup-schema.js'
 import { ensureAgentAnalyticsSchema } from './agent-analytics-schema.js'
 import { ensureRemoteAgentSchema } from './remote-agent-schema.js'
 import { ensureVoiceSchema } from './voice-schema.js'; import { ensureRoomFileSchema } from './room-file-schema.js'; import { ensureRoomHandoffSchema } from './room-handoff-schema.js'; import { ensureKnowledgeSchema } from './knowledge-schema.js'
@@ -50,7 +51,6 @@ function runMigrations() {
 
 export function initDatabase() {
   runMigrations()
-  // Users table
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -550,6 +550,7 @@ export function initDatabase() {
   `)
 
   ensureBillingSchema(db)
+  ensureWorkgroupSchema(db)
 
   // Historical Agent conversation cache retained for existing schema compatibility
   db.exec(`
@@ -732,7 +733,6 @@ export function initDatabase() {
     db.exec('ALTER TABLE conversation_prefs ADD COLUMN hidden INTEGER DEFAULT 0')
   }
 
-  // Room invites table
   db.exec(`
     CREATE TABLE IF NOT EXISTS room_invites (
       code TEXT PRIMARY KEY,

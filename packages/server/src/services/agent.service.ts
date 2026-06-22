@@ -392,7 +392,11 @@ export class AgentService {
     if (this.isBuiltInDefaultAssistant(agent) && this.roomHasAssistant(roomId)) {
       return
     }
-    if (!(await this.canUseAgent(agentId, addedBy))) throw { code: 'AGENT_NOT_FOLLOWED', message: '请先关注或选择自己创建的 Agent' }
+    const roomRow = db.prepare('SELECT workgroup_id FROM rooms WHERE id = ?').get(roomId) as any
+    const inRoomWorkgroup = roomRow?.workgroup_id
+      ? !!db.prepare('SELECT 1 FROM workgroup_agents WHERE workgroup_id = ? AND agent_id = ? AND enabled = 1').get(roomRow.workgroup_id, agentId)
+      : false
+    if (!inRoomWorkgroup && !(await this.canUseAgent(agentId, addedBy))) throw { code: 'AGENT_NOT_FOLLOWED', message: '请先关注或选择自己创建的 Agent' }
     const managedEquivalent = this.getManagedEquivalentAgent(agent)
     if (managedEquivalent) agent = managedEquivalent
     let targetAgentId = agent.id
@@ -431,6 +435,12 @@ export class AgentService {
       `).run(roomId, targetAgentId, addedBy, now, roomRole, autoEnabled ? 1 : 0, options.priority || 0)
     })
     tx()
+
+    const workgroupId = (db.prepare('SELECT workgroup_id FROM rooms WHERE id = ?').get(roomId) as any)?.workgroup_id
+    if (workgroupId) {
+      db.prepare('INSERT OR IGNORE INTO workgroup_agents (workgroup_id, agent_id, role, enabled, added_at) VALUES (?, ?, ?, 1, ?)')
+        .run(workgroupId, targetAgentId, 'member', now)
+    }
 
     // Don't add to room_members since agents are not in users table
     // Agent membership is tracked via room_agents table
@@ -644,8 +654,8 @@ export class AgentService {
     ].filter(Boolean).join('\n')
   }
 
-  async buildRoomContextFiles(roomId: string, currentAgent?: Agent): Promise<{ roomMd: string; membersMd: string }> {
-    const room = db.prepare('SELECT id, name, description, created_by, created_at, updated_at FROM rooms WHERE id = ?').get(roomId) as any
+  async buildRoomContextFiles(roomId: string, currentAgent?: Agent): Promise<{ roomMd: string; membersMd: string; workgroupMd: string }> {
+    const room = db.prepare('SELECT id, name, description, created_by, created_at, updated_at, workgroup_id FROM rooms WHERE id = ?').get(roomId) as any
     const members = db.prepare(`
       SELECT rm.role, rm.joined_at, u.id, u.username, u.nickname, u.avatar,
              rp.display_name, rp.role_description, rp.custom_data
@@ -697,8 +707,31 @@ export class AgentService {
       ].filter(Boolean).join('\n')
     }).join('\n')
 
-    const membersMd = `# Members and Agents\n\n所有当前房间协作者如下。分派专家时必须使用这里的 Agent 名称或 ID，例如：\`./freechat task create "任务" "说明" --assignee "专家名称"\`。\n\n## Humans\n\n${humanLines || '- none'}\n\n## Current Agent\n\n${currentAgentLine || '- 当前为房间共享上下文，无单一当前 Agent'}\n\n## Other Agents\n\n${agentLines || '- none'}\n`
-    return { roomMd, membersMd }
+    const membersMd = `# Members and Agents\n\n所有当前房间协作者如下。分派 Agent 时必须使用这里的 Agent 名称或 ID，例如：\`./freechat task create "任务" "说明" --assignee "Agent名称"\`。\n\n## Humans\n\n${humanLines || '- none'}\n\n## Current Agent\n\n${currentAgentLine || '- 当前为房间共享上下文，无单一当前 Agent'}\n\n## Other Agents\n\n${agentLines || '- none'}\n`
+
+    const wg = room?.workgroup_id ? db.prepare('SELECT * FROM workgroups WHERE id = ?').get(room.workgroup_id) as any : null
+    const wgMembers = wg ? db.prepare(`
+      SELECT wm.role, u.id, u.username, u.nickname, u.identity_type
+      FROM workgroup_members wm JOIN users u ON u.id = wm.user_id
+      WHERE wm.workgroup_id = ?
+      ORDER BY CASE wm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, u.nickname, u.username
+    `).all(wg.id) as any[] : []
+    const wgAgents = wg ? db.prepare(`
+      SELECT wa.role workgroup_role, a.id, a.name, a.description, a.specialties, a.status, a.deployment
+      FROM workgroup_agents wa JOIN agents a ON a.id = wa.agent_id
+      WHERE wa.workgroup_id = ? AND wa.enabled = 1 AND a.status != 'inactive'
+      ORDER BY a.name
+    `).all(wg.id) as any[] : []
+    const wgRooms = wg ? db.prepare(`SELECT id, name, room_kind, last_active_at FROM rooms WHERE workgroup_id = ? AND deleted_at IS NULL ORDER BY last_active_at DESC LIMIT 50`).all(wg.id) as any[] : []
+    const wgMemberLines = wgMembers.map((m: any) => `- ${m.nickname || m.username} (@${m.username})\n  - ID: ${m.id}\n  - Workgroup Role: ${m.role}`).join('\n')
+    const wgAgentLines = wgAgents.map((a: any) => {
+      let specs: string[] = []
+      try { specs = a.specialties ? JSON.parse(a.specialties) : [] } catch {}
+      return [`- ${a.name}`, `  - ID: ${a.id}`, `  - Workgroup Role: ${a.workgroup_role}`, `  - Status: ${a.status}`, a.description ? `  - Description: ${a.description}` : '', specs.length ? `  - Specialties: ${specs.join('、')}` : ''].filter(Boolean).join('\n')
+    }).join('\n')
+    const wgRoomLines = wgRooms.map((r: any) => `- ${r.name}\n  - ID: ${r.id}\n  - Kind: ${r.room_kind || 'project'}`).join('\n')
+    const workgroupMd = `# Workgroup Context\n\n${wg ? `- Workgroup ID: ${wg.id}\n- Name: ${wg.name}\n- Description: ${wg.description || ''}` : '- 当前房间未绑定工作组'}\n\n工作组是人和 Agent 的资源池。同一工作组内成员彼此可见；外部用户只应看到自己参与的房间。需要新建独立协作会话时，使用 \`./freechat room create\`，只能从当前工作组选择成员和 Agent。\n\n## Workgroup Humans\n\n${wgMemberLines || '- none'}\n\n## Workgroup Agents\n\n${wgAgentLines || '- none'}\n\n## Workgroup Rooms Visible To You\n\n${wgRoomLines || '- none'}\n`
+    return { roomMd, membersMd, workgroupMd }
   }
 
   async ensurePackageWorkspaces(): Promise<void> {
@@ -717,6 +750,7 @@ export class AgentService {
     const rootCtx = await this.buildRoomContextFiles(roomId)
     await writeFile(join(rootMetaDir, 'ROOM.md'), rootCtx.roomMd, 'utf8')
     await writeFile(join(rootMetaDir, 'MEMBERS.md'), rootCtx.membersMd, 'utf8')
+    await writeFile(join(rootMetaDir, 'WORKGROUP.md'), rootCtx.workgroupMd, 'utf8')
     await tabFilesMapService.writeRoomMap(roomId)
 
     for (const agent of agents) {
@@ -726,6 +760,7 @@ export class AgentService {
       const ctx = await this.buildRoomContextFiles(roomId, agent)
       await writeFile(join(metaDir, 'ROOM.md'), ctx.roomMd, 'utf8')
       await writeFile(join(metaDir, 'MEMBERS.md'), ctx.membersMd, 'utf8')
+      await writeFile(join(metaDir, 'WORKGROUP.md'), ctx.workgroupMd, 'utf8')
       await tabFilesMapService.writeAgentMap(roomId, agent.id)
     }
   }
@@ -779,6 +814,7 @@ export class AgentService {
     await writeFile(join(metaDir, 'ROOM.md'), contextFiles.roomMd, 'utf8')
 
     await writeFile(join(metaDir, 'MEMBERS.md'), contextFiles.membersMd, 'utf8')
+    await writeFile(join(metaDir, 'WORKGROUP.md'), contextFiles.workgroupMd, 'utf8')
 
     await writeFile(join(metaDir, 'API.md'), renderAgentApiDoc(), 'utf8')
     await tabFilesMapService.writeAgentMap(roomId, agent.id)

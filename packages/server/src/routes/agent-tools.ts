@@ -26,6 +26,7 @@ import { roomAnalyticsService } from '../services/room-analytics.service.js'
 import { tabFilesMapService } from '../services/tab-files-map.service.js'
 import { notificationService } from '../services/notification.service.js'
 import { remoteAgentConnectorService } from '../services/remote-agent-connector.service.js'
+import { workgroupService } from '../services/workgroup.service.js'
 import { assertNoFakeHandoffText, assertProjectFilePathAllowed, broadcast, buildSubtaskWakePrompt, invokeAssignedAgent, resolveAgentAssignee, safeRelativePath, throwTabNotFound, validateTabIds } from './agent-tools.helpers.js'
 export async function registerAgentToolRoutes(app: FastifyInstance) {
   app.post('/api/agent-tools/:roomId', async (request, reply) => {
@@ -633,6 +634,31 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           const members = await roomService.getRoomMembers(roomId)
           const agents = await agentService.getRoomAgents(roomId)
           return { success: true, data: { members, agents } }
+        }
+        case 'workgroup.info': {
+          const workgroup = workgroupService.getRoomWorkgroup(roomId)
+          return { success: true, data: { workgroup } }
+        }
+        case 'workgroup.members': {
+          const workgroup = workgroupService.getRoomWorkgroup(roomId)
+          return { success: true, data: { workgroup, members: workgroupService.listMembers(workgroup.id) } }
+        }
+        case 'workgroup.agents': {
+          const workgroup = workgroupService.getRoomWorkgroup(roomId)
+          return { success: true, data: { workgroup, agents: workgroupService.listAgents(workgroup.id) } }
+        }
+        case 'workgroup.rooms': {
+          const workgroup = workgroupService.getRoomWorkgroup(roomId)
+          return { success: true, data: { workgroup, rooms: workgroupService.listRooms(workgroup.id, actorUserId) } }
+        }
+        case 'room.create': {
+          await agentService.assertRoomAssistant(roomId, agent.id)
+          const result = await workgroupService.createRoomFromWorkgroup(roomId, actorUserId, agent.id, args)
+          await agentService.refreshRoomAgentContext(roomId).catch(() => {})
+          broadcast(result.room.id, 'room.members_update', { members: result.members, agents: result.agents })
+          const msg = await messageService.createMessage(roomId, agent.id, '新建协作会话', 'ai', `已创建协作会话「${result.room.name}」，并加入指定成员和 Agent。`)
+          broadcast(roomId, 'chat.message', msg)
+          return { success: true, data: result }
         }
         case 'members.add': {
           assertActorCanEditRoom()

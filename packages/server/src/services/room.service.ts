@@ -15,10 +15,24 @@ function getUserIdentityType(userId: string): 'human' | 'agent' {
   return row?.identity_type === 'agent' ? 'agent' : 'human'
 }
 
+function ensureDefaultWorkgroupId(userId: string): string {
+  const existing = db.prepare('SELECT wg.id FROM workgroups wg JOIN workgroup_members wm ON wm.workgroup_id = wg.id WHERE wm.user_id = ? ORDER BY wg.created_at LIMIT 1').get(userId) as any
+  if (existing?.id) return existing.id
+  const user = db.prepare('SELECT username, nickname FROM users WHERE id = ?').get(userId) as any
+  const id = `wg_${uuidv4()}`
+  const ts = Date.now()
+  db.prepare('INSERT INTO workgroups (id, name, description, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, `${user?.nickname || user?.username || '我的'}的工作组`, '默认工作组', userId, ts, ts)
+  db.prepare('INSERT INTO workgroup_members (workgroup_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)')
+    .run(id, userId, 'owner', ts)
+  return id
+}
+
 export class RoomService {
-  async createRoom(name: string, description: string | null, userId: string, initialMemberIds: string[] = [], initialAgents: InitialRoomAgent[] = [], options: { skipDefaultAssistant?: boolean; roomKind?: string; directKey?: string; directTargetType?: string; directTargetId?: string } = {}): Promise<Room> {
+  async createRoom(name: string, description: string | null, userId: string, initialMemberIds: string[] = [], initialAgents: InitialRoomAgent[] = [], options: { skipDefaultAssistant?: boolean; roomKind?: string; directKey?: string; directTargetType?: string; directTargetId?: string; workgroupId?: string; workgroupEntryId?: string; sourceRoomId?: string; syncInitialMembersToWorkgroup?: boolean } = {}): Promise<Room> {
     const id = `room_${uuidv4()}`
     const now = Date.now()
+    const workgroupId = options.workgroupId || ensureDefaultWorkgroupId(userId)
 
     const ownedAgents = initialAgents
       .map((agent, index) => ({
@@ -31,7 +45,12 @@ export class RoomService {
       .filter((agent, index, arr) => arr.findIndex((item) => item.agentId === agent.agentId) === index)
       .filter((agent) => {
         const row = db.prepare('SELECT owner_id FROM agents WHERE id = ? AND status != ?').get(agent.agentId, 'inactive') as any
-        return row?.owner_id === userId
+        if (row?.owner_id === userId) return true
+        if (workgroupId) {
+          const wgAgent = db.prepare('SELECT 1 FROM workgroup_agents WHERE workgroup_id = ? AND agent_id = ? AND enabled = 1').get(workgroupId, agent.agentId)
+          return !!wgAgent
+        }
+        return false
       })
     let autoSeen = false
     for (const agent of ownedAgents) {
@@ -44,9 +63,9 @@ export class RoomService {
     }
     const create = db.transaction(() => {
       db.prepare(`
-        INSERT INTO rooms (id, name, description, created_by, created_at, updated_at, last_active_at, room_kind, direct_key, direct_target_type, direct_target_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(id, name, description, userId, now, now, now, options.roomKind || 'project', options.directKey || null, options.directTargetType || null, options.directTargetId || null)
+        INSERT INTO rooms (id, name, description, created_by, created_at, updated_at, last_active_at, room_kind, direct_key, direct_target_type, direct_target_id, workgroup_id, workgroup_entry_id, source_room_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, name, description, userId, now, now, now, options.roomKind || 'project', options.directKey || null, options.directTargetType || null, options.directTargetId || null, workgroupId, options.workgroupEntryId || null, options.sourceRoomId || null)
 
       // Add creator as owner
       db.prepare(`
@@ -59,6 +78,10 @@ export class RoomService {
           INSERT OR IGNORE INTO room_members (room_id, user_id, role, type, joined_at)
           VALUES (?, ?, 'editor', ?, ?)
         `).run(id, memberId, getUserIdentityType(memberId), now)
+        if (options.syncInitialMembersToWorkgroup !== false) {
+          db.prepare('INSERT OR IGNORE INTO workgroup_members (workgroup_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)')
+            .run(workgroupId, memberId, 'member', now)
+        }
       }
 
 
@@ -67,6 +90,8 @@ export class RoomService {
           INSERT OR REPLACE INTO room_agents (room_id, agent_id, added_by, added_at, room_role, auto_enabled, priority)
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run(id, agent.agentId, userId, now, agent.roomRole, agent.autoEnabled ? 1 : 0, agent.priority)
+        db.prepare('INSERT OR IGNORE INTO workgroup_agents (workgroup_id, agent_id, role, enabled, added_at) VALUES (?, ?, ?, 1, ?)')
+          .run(workgroupId, agent.agentId, 'member', now)
       }
     })
 
@@ -100,6 +125,9 @@ export class RoomService {
       assistantHandoffAt: row.assistant_handoff_at || undefined,
       assistantHandoffBy: row.assistant_handoff_by || undefined,
       assistantHandoffReason: row.assistant_handoff_reason || undefined,
+      workgroupId: row.workgroup_id || undefined,
+      workgroupEntryId: row.workgroup_entry_id || undefined,
+      sourceRoomId: row.source_room_id || undefined,
     } as any
   }
 
@@ -124,6 +152,9 @@ export class RoomService {
       directTargetType: row.direct_target_type || undefined,
       directTargetId: row.direct_target_id || undefined,
       currentAssistantAgentId: row.current_assistant_agent_id || undefined,
+      workgroupId: row.workgroup_id || undefined,
+      workgroupEntryId: row.workgroup_entry_id || undefined,
+      sourceRoomId: row.source_room_id || undefined,
       memberRole: row.member_role,
       canDelete: row.member_role === 'owner'
     } as any))
@@ -210,6 +241,11 @@ export class RoomService {
       INSERT OR REPLACE INTO room_members (room_id, user_id, role, type, joined_at)
       VALUES (?, ?, ?, ?, ?)
     `).run(roomId, userId, role, getUserIdentityType(userId), now)
+    const room = db.prepare('SELECT workgroup_id FROM rooms WHERE id = ?').get(roomId) as any
+    if (room?.workgroup_id) {
+      db.prepare('INSERT OR IGNORE INTO workgroup_members (workgroup_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)')
+        .run(room.workgroup_id, userId, role === 'owner' ? 'admin' : 'member', now)
+    }
   }
 
   async removeMember(roomId: string, userId: string): Promise<void> {
