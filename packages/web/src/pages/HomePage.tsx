@@ -23,6 +23,8 @@ export default function HomePage() {
   const [friends, setFriends] = useState<any[]>([])
   const [agents, setAgents] = useState<any[]>([])
   const [scenes, setScenes] = useState<any[]>([])
+  const [workgroups, setWorkgroups] = useState<any[]>([])
+  const [selectedWorkgroupId, setSelectedWorkgroupId] = useState('')
   const [selectedSceneId, setSelectedSceneId] = useState('')
   const [contactKind, setContactKind] = useState<ContactKind>('people')
   const [marketKind, setMarketKind] = useState<MarketKind>('agents')
@@ -93,7 +95,7 @@ export default function HomePage() {
 
   const loadHome = async () => {
     setLoading(true)
-    await Promise.all([loadRooms(), loadFriends(), loadAgents(), loadScenes(), loadFriendRequests(), loadConversations()])
+    await Promise.all([loadRooms(), loadFriends(), loadAgents(), loadScenes(), loadWorkgroups(), loadFriendRequests(), loadConversations()])
     setLoading(false)
   }
 
@@ -115,6 +117,10 @@ export default function HomePage() {
 
   const loadScenes = async () => {
     try { const data = await api.getScenes(); setScenes(data.scenes || []) } catch (err) { console.error(err) }
+  }
+
+  const loadWorkgroups = async () => {
+    try { const data = await api.getWorkgroups(); setWorkgroups(data.workgroups || []) } catch (err) { console.error(err) }
   }
 
   const loadFriendRequests = async () => {
@@ -271,6 +277,7 @@ export default function HomePage() {
         name: newName,
         description: newDesc,
         sceneId: selectedSceneId || undefined,
+        workgroupId: selectedWorkgroupId || undefined,
         memberIds: selectedFriendIds,
         agents: selectedSceneId ? [] : selectedAgents.map((a) => ({ agentId: a.agentId, roomRole: a.autoEnabled ? 'assistant' : 'specialist', autoEnabled: a.autoEnabled })),
       })
@@ -280,7 +287,9 @@ export default function HomePage() {
       setSelectedFriendIds([])
       setSelectedAgents([])
       setSelectedSceneId('')
+      setSelectedWorkgroupId('')
       loadRooms()
+      loadWorkgroups()
       if (result?.room?.id) navigate(`/room/${result.room.id}`)
     } catch (err: any) {
       console.error('创建失败:', err)
@@ -350,7 +359,7 @@ export default function HomePage() {
           <MessagesSection conversations={conversations} deletingId={deletingId} openSwipeId={openSwipeId} setOpenSwipeId={setOpenSwipeId} loadConversations={loadConversations} getConversationActions={getConversationActions} toggleConversationPref={toggleConversationPref} deleteConversation={deleteConversation} navigateTo={navigate} />
         )}
         {activeHomeTab === 'contacts' && (
-          <ContactsSection contactKind={contactKind} setContactKind={setContactKind} searchQ={searchQ} setSearchQ={setSearchQ} searchResults={searchResults} friends={friends} agents={agents} scenes={scenes} reloadScenes={loadScenes} reloadAgents={loadAgents} friendRequests={friendRequests} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} searchUsers={searchUsers} sendFriendRequest={sendFriendRequest} acceptFriendRequest={acceptFriendRequest} rejectFriendRequest={rejectFriendRequest} openDm={openDm} openAgentChat={openAgentChat} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />
+          <ContactsSection contactKind={contactKind} setContactKind={setContactKind} searchQ={searchQ} setSearchQ={setSearchQ} searchResults={searchResults} friends={friends} agents={agents} scenes={scenes} workgroups={workgroups} reloadWorkgroups={loadWorkgroups} reloadScenes={loadScenes} reloadAgents={loadAgents} friendRequests={friendRequests} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} searchUsers={searchUsers} sendFriendRequest={sendFriendRequest} acceptFriendRequest={acceptFriendRequest} rejectFriendRequest={rejectFriendRequest} openDm={openDm} openAgentChat={openAgentChat} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />
         )}
         {activeHomeTab === 'market' && <MarketSection marketKind={marketKind} setMarketKind={setMarketKind} agents={agents} scenes={scenes} reloadScenes={loadScenes} reloadAgents={loadAgents} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />}
         {activeHomeTab === 'billing' && <BillingPanel />}
@@ -359,7 +368,7 @@ export default function HomePage() {
       <MobileNav activeHomeTab={activeHomeTab} setActiveHomeTab={setActiveHomeTab} />
       <JoinRoomModal show={showJoin} inviteCode={inviteCode} joining={joining} setInviteCode={setInviteCode} setShowJoin={setShowJoin} handleJoinRoom={handleJoinRoom} />
       <AddFriendModal show={showAddFriend} searchQ={searchQ} searchResults={searchResults} setSearchQ={setSearchQ} setShowAddFriend={setShowAddFriend} searchUsers={searchUsers} sendFriendRequest={sendFriendRequest} />
-      <CreateRoomModal show={showCreate} newName={newName} newDesc={newDesc} friends={friends} agents={agents.filter((agent) => agent.canUse)} scenes={scenes.filter((scene) => scene.canUse)} selectedSceneId={selectedSceneId} setSelectedSceneId={setSelectedSceneId} selectedFriendIds={selectedFriendIds} selectedAgents={selectedAgents} setNewName={setNewName} setNewDesc={setNewDesc} setShowCreate={setShowCreate} setSelectedAgents={setSelectedAgents} handleCreate={handleCreate} toggleSelectedFriend={toggleSelectedFriend} toggleSelectedAgent={toggleSelectedAgent} setAgentAutoEnabled={setAgentAutoEnabled} />
+      <CreateRoomModal show={showCreate} newName={newName} newDesc={newDesc} friends={friends} agents={agents.filter((agent) => agent.canUse)} scenes={scenes.filter((scene) => scene.canUse)} workgroups={workgroups} selectedWorkgroupId={selectedWorkgroupId} setSelectedWorkgroupId={setSelectedWorkgroupId} selectedSceneId={selectedSceneId} setSelectedSceneId={setSelectedSceneId} selectedFriendIds={selectedFriendIds} selectedAgents={selectedAgents} setNewName={setNewName} setNewDesc={setNewDesc} setShowCreate={setShowCreate} setSelectedAgents={setSelectedAgents} handleCreate={handleCreate} toggleSelectedFriend={toggleSelectedFriend} toggleSelectedAgent={toggleSelectedAgent} setAgentAutoEnabled={setAgentAutoEnabled} />
     </div>
   )
 }

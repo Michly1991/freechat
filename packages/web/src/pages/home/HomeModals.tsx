@@ -72,6 +72,9 @@ export function CreateRoomModal(props: CreateRoomModalProps) {
     friends,
     agents,
     scenes,
+    workgroups,
+    selectedWorkgroupId,
+    setSelectedWorkgroupId,
     selectedSceneId,
     setSelectedSceneId,
     selectedFriendIds,
@@ -99,6 +102,14 @@ export function CreateRoomModal(props: CreateRoomModalProps) {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">描述（可选）</label>
             <textarea value={newDesc} onChange={(e) => setNewDesc(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="群聊描述" rows={3} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">所属工作组</label>
+            <select value={selectedWorkgroupId} onChange={(e) => setSelectedWorkgroupId(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+              <option value="">自动选择默认工作组</option>
+              {workgroups.map((workgroup) => <option key={workgroup.id} value={workgroup.id}>{workgroup.name}</option>)}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">工作组是人和 Agent 的资源池；房间内的协作者会同步到所属工作组。</p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">群聊场景（可选）</label>

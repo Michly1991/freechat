@@ -34,6 +34,58 @@ function asList(value: any): any[] {
 function userLabel(row: any) { return row.nickname || row.username || row.user_id || row.id }
 
 export class WorkgroupService {
+  createWorkgroup(userId: string, input: { name: string; description?: string }) {
+    const name = String(input.name || '').trim()
+    if (!name) throw { code: 'VALIDATION_ERROR', message: 'name is required' }
+    const id = `wg_${uuidv4()}`
+    const ts = now()
+    db.transaction(() => {
+      db.prepare('INSERT INTO workgroups (id, name, description, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(id, name, input.description || null, userId, ts, ts)
+      db.prepare('INSERT INTO workgroup_members (workgroup_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)')
+        .run(id, userId, 'owner', ts)
+    })()
+    return this.getOverview(id, userId)
+  }
+
+  listForUser(userId: string) {
+    this.ensureDefaultWorkgroup(userId)
+    const rows = db.prepare(`
+      SELECT wg.*, wm.role current_user_role,
+        (SELECT COUNT(*) FROM workgroup_members WHERE workgroup_id = wg.id) member_count,
+        (SELECT COUNT(*) FROM workgroup_agents WHERE workgroup_id = wg.id AND enabled = 1) agent_count,
+        (SELECT COUNT(*) FROM rooms WHERE workgroup_id = wg.id AND deleted_at IS NULL) room_count
+      FROM workgroups wg
+      JOIN workgroup_members wm ON wm.workgroup_id = wg.id
+      WHERE wm.user_id = ?
+      ORDER BY wg.updated_at DESC, wg.created_at DESC
+    `).all(userId) as any[]
+    return rows.map((row) => ({ ...row, canManage: ['owner', 'admin'].includes(row.current_user_role) }))
+  }
+
+  getOverview(workgroupId: string, userId: string) {
+    const workgroup = this.getWorkgroup(workgroupId)
+    this.assertUserInWorkgroup(workgroupId, userId)
+    return {
+      workgroup,
+      members: this.listMembers(workgroupId),
+      agents: this.listAgents(workgroupId),
+      rooms: this.listRooms(workgroupId, userId),
+    }
+  }
+
+  updateWorkgroup(workgroupId: string, userId: string, input: { name?: string; description?: string }) {
+    this.assertCanManage(workgroupId, userId)
+    const updates: string[] = []
+    const values: any[] = []
+    if (input.name !== undefined) { updates.push('name = ?'); values.push(String(input.name).trim()) }
+    if (input.description !== undefined) { updates.push('description = ?'); values.push(input.description || null) }
+    if (!updates.length) return this.getOverview(workgroupId, userId)
+    updates.push('updated_at = ?'); values.push(now(), workgroupId)
+    db.prepare(`UPDATE workgroups SET ${updates.join(', ')} WHERE id = ?`).run(...values)
+    return this.getOverview(workgroupId, userId)
+  }
+
   ensureDefaultWorkgroup(userId: string) {
     const existing = db.prepare('SELECT wg.* FROM workgroups wg JOIN workgroup_members wm ON wm.workgroup_id = wg.id WHERE wm.user_id = ? ORDER BY wg.created_at LIMIT 1').get(userId) as any
     if (existing) return existing

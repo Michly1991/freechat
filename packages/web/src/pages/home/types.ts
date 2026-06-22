@@ -3,7 +3,7 @@ import type { SwipeAction } from '../../components/SwipeActionItem'
 import type { AgentFormState, AgentToolKey } from '../home-agent-form'
 
 export type HomeTab = 'messages' | 'contacts' | 'market' | 'billing' | 'settings'
-export type ContactKind = 'people' | 'agents' | 'models' | 'scenes' | 'knowledge'
+export type ContactKind = 'people' | 'agents' | 'workgroups' | 'models' | 'scenes' | 'knowledge'
 export type MarketKind = 'agents' | 'models' | 'scenes'
 export type SelectedAgent = { agentId: string; autoEnabled: boolean }
 
@@ -54,6 +54,8 @@ export type ContactsSectionProps = {
   friends: any[]
   agents: any[]
   scenes: any[]
+  workgroups: any[]
+  reloadWorkgroups: () => void
   reloadScenes: () => void
   reloadAgents: () => void
   friendRequests: { received: any[]; sent: any[] }
@@ -125,6 +127,9 @@ export type CreateRoomModalProps = {
   friends: any[]
   agents: any[]
   scenes: any[]
+  workgroups: any[]
+  selectedWorkgroupId: string
+  setSelectedWorkgroupId: Dispatch<SetStateAction<string>>
   selectedSceneId: string
   setSelectedSceneId: Dispatch<SetStateAction<string>>
   selectedFriendIds: string[]

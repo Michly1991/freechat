@@ -80,8 +80,14 @@ export const api = {
 
   // Rooms
   getRooms: () => request<{ rooms: any[] }>('/rooms'),
-  createRoom: (body: { name: string; description?: string; sceneId?: string; memberIds?: string[]; agents?: Array<{ agentId: string; roomRole?: 'assistant' | 'specialist'; autoEnabled?: boolean; priority?: number; confirmedPurchase?: boolean }> }) =>
+  createRoom: (body: { name: string; description?: string; sceneId?: string; workgroupId?: string; memberIds?: string[]; agents?: Array<{ agentId: string; roomRole?: 'assistant' | 'specialist'; autoEnabled?: boolean; priority?: number; confirmedPurchase?: boolean }> }) =>
     request<{ room: any }>('/rooms', { method: 'POST', body: JSON.stringify(body) }),
+  getWorkgroups: () => request<{ workgroups: any[] }>('/workgroups'),
+  createWorkgroup: (body: { name: string; description?: string }) => request<any>('/workgroups', { method: 'POST', body: JSON.stringify(body) }),
+  getWorkgroup: (id: string) => request<any>(`/workgroups/${id}`),
+  updateWorkgroup: (id: string, body: { name?: string; description?: string }) => request<any>(`/workgroups/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  addWorkgroupMember: (id: string, userId: string) => request<any>(`/workgroups/${id}/members`, { method: 'POST', body: JSON.stringify({ userId }) }),
+  addWorkgroupAgent: (id: string, agentId: string) => request<any>(`/workgroups/${id}/agents`, { method: 'POST', body: JSON.stringify({ agentId }) }),
   openDirectUserRoom: (userId: string) => request<{ room: any }>('/rooms/direct/user', { method: 'POST', body: JSON.stringify({ userId }) }),
   openDirectAgentRoom: (agentId: string) => request<{ room: any }>('/rooms/direct/agent', { method: 'POST', body: JSON.stringify({ agentId }) }),
   getRoom: (id: string) => request<{ room: any; members: any[] }>(`/rooms/${id}`),
