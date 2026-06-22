@@ -2,7 +2,6 @@ export type AgentToolKey = 'chat' | 'task' | 'file' | 'tab' | 'interaction' | 'm
 
 export interface AgentFormState {
   name: string
-  roleType: 'assistant' | 'specialist'
   description: string
   specialties: string
   systemPrompt: string
@@ -15,7 +14,6 @@ export const AGENT_TOOL_KEYS: AgentToolKey[] = ['chat', 'task', 'file', 'tab', '
 export function emptyAgentForm(): AgentFormState {
   return {
     name: '',
-    roleType: 'assistant',
     description: '',
     specialties: '',
     systemPrompt: '',
@@ -27,7 +25,6 @@ export function emptyAgentForm(): AgentFormState {
 export function agentToForm(agent: any): AgentFormState {
   return {
     name: agent.name || '',
-    roleType: agent.roleType || 'specialist',
     description: agent.description || '',
     specialties: (agent.specialties || []).join(', '),
     systemPrompt: agent.config?.systemPrompt || '',
@@ -39,14 +36,13 @@ export function agentToForm(agent: any): AgentFormState {
 export function buildAgentPayload(form: AgentFormState) {
   return {
     name: form.name.trim(),
-    roleType: form.roleType,
     deployment: 'client' as const,
     description: form.description,
     specialties: form.specialties.split(',').map((s) => s.trim()).filter(Boolean),
     config: {
       systemPrompt: form.systemPrompt,
       agentMarkdown: form.agentMarkdown,
-      behavior: { replyMode: form.roleType === 'assistant' ? 'auto_when_relevant' : 'mention_only', silentAllowed: true },
+      behavior: { replyMode: 'mention_only', silentAllowed: true },
       tools: form.tools,
     },
   }

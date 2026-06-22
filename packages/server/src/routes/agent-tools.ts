@@ -469,7 +469,7 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
           const specialties = Array.isArray(args.specialties) ? args.specialties.map((s: any) => String(s).trim()).filter(Boolean) : []
           const result = await interactionService.create(roomId, { id: agent.id, name: agent.name, role: 'ai' }, {
             type: 'confirm',
-            title: `确认创建专家 Agent：${name}`,
+            title: `确认创建 Agent：${name}`,
             description: [
               args.description ? `职责：${args.description}` : '',
               specialties.length ? `专长：${specialties.join('、')}` : '',

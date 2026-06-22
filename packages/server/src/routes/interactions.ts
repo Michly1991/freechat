@@ -78,7 +78,7 @@ export async function materializeAgentCreateRequest(roomId: string, interaction:
   const ownerId = interaction.resolvedBy || (db.prepare('SELECT created_by FROM rooms WHERE id = ?').get(roomId) as any)?.created_by || interaction.createdBy
   const created = await agentService.createAgent(ownerId, {
     name: String(spec.name).trim(),
-    roleType: spec.roleType === 'assistant' ? 'assistant' : 'specialist',
+    roleType: 'specialist',
     deployment: 'client',
     description: spec.description,
     specialties: Array.isArray(spec.specialties) ? spec.specialties : [],
@@ -95,7 +95,7 @@ export async function materializeAgentCreateRequest(roomId: string, interaction:
   broadcast(roomId, 'room.members_update', { members, agents })
   const consumed = interactionService.consume(roomId, interaction.id, interaction.resolvedBy || ownerId)
   broadcast(roomId, 'interaction.updated', { interaction: consumed })
-  const msg = await messageService.createMessage(roomId, interaction.createdBy, 'Agent 创建', 'ai', `已创建并加入专家 Agent：${created.agent.name}`)
+  const msg = await messageService.createMessage(roomId, interaction.createdBy, 'Agent 创建', 'ai', `已创建并加入 Agent：${created.agent.name}`)
   broadcast(roomId, 'chat.message', msg)
 }
 

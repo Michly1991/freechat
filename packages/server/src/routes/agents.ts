@@ -51,18 +51,18 @@ export async function registerAgentRoutes(app: FastifyInstance) {
   // POST /api/agents - create agent (returns api_key once)
   app.post('/api/agents', async (request, reply) => {
     const user = (request as any).user
-    const { name, roleType, deployment, description, specialties, config } = request.body as any
+    const { name, deployment, description, specialties, config } = request.body as any
 
-    if (!name || !roleType || !deployment) {
+    if (!name || !deployment) {
       return reply.code(400).send({
         success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'name, roleType, and deployment are required' }
+        error: { code: 'VALIDATION_ERROR', message: 'name and deployment are required' }
       })
     }
-    if (!['assistant', 'specialist'].includes(roleType) || !['server', 'client'].includes(deployment)) {
+    if (!['client'].includes(deployment)) {
       return reply.code(400).send({
         success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'invalid roleType or deployment' }
+        error: { code: 'VALIDATION_ERROR', message: 'invalid deployment' }
       })
     }
 
@@ -73,7 +73,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
       }
       const result = await agentService.createAgent(user.id, {
         name,
-        roleType,
+        roleType: 'specialist',
         deployment,
         description,
         specialties,
@@ -96,7 +96,6 @@ export async function registerAgentRoutes(app: FastifyInstance) {
 
       const updated = await agentService.updateAgent(id, {
         name: body.name,
-        roleType: body.roleType,
         deployment: body.deployment,
         description: body.description,
         specialties: body.specialties,

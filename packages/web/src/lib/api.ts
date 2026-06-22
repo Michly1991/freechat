@@ -241,7 +241,7 @@ export const api = {
   resolveScenePermissionRequest: (id: string, requestId: string, decision: 'approve' | 'reject') =>
     request<{ request: any }>(`/scenes/${id}/permission-requests/${requestId}/resolve`, { method: 'POST', body: JSON.stringify({ decision }) }),
   getAgents: () => request<{ agents: any[] }>('/agents'),
-  createAgent: (body: { name: string; roleType: string; deployment: string; description?: string; specialties?: string[]; config?: Record<string, any> }) =>
+  createAgent: (body: { name: string; deployment: string; description?: string; specialties?: string[]; config?: Record<string, any> }) =>
     request<{ agent: any; apiKey: string }>('/agents', { method: 'POST', body: JSON.stringify(body) }),
   uploadAgentPackage: (file: File) => {
     const formData = new FormData()

@@ -29,7 +29,7 @@ export function createRoomProfileController({ members, roomAgents, setSelectedPr
         kind,
         id: target.id,
         name: target.name,
-        subtitle: target.roleType === 'assistant' ? '助理 Agent' : '专家 Agent',
+        subtitle: 'Agent',
         roleType: target.roleType,
         status: getAgentStatusLabel(target),
         onlineStatus: getAgentOnlineStatus(target),
