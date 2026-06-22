@@ -7,7 +7,7 @@ export function toInt(value: any): number {
 
 export function creditToMicro(value: any): number {
   const n = Number(value || 0)
-  return Number.isFinite(n) ? Math.trunc(n * MICROCREDITS_PER_CREDIT) : 0
+  return Number.isFinite(n) ? Math.round(n * MICROCREDITS_PER_CREDIT) : 0
 }
 
 export function nonNegativeCreditToMicro(value: any): number {

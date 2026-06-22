@@ -27,7 +27,7 @@ function hostOf(url?: string | null): string | null {
 }
 
 function fmtCredit(value: any): string {
-  return Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 })
 }
 
 function priceSummary(profileId: string): string {

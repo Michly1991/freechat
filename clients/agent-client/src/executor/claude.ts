@@ -42,7 +42,38 @@ export function writeRunContext(cfg: ClientConfig, agent: AgentCredential, event
 
 const DEFAULT_SESSION_TTL_MS = 5 * 60 * 1000
 
-export function runClaude(prompt: string, cwd: string): Promise<string> {
+export type ClaudeUsage = {
+  model?: string
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  totalTokens: number
+  raw?: any
+}
+
+export type ClaudeRunResult = {
+  response: string
+  usage: ClaudeUsage
+}
+
+function num(value: any): number {
+  const n = Number(value || 0)
+  return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0
+}
+
+function mergeUsage(current: ClaudeUsage, raw: any, model?: string): ClaudeUsage {
+  const next = raw || {}
+  const inputTokens = num(next.input_tokens ?? next.inputTokens ?? next.prompt_tokens ?? next.promptTokens)
+  const outputTokens = num(next.output_tokens ?? next.outputTokens ?? next.completion_tokens ?? next.completionTokens)
+  const cacheCreationInputTokens = num(next.cache_creation_input_tokens ?? next.cacheCreationInputTokens ?? next.cache_write_tokens ?? next.cacheWriteTokens)
+  const cacheReadInputTokens = num(next.cache_read_input_tokens ?? next.cacheReadInputTokens ?? next.cache_read_tokens ?? next.cacheReadTokens)
+  const totalTokens = num(next.total_tokens ?? next.totalTokens) || (inputTokens + outputTokens + cacheCreationInputTokens + cacheReadInputTokens)
+  if (totalTokens <= current.totalTokens) return { ...current, model: current.model || model || next.model }
+  return { model: model || next.model || current.model, inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens, totalTokens, raw: next }
+}
+
+export function runClaude(prompt: string, cwd: string): Promise<ClaudeRunResult> {
   const sessionFile = join(cwd, '.freechat', 'claude-session.json')
   const sessionTtlMs = Math.max(30_000, Number(process.env.FREECHAT_AGENT_CLIENT_SESSION_TTL_MS || DEFAULT_SESSION_TTL_MS))
   let previousSessionId = ''
@@ -59,11 +90,15 @@ export function runClaude(prompt: string, cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn('claude', args, { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
     let out = '', err = '', lineBuffer = '', response = '', sessionId = previousSessionId
+    let usage: ClaudeUsage = { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, totalTokens: 0 }
     const handleLine = (line: string) => {
       if (!line.trim()) return
       try {
         const event = JSON.parse(line)
         if (event.session_id) sessionId = event.session_id
+        const eventModel = event.model || event.message?.model
+        if (event.usage) usage = mergeUsage(usage, event.usage, eventModel)
+        if (event.message?.usage) usage = mergeUsage(usage, event.message.usage, eventModel)
         const msg = event.message || event
         if (Array.isArray(msg.content)) {
           for (const part of msg.content) {
@@ -85,7 +120,7 @@ export function runClaude(prompt: string, cwd: string): Promise<string> {
     child.on('close', (code) => {
       if (lineBuffer.trim()) handleLine(lineBuffer)
       if (sessionId) { try { writeFileSync(sessionFile, JSON.stringify({ sessionId, updatedAt: Date.now() }, null, 2)) } catch {} }
-      if (code === 0) resolve((response || out).trim())
+      if (code === 0) resolve({ response: (response || out).trim(), usage })
       else reject(new Error(err || `claude exited ${code}`))
     })
   })
@@ -95,10 +130,10 @@ export async function executeEvent(cfg: ClientConfig, agent: AgentCredential, ev
   const cwd = workspaceFor(agent, event)
   const spec = await getRuntimeSpec(cfg, agent)
   writeRunContext(cfg, agent, event, cwd, spec)
-  const response = await runClaude(event.payload.input || '', cwd)
-  const trimmed = response.trim()
+  const result = await runClaude(event.payload.input || '', cwd)
+  const trimmed = result.response.trim()
   const responseMode = event.payload.responseMode || (event.type === 'agent.mentioned' ? 'final_to_chat' : 'tool_only')
   const shouldAutoSend = responseMode === 'final_to_chat' && trimmed && !/^\{\s*"success"\s*:/i.test(trimmed)
   if (shouldAutoSend) await agentTool(cfg, agent, event.roomId, 'chat.send', { content: trimmed })
-  return response
+  return result
 }

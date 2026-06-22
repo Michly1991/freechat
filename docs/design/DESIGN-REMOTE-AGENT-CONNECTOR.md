@@ -121,21 +121,26 @@ type RemoteAgentEvent = {
 
 ## 计费
 
-MVP 不收远程模型费。原因：模型调用发生在远程服务器，FreeChat 无法验证真实 token 和成本。
+FreeChat 对远程 Agent 使用统一 Token 账单，但计量可信等级不同：
 
-MVP 支持远程 Agent 服务费：
+- 服务端/平台托管 Agent：`usage_source = server_metered`，`usage_trust_level = trusted`，由服务端直接采集模型 usage。
+- Agent Client 托管 Agent：`usage_source = client_reported`，`usage_trust_level = provider_reported`，由 Agent Client 在 `complete` 时上报 Claude Code usage；平台记录并结算，但在账单中明确这是提供方客户端上报，用户和提供方需自行建立信任。
+
+远程 Agent 的模型 API Key 与实际模型成本仍属于 Agent 提供方本地环境，FreeChat 不保存远程模型 API Key，也不向平台模型提供方结算远程模型成本。远程 Agent 的自动账单按该 Agent 的统一价格卡计算：
 
 ```text
+agent_usage_charge = token_usage × agent_billing_rules(per_token)
 项目创建人 debit agent_usage_charge
 Agent 提供者 credit agent_income
 ```
 
-推荐模式：
+支持模式：
 
-- `free`：私有/内部 Agent；
-- `per_run_fixed`：每次成功完成 run 收固定 Agent 服务费。
+- `free`：私有/内部 Agent，不自动扣费；
+- `per_token` / `token_metered`：按输入、输出、cache 写、cache 读 token 和 Agent 价格卡结算；
+- `per_run_fixed`：旧版兼容模式，仅对成功完成 run 收固定 Agent 服务费。
 
-后续可加 `reported_token`，但必须在账单中明确“由外部 Agent 上报，平台未验证”。
+Credit 精度统一为 4 位小数。API 以 credit 为单位传输，数据库以 microcredit 整数保存：`1 credit = 10000 microcredits`。每条 run/usage event 保存 `raw_usage_json`、`reported_by_connector_id` 和价格快照，便于审计与争议排查。
 
 ## 数据表
 
@@ -175,7 +180,7 @@ examples/remote-claude-agent/
 - dispatch lease、重投递和更严格幂等；
 - 连接器多实例负载均衡；
 - 更完整的远程 workspace bundle；
-- reported token 计费和审计；
+- 更细的 reported token 审计、争议处理和异常用量风控；
 - HTTPS/反向代理部署向导和生产安全检查。
 
 ## Agent Client 独立控制台

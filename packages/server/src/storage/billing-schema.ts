@@ -361,12 +361,23 @@ export function ensureBillingSchema(db: Database.Database) {
       cache_write_tokens INTEGER DEFAULT 0,
       cache_read_tokens INTEGER DEFAULT 0,
       total_tokens INTEGER DEFAULT 0,
+      usage_source TEXT,
+      usage_trust_level TEXT,
+      reported_by_connector_id TEXT,
+      reported_at INTEGER,
+      raw_usage_json TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
       snapshot_json TEXT,
       created_at INTEGER NOT NULL,
       FOREIGN KEY (run_id) REFERENCES agent_runs(id) ON DELETE CASCADE
     )
   `)
+  const usageCols = db.prepare('PRAGMA table_info(metered_usage_events)').all() as any[]
+  if (!usageCols.some((col) => col.name === 'usage_source')) db.exec('ALTER TABLE metered_usage_events ADD COLUMN usage_source TEXT')
+  if (!usageCols.some((col) => col.name === 'usage_trust_level')) db.exec('ALTER TABLE metered_usage_events ADD COLUMN usage_trust_level TEXT')
+  if (!usageCols.some((col) => col.name === 'reported_by_connector_id')) db.exec('ALTER TABLE metered_usage_events ADD COLUMN reported_by_connector_id TEXT')
+  if (!usageCols.some((col) => col.name === 'reported_at')) db.exec('ALTER TABLE metered_usage_events ADD COLUMN reported_at INTEGER')
+  if (!usageCols.some((col) => col.name === 'raw_usage_json')) db.exec('ALTER TABLE metered_usage_events ADD COLUMN raw_usage_json TEXT')
   db.exec(`CREATE INDEX IF NOT EXISTS idx_metered_usage_events_status_created ON metered_usage_events(status, created_at)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_metered_usage_events_payer ON metered_usage_events(payer_user_id, created_at)`)
   db.exec(`

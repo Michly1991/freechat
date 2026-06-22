@@ -20,6 +20,11 @@ export type MeteredUsageEvent = UsageTokenSnapshot & {
   model?: string | null
   modelSource?: string | null
   baseUrlHost?: string | null
+  usageSource?: string | null
+  usageTrustLevel?: string | null
+  reportedByConnectorId?: string | null
+  reportedAt?: number | null
+  rawUsageJson?: string | null
   status: 'pending' | 'charged' | 'ignored' | 'failed'
   snapshotJson?: string | null
   createdAt: number

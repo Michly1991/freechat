@@ -6,6 +6,7 @@ import db from '../storage/db.js'
 import { config } from '../config.js'
 import { billingLedgerRepository } from '../domains/billing/billing-ledger.repository.js'
 import { creditWalletService } from './credit-wallet.service.js'
+import { billingService } from './billing.service.js'
 
 const ACCESS_EXPIRES_IN = '7d'
 const PAIRING_TTL_MS = 10 * 60 * 1000
@@ -298,16 +299,23 @@ export class RemoteAgentConnectorService {
     const now = Date.now()
     const usage = payload.usage || {}
     const durationMs = Math.max(0, now - Number(run.started_at || now))
+    const inputTokens = Number(usage.inputTokens || usage.input_tokens || usage.prompt_tokens || 0)
+    const outputTokens = Number(usage.outputTokens || usage.output_tokens || usage.completion_tokens || 0)
+    const cacheCreationInputTokens = Number(usage.cacheCreationInputTokens || usage.cache_creation_input_tokens || 0)
+    const cacheReadInputTokens = Number(usage.cacheReadInputTokens || usage.cache_read_input_tokens || 0)
+    const totalTokens = Number(usage.totalTokens || usage.total_tokens || (inputTokens + outputTokens + cacheCreationInputTokens + cacheReadInputTokens) || 0)
     db.prepare(`
       UPDATE agent_runs
       SET status = 'succeeded', output = ?, error = NULL, runtime = 'remote-claude-code', model = ?, duration_ms = ?,
-        input_tokens = ?, output_tokens = ?, cache_creation_input_tokens = ?, cache_read_input_tokens = ?, total_tokens = ?, finished_at = ?
+        input_tokens = ?, output_tokens = ?, cache_creation_input_tokens = ?, cache_read_input_tokens = ?, total_tokens = ?,
+        usage_source = 'client_reported', usage_trust_level = 'provider_reported', usage_reported_by_connector_id = ?, usage_reported_at = ?, raw_usage_json = ?,
+        finished_at = ?
       WHERE id = ?
-    `).run(payload.output || payload.summary || '', usage.model || null, durationMs, usage.inputTokens || 0, usage.outputTokens || 0, usage.cacheCreationInputTokens || 0, usage.cacheReadInputTokens || 0, usage.totalTokens || ((usage.inputTokens || 0) + (usage.outputTokens || 0)), now, runId)
+    `).run(payload.output || payload.summary || '', usage.model || null, durationMs, inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens, totalTokens, auth.connectorId, now, JSON.stringify(usage || {}), now, runId)
     db.prepare("UPDATE remote_agent_events SET status = 'completed', completed_at = ? WHERE run_id = ?").run(now, runId)
     db.prepare("UPDATE agent_connectors SET status = 'online', last_seen_at = ? WHERE id = ?").run(now, auth.connectorId)
     db.prepare("UPDATE agents SET status = 'active', updated_at = ? WHERE id = ?").run(now, auth.agentId)
-    this.billRemoteRun(runId)
+    this.settleRemoteRun(runId)
     return { ok: true }
   }
 
@@ -358,23 +366,28 @@ export class RemoteAgentConnectorService {
     return run
   }
 
-  private billRemoteRun(runId: string) {
+  private settleRemoteRun(runId: string) {
     const run = db.prepare('SELECT * FROM agent_runs WHERE id = ?').get(runId) as any
     if (!run) return
     const agent = db.prepare('SELECT owner_id, source_template_id FROM agents WHERE id = ?').get(run.agent_id) as any
     const templateId = agent?.source_template_id || run.agent_id
     const rule = db.prepare('SELECT * FROM agent_billing_rules WHERE agent_template_id = ? AND enabled = 1 LIMIT 1').get(templateId) as any
     if (!rule || rule.billing_mode === 'free') return
+    if (['per_token', 'token_metered', 'token_multiplier'].includes(rule.billing_mode)) {
+      billingService.billRun(runId)
+      return
+    }
     if (!['per_run_fixed', 'fixed_per_run'].includes(rule.billing_mode)) return
+    if (billingLedgerRepository.existsForRun(runId)) return
     const amount = Number(rule.fixed_credits_per_run || 0)
     if (!Number.isFinite(amount) || amount <= 0) return
     const payerUserId = run.payer_user_id
     const providerUserId = (db.prepare('SELECT owner_id FROM agents WHERE id = ?').get(templateId) as any)?.owner_id || agent?.owner_id
     if (!payerUserId || !providerUserId || payerUserId === providerUserId) return
     const event = { id: null, runId, roomId: run.room_id, agentId: run.agent_id, agentTemplateId: templateId, payerUserId, modelProfileId: null, model: null } as any
-    const debit = billingLedgerRepository.createEntry(event, { accountUserId: payerUserId, accountRole: 'payer', direction: 'debit', entryType: 'agent_usage_charge', amount, ruleSnapshot: JSON.stringify({ agentRule: rule, remote: true }) })
+    const debit = billingLedgerRepository.createEntry(event, { accountUserId: payerUserId, accountRole: 'payer', direction: 'debit', entryType: 'agent_usage_charge', amount, ruleSnapshot: JSON.stringify({ agentRule: rule, remote: true, usageSource: 'client_reported' }) })
     creditWalletService.apply(payerUserId, -amount, 'agent_usage_charge', { runId, ledgerId: debit.id, note: `Remote Agent service ${runId}` })
-    const credit = billingLedgerRepository.createEntry(event, { accountUserId: providerUserId, accountRole: 'agent_provider', direction: 'credit', entryType: 'agent_income', amount, ruleSnapshot: JSON.stringify({ agentRule: rule, remote: true }) })
+    const credit = billingLedgerRepository.createEntry(event, { accountUserId: providerUserId, accountRole: 'agent_provider', direction: 'credit', entryType: 'agent_income', amount, ruleSnapshot: JSON.stringify({ agentRule: rule, remote: true, usageSource: 'client_reported' }) })
     creditWalletService.apply(providerUserId, amount, 'agent_income', { runId, ledgerId: credit.id, note: `Remote Agent service ${templateId}` })
   }
 }

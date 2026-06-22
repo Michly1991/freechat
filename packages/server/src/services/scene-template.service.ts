@@ -10,7 +10,7 @@ const BUILT_IN_SCENE_KEY = 'agent_management'
 const BUILT_IN_SCENE_NAMES = new Set(['Agent管理', 'Agent 管理'])
 
 function fmtCredit(value: any): string {
-  return Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return Number(value || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 })
 }
 
 function normalizeSceneName(name: string) {

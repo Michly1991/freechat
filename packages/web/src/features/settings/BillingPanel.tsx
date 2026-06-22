@@ -9,7 +9,7 @@ const roles: Array<{ id: Role; label: string; hint: string }> = [
   { id: 'scene_provider', label: '场景收入', hint: '场景被购买收入' },
 ]
 function fmtInt(n: any) { return Number(n || 0).toLocaleString() }
-function fmtCredit(n: any) { return Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
+function fmtCredit(n: any) { return Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 }) }
 function signedCredit(n: any) { const v = Number(n || 0); return `${v >= 0 ? '+' : '-'}${fmtCredit(Math.abs(v))}` }
 function fmtDate(ts: any) { const n = Number(ts || 0); return n ? new Date(n).toLocaleDateString() : '-' }
 function ledgerTypeLabel(type: string) {

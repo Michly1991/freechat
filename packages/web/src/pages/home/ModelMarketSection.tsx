@@ -6,7 +6,7 @@ function Field({ label, hint, children }: any) {
 }
 
 function fmtCredit(n: any) {
-  return Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 })
 }
 
 const inputClass = 'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 placeholder:text-gray-300 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100'
@@ -95,11 +95,11 @@ export function ModelMarketSection() {
       <div className="space-y-3 rounded-xl bg-blue-50/60 p-3">
         <div className="flex items-center justify-between gap-3"><p className="text-sm font-medium text-gray-800">计费规则</p><p className="text-xs text-blue-600">预览：输入 {fmtCredit(form.inputCreditPerMillion)} / 输出 {fmtCredit(form.outputCreditPerMillion)} cr/百万</p></div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <Field label="输入 token" hint="每百万输入 token 收费"><input type="number" step="0.01" value={form.inputCreditPerMillion} onChange={(e) => setForm({ ...form, inputCreditPerMillion: Number(e.target.value) })} className={inputClass} placeholder="输入/百万" /></Field>
-          <Field label="输出 token" hint="每百万输出 token 收费"><input type="number" step="0.01" value={form.outputCreditPerMillion} onChange={(e) => setForm({ ...form, outputCreditPerMillion: Number(e.target.value) })} className={inputClass} placeholder="输出/百万" /></Field>
-          <Field label="Cache 写" hint="每百万缓存写入 token"><input type="number" step="0.01" value={form.cacheWriteCreditPerMillion} onChange={(e) => setForm({ ...form, cacheWriteCreditPerMillion: Number(e.target.value) })} className={inputClass} placeholder="cache 写/百万" /></Field>
-          <Field label="Cache 读" hint="每百万缓存命中读取 token"><input type="number" step="0.01" value={form.cacheReadCreditPerMillion} onChange={(e) => setForm({ ...form, cacheReadCreditPerMillion: Number(e.target.value) })} className={inputClass} placeholder="cache 读/百万" /></Field>
-          <Field label="最低/次" hint="每次调用最低收费，0 表示不设"><input type="number" step="0.01" value={form.minCreditsPerRun} onChange={(e) => setForm({ ...form, minCreditsPerRun: Number(e.target.value) })} className={inputClass} placeholder="最低/次" /></Field>
+          <Field label="输入 token" hint="每百万输入 token 收费"><input type="number" step="0.0001" value={form.inputCreditPerMillion} onChange={(e) => setForm({ ...form, inputCreditPerMillion: Number(e.target.value) })} className={inputClass} placeholder="输入/百万" /></Field>
+          <Field label="输出 token" hint="每百万输出 token 收费"><input type="number" step="0.0001" value={form.outputCreditPerMillion} onChange={(e) => setForm({ ...form, outputCreditPerMillion: Number(e.target.value) })} className={inputClass} placeholder="输出/百万" /></Field>
+          <Field label="Cache 写" hint="每百万缓存写入 token"><input type="number" step="0.0001" value={form.cacheWriteCreditPerMillion} onChange={(e) => setForm({ ...form, cacheWriteCreditPerMillion: Number(e.target.value) })} className={inputClass} placeholder="cache 写/百万" /></Field>
+          <Field label="Cache 读" hint="每百万缓存命中读取 token"><input type="number" step="0.0001" value={form.cacheReadCreditPerMillion} onChange={(e) => setForm({ ...form, cacheReadCreditPerMillion: Number(e.target.value) })} className={inputClass} placeholder="cache 读/百万" /></Field>
+          <Field label="最低/次" hint="每次调用最低收费，0 表示不设"><input type="number" step="0.0001" value={form.minCreditsPerRun} onChange={(e) => setForm({ ...form, minCreditsPerRun: Number(e.target.value) })} className={inputClass} placeholder="最低/次" /></Field>
         </div>
       </div>
 

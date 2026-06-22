@@ -31,8 +31,8 @@ async function handleEvent(agent: AgentCredential, event: RemoteEvent) {
   updateAgent(agent.agentId, { status: 'running', lastSeenAt: Date.now(), lastError: undefined })
   try {
     await runActivity(cfg, agent, event.runId, `accepted by Agent Client ${cfg.clientName}`)
-    const response = await executeEvent(cfg, agent, event)
-    await runComplete(cfg, agent, event.runId, { summary: response.slice(0, 500), output: response })
+    const result = await executeEvent(cfg, agent, event)
+    await runComplete(cfg, agent, event.runId, { summary: result.response.slice(0, 500), output: result.response, usage: result.usage })
     updateAgent(agent.agentId, { status: 'idle', lastSeenAt: Date.now() })
   } catch (err: any) {
     log(`Agent ${agent.agentId} run ${event.runId} failed: ${err?.message || err}`)
