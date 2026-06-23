@@ -5,7 +5,7 @@
 - 文件区目录/文件使用 `Folder`、`FileText`。
 - 房间 Tab 使用 `MessageCircle`、`Folder`、`PanelsTopLeft`、`CheckSquare`。
 
-### Agent 设置独立页面与客户端知识库
+### Agent 设置独立页面与服务端知识库
 
 移动端 Agent 配置不使用弹窗/抽屉，统一进入独立设置页，避免表单、Skills、知识库和发布运行信息挤在联系人列表里：
 
@@ -14,15 +14,15 @@
 - Agent 设置页使用顶部横向 Tab，移动端可横向滚动：`基础 / 能力 / 知识库 / 发布 / 运行`。
   - 基础：名称、描述、专长、system prompt、AGENT.md。
   - 能力：工具权限和 Skills 管理。
-  - 知识库：展示 Agent Client 接管状态与本地知识库边界，不在 FreeChat Server 伪造/保存知识正文。
+  - 知识库：服务端维护 Agent 知识库文件，支持新建、上传、编辑、删除和重建索引。
   - 发布：发布方/收费方、市场状态和后续计费入口。
   - 运行：deployment、接管客户端和在线状态。
-- FreeChat Server 新增 Agent 知识库状态接口，只返回接管状态、客户端信息和“知识库由客户端维护”的说明；Server 不保存知识库正文。
-- Agent Client 本地知识库 MVP：
-  - 本地目录：`<agent workdir 或 ~/.freechat-agent-client/work/{agentId}>/knowledge/`。
-  - 本地 API：`GET /api/local/agents/:id/knowledge`、`POST /api/local/agents/:id/knowledge`、`DELETE /api/local/agents/:id/knowledge/files/:path`、`POST /api/local/agents/:id/knowledge/reindex`。
-  - 客户端控制台 Agent 编辑页支持新增/覆盖文本知识文件、删除文件、重建 `.freechat-knowledge-index.json`。
-  - Agent 运行时写入 `.freechat/KNOWLEDGE.md` 和 `runtime-spec.json.knowledgeDir`，提示 Agent 按需读取本地知识库，不主动把知识库内容复制进聊天。
+- FreeChat Server 是 Agent 知识库主存储：
+  - 表：`agent_knowledge_files` 保存文本/Markdown/JSON/CSV 等知识文件正文与元数据；`agent_knowledge_indexes` 保存索引状态、文件数、总大小和最近索引时间。
+  - API：`GET /api/agents/:id/knowledge`、`POST /api/agents/:id/knowledge/files`、`GET/PATCH/DELETE /api/agents/:id/knowledge/files/:fileId`、`POST /api/agents/:id/knowledge/reindex`。
+  - 权限：可使用 Agent 的用户可以查看知识库摘要/文件；可编辑 Agent 的用户才可增删改和重建索引。
+- Agent Client 不再作为知识库主存储，只在运行前通过连接器凭证调用 `GET /api/remote-agents/knowledge` 同步当前 Agent 的服务端知识库到运行目录 `.freechat/knowledge/`。
+- Agent 运行时写入 `.freechat/KNOWLEDGE.md` 和 `runtime-spec.json.knowledgeDir`，提示 Agent 按需读取本地同步副本，不主动把知识库内容复制进聊天。
 
 ### 设置页分 Tab 信息架构
 

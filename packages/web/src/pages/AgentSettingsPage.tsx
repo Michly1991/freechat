@@ -128,8 +128,86 @@ function CapabilityTab(props: any) {
 }
 
 function KnowledgeTab({ agent, knowledge, refresh, isNew }: any) {
-  return <section className="space-y-4 rounded-2xl border border-gray-100 bg-white p-4 sm:p-5"><div className="flex items-center justify-between gap-3"><div><h2 className="font-semibold text-gray-800">Agent 知识库</h2><p className="text-sm text-gray-500">知识库文件保存在 Agent Client 本地，Agent 运行时可读取。</p></div>{!isNew && <button onClick={refresh} className="rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-600">刷新</button>}</div>{isNew ? <p className="rounded-xl border border-dashed p-4 text-sm text-gray-400">创建并由 Agent Client 接管后可管理知识库。</p> : <div className="grid gap-3 sm:grid-cols-2"><Info label="接管状态" value={knowledge?.managedByClient ? '已接管' : '未接管'} /><Info label="客户端" value={knowledge?.client?.name || '-'} /><Info label="状态" value={knowledge?.client?.status || '-'} /><Info label="最近在线" value={knowledge?.client?.lastSeenAt ? new Date(knowledge.client.lastSeenAt).toLocaleString() : '-'} /></div>}<div className="rounded-2xl bg-blue-50 p-4 text-sm text-blue-700"><p>{knowledge?.knowledge?.message || '请在 Agent Client 控制台管理具体知识库文件。'}</p><p className="mt-2">客户端本地 API：<code>/api/local/agents/{agent?.id || ':agentId'}/knowledge</code></p></div></section>
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [form, setForm] = useState({ path: '', content: '' })
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const canEdit = !!knowledge?.canEdit
+  const files = knowledge?.files || []
+  const summary = knowledge?.summary || {}
+
+  async function startEdit(file: any) {
+    if (!agent?.id) return
+    setBusy(true)
+    try {
+      const data = await api.getAgentKnowledgeFile(agent.id, file.id)
+      setEditingId(file.id)
+      setForm({ path: data.file.path || data.file.name || '', content: data.file.content || '' })
+      setMsg('')
+    } catch (err: any) { setMsg(err.message || '读取文件失败') }
+    finally { setBusy(false) }
+  }
+
+  function startNew() {
+    setEditingId('new')
+    setForm({ path: 'notes.md', content: '# 知识库笔记\n\n' })
+    setMsg('')
+  }
+
+  async function saveFile() {
+    if (!agent?.id || !form.path.trim()) return setMsg('请填写文件路径')
+    setBusy(true)
+    try {
+      if (editingId && editingId !== 'new') await api.updateAgentKnowledgeFile(agent.id, editingId, { path: form.path.trim(), content: form.content })
+      else await api.createAgentKnowledgeFile(agent.id, { path: form.path.trim(), content: form.content })
+      setMsg('知识文件已保存')
+      setEditingId(null)
+      setForm({ path: '', content: '' })
+      await refresh()
+    } catch (err: any) { setMsg(err.message || '保存失败') }
+    finally { setBusy(false) }
+  }
+
+  async function removeFile(file: any) {
+    if (!agent?.id || !window.confirm(`删除知识文件「${file.path}」？`)) return
+    setBusy(true)
+    try { await api.deleteAgentKnowledgeFile(agent.id, file.id); setMsg('知识文件已删除'); await refresh() }
+    catch (err: any) { setMsg(err.message || '删除失败') }
+    finally { setBusy(false) }
+  }
+
+  async function reindex() {
+    if (!agent?.id) return
+    setBusy(true)
+    try { await api.reindexAgentKnowledge(agent.id); setMsg('索引已重建'); await refresh() }
+    catch (err: any) { setMsg(err.message || '重建索引失败') }
+    finally { setBusy(false) }
+  }
+
+  async function uploadTextFile(file?: File | null) {
+    if (!file || !agent?.id) return
+    setBusy(true)
+    try {
+      const content = await file.text()
+      await api.createAgentKnowledgeFile(agent.id, { path: file.name, name: file.name, content, mimeType: file.type || undefined })
+      setMsg('文件已上传')
+      await refresh()
+    } catch (err: any) { setMsg(err.message || '上传失败') }
+    finally { setBusy(false) }
+  }
+
+  return <section className="space-y-4 rounded-2xl border border-gray-100 bg-white p-4 sm:p-5">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-semibold text-gray-800">Agent 知识库</h2><p className="text-sm text-gray-500">知识库由 FreeChat Server 统一维护；Agent Client 运行时同步到本地工作区按需读取。</p></div>{!isNew && <div className="flex flex-wrap gap-2"><button onClick={refresh} disabled={busy} className="rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-600">刷新</button>{canEdit && <button onClick={reindex} disabled={busy} className="rounded-xl bg-blue-50 px-3 py-2 text-sm text-blue-600">重建索引</button>}</div>}</div>
+    {msg && <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700">{msg}</div>}
+    {isNew ? <p className="rounded-xl border border-dashed p-4 text-sm text-gray-400">创建 Agent 后可维护服务端知识库。</p> : <div className="grid gap-3 sm:grid-cols-4"><Info label="文件数" value={summary.fileCount || 0} /><Info label="总大小" value={formatBytes(summary.totalSize || 0)} /><Info label="最近更新" value={summary.lastUpdatedAt ? new Date(summary.lastUpdatedAt).toLocaleString() : '-'} /><Info label="索引状态" value={summary.indexStatus || '-'} /></div>}
+    {!isNew && <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+      <div className="space-y-2 rounded-2xl border border-gray-100 bg-gray-50 p-3"><div className="flex items-center justify-between"><p className="text-sm font-medium text-gray-700">文件列表</p>{canEdit && <button onClick={startNew} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs text-white">新建</button>}</div>{files.length === 0 ? <p className="text-sm text-gray-400">暂无知识文件。</p> : files.map((file: any) => <div key={file.id} className="rounded-xl border bg-white p-3"><button onClick={() => startEdit(file)} className="block w-full text-left text-sm font-medium text-gray-800">{file.path}</button><p className="mt-1 text-xs text-gray-400">{formatBytes(file.size)} · {file.updatedAt ? new Date(file.updatedAt).toLocaleString() : '-'}</p>{canEdit && <button onClick={() => removeFile(file)} className="mt-2 text-xs text-red-500">删除</button>}</div>)}</div>
+      <div className="space-y-3 rounded-2xl border border-gray-100 p-3">{canEdit ? <><div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-medium text-gray-700">{editingId && editingId !== 'new' ? '编辑知识文件' : '新建/上传知识文件'}</p><label className="cursor-pointer rounded-lg bg-emerald-50 px-3 py-1.5 text-xs text-emerald-600">上传文本文件<input type="file" accept=".md,.txt,.json,.csv,text/*" className="hidden" onChange={(e) => uploadTextFile(e.target.files?.[0])} /></label></div><input value={form.path} onChange={(e) => setForm({ ...form, path: e.target.value })} className="w-full rounded-xl border px-3 py-2 text-sm" placeholder="路径，如 docs/product.md" /><textarea value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} rows={14} className="w-full rounded-xl border px-3 py-2 font-mono text-sm" placeholder="Markdown / 文本内容" /><div className="flex justify-end gap-2"><button onClick={() => { setEditingId(null); setForm({ path: '', content: '' }) }} className="rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-600">清空</button><button onClick={saveFile} disabled={busy} className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white disabled:opacity-60">保存文件</button></div></> : <p className="text-sm text-gray-400">你可以查看该 Agent 的知识库摘要，但没有编辑权限。</p>}</div>
+    </div>}
+    <div className="rounded-2xl bg-blue-50 p-4 text-sm text-blue-700"><p>运行时：Agent Client 会从 Server 同步这些知识文件到 <code>.freechat/knowledge/</code>，并写入 <code>.freechat/KNOWLEDGE.md</code>。</p>{knowledge?.client && <p className="mt-2">当前接管客户端：{knowledge.client.name || '-'} · {knowledge.client.status || '-'}</p>}</div>
+  </section>
 }
+function formatBytes(value: number) { const n = Number(value || 0); if (n < 1024) return `${n} B`; if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`; return `${(n / 1024 / 1024).toFixed(1)} MB` }
 function PublishTab({ agent, isNew }: any) { return <section className="space-y-3 rounded-2xl border bg-white p-4 sm:p-5"><h2 className="font-semibold text-gray-800">发布</h2>{isNew ? <p className="text-sm text-gray-400">创建后可上架市场。</p> : <><Info label="发布方/收费方" value={agent?.ownerName || agent?.ownerId || '-'} /><Info label="市场状态" value={agent?.marketListed ? '已上架' : '未上架'} /><p className="text-sm text-gray-500">上架/下架仍可在通讯录 Agent 卡片快捷操作中完成，后续这里会承载计费规则。</p></>}</section> }
 function RuntimeTab({ agent, knowledge, isNew }: any) { return <section className="space-y-3 rounded-2xl border bg-white p-4 sm:p-5"><h2 className="font-semibold text-gray-800">运行</h2>{isNew ? <p className="text-sm text-gray-400">创建并接管后显示运行状态。</p> : <><Info label="执行位置" value={agent?.deployment || 'client'} /><Info label="客户端" value={knowledge?.client?.name || agent?.clientConnectorName || '-'} /><Info label="在线状态" value={knowledge?.client?.status || agent?.clientConnectorStatus || '-'} /><Info label="最近在线" value={(knowledge?.client?.lastSeenAt || agent?.clientLastSeenAt) ? new Date(knowledge?.client?.lastSeenAt || agent?.clientLastSeenAt).toLocaleString() : '-'} /></>}</section> }
 function Info({ label, value }: { label: string; value: any }) { return <div className="rounded-xl border border-gray-100 bg-gray-50 p-3"><p className="text-xs text-gray-400">{label}</p><p className="mt-1 break-words text-sm text-gray-800">{value || '-'}</p></div> }

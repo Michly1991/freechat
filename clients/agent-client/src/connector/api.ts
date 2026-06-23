@@ -67,6 +67,23 @@ export async function pollEvents(cfg: ClientConfig, agent: AgentCredential): Pro
   return data.events || []
 }
 
+export interface AgentKnowledgeFile {
+  id: string
+  name: string
+  path: string
+  mimeType?: string
+  content: string
+  size?: number
+  checksum?: string
+  updatedAt?: number
+}
+
+export interface AgentKnowledgePayload {
+  agentId: string
+  files: AgentKnowledgeFile[]
+  summary: any
+}
+
 export interface RuntimeSpec {
   version: string
   updatedAt: number
@@ -86,6 +103,10 @@ export async function getRuntimeSpec(cfg: ClientConfig, agent: AgentCredential):
   const spec = await request<RuntimeSpec>(cfg.serverUrl, '/api/remote-agents/runtime-spec', {}, agent.accessToken)
   runtimeSpecCache = { spec, fetchedAt: Date.now() }
   return spec
+}
+
+export async function getAgentKnowledge(cfg: ClientConfig, agent: AgentCredential): Promise<AgentKnowledgePayload> {
+  return request<AgentKnowledgePayload>(cfg.serverUrl, '/api/remote-agents/knowledge', {}, agent.accessToken)
 }
 
 export function agentTool(cfg: ClientConfig, agent: AgentCredential, roomId: string, action: string, args: any) {

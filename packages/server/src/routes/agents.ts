@@ -12,6 +12,7 @@ import { agentPackageService } from '../services/agent-package.service.js'
 import db from '../storage/db.js'
 import { agentPackageImportService } from '../services/agent-package-import.service.js'
 import { remoteAgentConnectorService } from '../services/remote-agent-connector.service.js'
+import { registerAgentKnowledgeRoutes } from './agent-knowledge.js'
 
 export async function registerAgentRoutes(app: FastifyInstance) {
   const isRoomCreator = (roomId: string, userId: string) => {
@@ -156,33 +157,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     }
   })
 
-  app.get('/api/agents/:id/knowledge', async (request, reply) => {
-    const user = (request as any).user
-    const { id } = request.params as any
-    await agentService.getAgent(id)
-    const canEdit = await agentService.canEditAgent(id, user)
-    const summary = remoteAgentConnectorService.getConnectorSummary(id)
-    return reply.send({
-      success: true,
-      data: {
-        agentId: id,
-        managedByClient: !!summary.managedByClient,
-        client: summary.managedByClient ? {
-          connectorId: summary.clientConnectorId,
-          name: summary.clientConnectorName,
-          status: summary.clientConnectorStatus,
-          lastSeenAt: summary.clientLastSeenAt,
-        } : null,
-        knowledge: {
-          source: 'agent-client-local',
-          editable: canEdit && !!summary.managedByClient,
-          message: summary.managedByClient
-            ? '知识库由 Agent Client 本地维护；请在接管该 Agent 的客户端控制台管理文件。'
-            : '该 Agent 尚未绑定 Agent Client，暂无客户端知识库。',
-        },
-      },
-    })
-  })
+  registerAgentKnowledgeRoutes(app)
 
   app.get('/api/agents/:id/permissions', async (request, reply) => {
     const user = (request as any).user
