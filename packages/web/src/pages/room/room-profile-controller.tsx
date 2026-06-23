@@ -8,9 +8,16 @@ interface ProfileDeps {
 }
 
 export function createRoomProfileController({ members, roomAgents, setSelectedProfile }: ProfileDeps) {
-  const getActorMember = (msg: Message) => members.find((m) => (m.userId || m.id) === msg.actorId)
+  const getActorMember = (msg: Message) => members.find((m) => {
+    const ids = [m.userId, m.user_id, m.id].filter(Boolean)
+    return ids.includes(msg.actorId) || (!!msg.actorName && getMemberDisplayName(m) === msg.actorName)
+  })
   const getActorAgent = (msg: Message) => roomAgents.find((a) => a.id === msg.actorId || a.name === msg.actorName)
-  const getActorAvatar = (msg: Message) => getActorMember(msg)?.avatar || ''
+  const getActorAvatar = (msg: Message) => {
+    if (msg.actorRole === 'ai') return ''
+    const member = getActorMember(msg)
+    return getMemberAvatar(member) || (msg as any).actorAvatar || (msg as any).avatar || msg.payload?.actorAvatar || msg.payload?.avatar || ''
+  }
 
   const openMemberProfile = (target: any, kind: 'member' | 'agent') => {
     if (kind === 'member') {
