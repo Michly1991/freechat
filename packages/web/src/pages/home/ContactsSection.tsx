@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { Bot, Compass, Cpu, Eye, Heart, Map, MessageCircle, Pencil, Plus, Store, Trash2, Upload, Users } from 'lucide-react'
 import { api } from '../../lib/api'
-import { AGENT_TOOL_KEYS, agentToForm } from '../home-agent-form'
+import { agentToForm } from '../home-agent-form'
 import type { ContactsSectionProps } from './types'
 import { AgentConfigEditor } from '../room/components/AgentConfigEditor'
 import { TemplatePermissionPanel } from '../room/components/TemplatePermissionPanel'
 import { KnowledgePanel } from '../room/components/KnowledgePanel'
+import { AgentEditorDialog } from './AgentEditorDialog'
 
 function IdentityBadge({ identityType }: { identityType?: string }) {
   const isAgent = identityType === 'agent'
@@ -282,33 +283,30 @@ export function AgentContacts({ mode = 'contacts', agents, reloadAgents, showCre
     await reloadAgents()
   }
 
-  const agentEditorPanel = (
-    <div className="p-4 border border-blue-100 bg-blue-50/50 rounded-2xl space-y-3 sm:col-span-2">
-      <div className="text-sm font-semibold text-gray-700">{editingAgentId ? (canEditCurrent ? '编辑 AI' : '查看 AI') : '新建 AI'}</div>
-      <input value={agentForm.name} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500" placeholder="AI 名称，例如：需求分析师" />
-      <input value={agentForm.description} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, description: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500" placeholder="职责描述" />
-      <input value={agentForm.specialties} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, specialties: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500" placeholder="专长，逗号分隔" />
-      <textarea value={agentForm.systemPrompt} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, systemPrompt: e.target.value })} rows={4} className="w-full px-3 py-2 border border-gray-300 rounded text-sm disabled:bg-gray-50 disabled:text-gray-500" placeholder="系统提示词" />
-      <textarea value={agentForm.agentMarkdown} disabled={!canEditCurrent} onChange={(e) => setAgentForm({ ...agentForm, agentMarkdown: e.target.value })} rows={6} className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono disabled:bg-gray-50 disabled:text-gray-500" placeholder="AGENT.md：Agent 介绍、Description、明细、资源/Skill 使用说明（留空则自动生成）" />
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
-        {AGENT_TOOL_KEYS.map((key) => <label key={key} className="flex items-center gap-2 bg-white border border-gray-200 rounded px-3 py-2"><input type="checkbox" disabled={!canEditCurrent} checked={agentForm.tools[key]} onChange={() => toggleAgentTool(key)} />{key}</label>)}
-      </div>
-      {editingAgentId && (
-        <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-3">
-          <div className="flex items-center justify-between"><div><p className="text-sm font-semibold text-gray-700">Skills</p><p className="text-xs text-gray-400">维护这个 AI 的技能说明，运行时会写入 skills/。</p></div>{canEditCurrent && <button onClick={startNewSkill} className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-xs text-blue-600 hover:bg-blue-100">+ 新建 Skill</button>}</div>
-          {skills.length === 0 && editingSkillId !== 'new' && <p className="text-xs text-gray-400 border border-dashed border-gray-200 rounded-lg p-3">暂无 Skill。</p>}
-          <div className="space-y-2">{skills.map((skill) => <div key={skill.id} className="border border-gray-100 rounded-lg p-2"><div className="flex items-center justify-between gap-2"><div className="min-w-0"><p className="text-sm font-medium text-gray-700 truncate">{skill.name}</p>{skill.description && <p className="text-xs text-gray-400 truncate">{skill.description}</p>}</div>{canEditCurrent && <div className="flex gap-2 shrink-0"><button onClick={() => startEditSkill(skill)} className="text-xs text-blue-600">编辑</button><button onClick={() => removeSkill(skill.id)} className="text-xs text-red-500">删除</button></div>}</div></div>)}</div>
-          {editingSkillId && <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 space-y-2"><input value={skillForm.name} onChange={(e) => setSkillForm({ ...skillForm, name: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm" placeholder="Skill 名称" /><input value={skillForm.description} onChange={(e) => setSkillForm({ ...skillForm, description: e.target.value })} className="w-full px-3 py-2 border border-gray-300 rounded text-sm" placeholder="Skill 描述" /><label className="text-xs text-gray-500 flex items-center gap-2"><input type="checkbox" checked={skillForm.enabled} onChange={(e) => setSkillForm({ ...skillForm, enabled: e.target.checked })} />启用</label><textarea value={skillForm.content} onChange={(e) => setSkillForm({ ...skillForm, content: e.target.value })} rows={8} className="w-full px-3 py-2 border border-gray-300 rounded text-xs font-mono" placeholder="SKILL.md 内容" /><div className="flex gap-2 justify-end"><button onClick={() => setEditingSkillId(null)} className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs">取消</button><button onClick={saveSkill} disabled={skillSaving || !skillForm.name.trim()} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs disabled:opacity-60">{skillSaving ? '保存中...' : '保存 Skill'}</button></div></div>}
-        </div>
-      )}
-      <div className="flex gap-2">{canEditCurrent && <button onClick={createAgentFromContacts} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700">{editingAgentId ? '保存修改' : '保存 AI'}</button>}<button onClick={resetAgentEditor} className="bg-gray-100 text-gray-600 px-4 py-2 rounded-lg text-sm hover:bg-gray-200">{canEditCurrent ? '取消' : '关闭'}</button></div>
-    </div>
-  )
-
   return (
     <div className="space-y-4">
       {mode === 'contacts' ? <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="font-semibold text-gray-800">Agent</h3><p className="text-sm text-gray-500 mt-1">管理自己创建或已关注的 Agent；上传 npm tgz 包会校验并直接上架市场。</p></div><div className="flex flex-wrap gap-2"><button onClick={() => showCreateAgent && !editingAgentId ? resetAgentEditor() : openCreateAgent()} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"><Plus className="w-4 h-4" />新增 AI</button><button disabled={packageUploading} onClick={() => packageInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"><Upload className="w-4 h-4" />{packageUploading ? '上传中...' : '上传并上架包'}</button><input ref={packageInputRef} type="file" accept=".tgz,.tar.gz" className="hidden" onChange={(e) => uploadAgentPackage(e.target.files?.[0])} /></div></div> : <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-emerald-800"><p className="font-semibold text-emerald-900">AI 市场</p><p className="mt-0.5">这里用于发现和关注已上架 Agent；新增和编辑请到通讯录。</p></div>}
-      {showCreateAgent && !editingAgentId && mode === 'contacts' && agentEditorPanel}
+      {mode === 'contacts' && <AgentEditorDialog
+        open={showCreateAgent}
+        editingAgentId={editingAgentId}
+        currentAgent={currentAgent}
+        agentForm={agentForm}
+        setAgentForm={setAgentForm}
+        canEdit={canEditCurrent}
+        skills={skills}
+        editingSkillId={editingSkillId}
+        skillForm={skillForm}
+        skillSaving={skillSaving}
+        onClose={resetAgentEditor}
+        onSaveAgent={createAgentFromContacts}
+        onToggleTool={toggleAgentTool}
+        onStartNewSkill={startNewSkill}
+        onStartEditSkill={startEditSkill}
+        onRemoveSkill={removeSkill}
+        onSetEditingSkillId={setEditingSkillId}
+        onSetSkillForm={setSkillForm}
+        onSaveSkill={saveSkill}
+      />}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {agents.length === 0 ? <p className="text-sm text-gray-400">AI市场暂无内容，点击右上角新建一个。</p> : [...agents].sort((a, b) => (a.builtInKey === 'default_assistant' ? -1 : 0) - (b.builtInKey === 'default_assistant' ? -1 : 0)).map((a) => (
           <Fragment key={a.id}>
@@ -327,7 +325,6 @@ export function AgentContacts({ mode = 'contacts', agents, reloadAgents, showCre
               </div>
             </div>
           </div>
-          {showCreateAgent && editingAgentId === a.id && agentEditorPanel}
           </Fragment>
         ))}
       </div>
