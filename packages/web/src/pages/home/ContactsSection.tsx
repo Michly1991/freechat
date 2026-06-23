@@ -1,12 +1,10 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { Bot, Compass, Cpu, Eye, Heart, Map, MessageCircle, Pencil, Plus, Store, Trash2, Upload, Users } from 'lucide-react'
 import { api } from '../../lib/api'
-import { agentToForm } from '../home-agent-form'
 import type { ContactsSectionProps } from './types'
 import { AgentConfigEditor } from '../room/components/AgentConfigEditor'
 import { TemplatePermissionPanel } from '../room/components/TemplatePermissionPanel'
 import { KnowledgePanel } from '../room/components/KnowledgePanel'
-import { AgentEditorDialog } from './AgentEditorDialog'
 
 function IdentityBadge({ identityType }: { identityType?: string }) {
   const isAgent = identityType === 'agent'
@@ -66,7 +64,7 @@ export function ContactsSection(props: ContactsSectionProps) {
         rejectFriendRequest={rejectFriendRequest}
         openDm={openDm}
       />}
-      {contactKind === 'agents' && <AgentContacts agents={agents.filter((a: any) => a.canUse)} reloadAgents={reloadAgents} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} resetAgentEditor={resetAgentEditor} openCreateAgent={openCreateAgent} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} openAgentChat={openAgentChat} />}
+      {contactKind === 'agents' && <AgentContacts agents={agents.filter((a: any) => a.canUse)} reloadAgents={reloadAgents} openCreateAgent={openCreateAgent} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} openAgentChat={openAgentChat} />}
       {contactKind === 'workgroups' && <WorkgroupContacts workgroups={workgroups} reloadWorkgroups={reloadWorkgroups} />}
       {contactKind === 'models' && <ModelContacts />}
       {contactKind === 'scenes' && <SceneContacts scenes={scenes.filter((s: any) => s.canUse)} agents={agents.filter((a: any) => a.canUse)} reloadScenes={reloadScenes} />}
@@ -202,56 +200,12 @@ function ModelContacts() {
 }
 
 type AgentProps = Pick<ContactsSectionProps,
-  'agents' | 'reloadAgents' | 'showCreateAgent' | 'editingAgentId' | 'agentForm' | 'setAgentForm' | 'toggleAgentTool' |
-  'createAgentFromContacts' | 'resetAgentEditor' | 'openCreateAgent' | 'openEditAgent' | 'deleteAgentFromContacts'
+  'agents' | 'reloadAgents' | 'openCreateAgent' | 'openEditAgent' | 'deleteAgentFromContacts'
 > & { mode?: 'contacts' | 'market'; openAgentChat?: (agentId: string) => void }
 
-export function AgentContacts({ mode = 'contacts', agents, reloadAgents, showCreateAgent, editingAgentId, agentForm, setAgentForm, toggleAgentTool, createAgentFromContacts, resetAgentEditor, openCreateAgent, openEditAgent, deleteAgentFromContacts, openAgentChat }: AgentProps) {
-  const [skills, setSkills] = useState<any[]>([])
-  const [editingSkillId, setEditingSkillId] = useState<string | null>(null)
-  const [skillForm, setSkillForm] = useState({ name: '', description: '', content: '', enabled: true })
-  const [skillSaving, setSkillSaving] = useState(false)
+export function AgentContacts({ mode = 'contacts', agents, reloadAgents, openCreateAgent, openEditAgent, deleteAgentFromContacts, openAgentChat }: AgentProps) {
   const [packageUploading, setPackageUploading] = useState(false)
   const packageInputRef = useRef<HTMLInputElement | null>(null)
-
-  useEffect(() => {
-    setEditingSkillId(null)
-    setSkillForm({ name: '', description: '', content: '', enabled: true })
-    if (showCreateAgent && editingAgentId) loadAgentSkills(editingAgentId)
-    else setSkills([])
-  }, [showCreateAgent, editingAgentId])
-
-  const loadAgentSkills = async (agentId: string) => {
-    try { const detail = await api.getAgentDetail(agentId); setSkills(detail.skills || []); if (detail.agent) setAgentForm(agentToForm(detail.agent)) } catch (err) { console.error(err) }
-  }
-
-  const startNewSkill = () => {
-    setEditingSkillId('new')
-    setSkillForm({ name: '', description: '', content: '# 新 Skill\n\n## 适用场景\n\n## 操作步骤\n', enabled: true })
-  }
-
-  const startEditSkill = (skill: any) => {
-    setEditingSkillId(skill.id)
-    setSkillForm({ name: skill.name || '', description: skill.description || '', content: skill.content || '', enabled: skill.enabled !== false })
-  }
-
-  const saveSkill = async () => {
-    if (!editingAgentId || !skillForm.name.trim()) return
-    try {
-      setSkillSaving(true)
-      if (editingSkillId === 'new') await api.createAgentSkill(editingAgentId, { ...skillForm, name: skillForm.name.trim() })
-      else if (editingSkillId) await api.updateAgentSkill(editingAgentId, editingSkillId, { ...skillForm, name: skillForm.name.trim() })
-      setEditingSkillId(null)
-      setSkillForm({ name: '', description: '', content: '', enabled: true })
-      await loadAgentSkills(editingAgentId)
-    } finally { setSkillSaving(false) }
-  }
-
-  const removeSkill = async (skillId: string) => {
-    if (!editingAgentId) return
-    await api.deleteAgentSkill(editingAgentId, skillId)
-    await loadAgentSkills(editingAgentId)
-  }
 
   const toggleFollowAgent = async (agent: any) => {
     if (agent.isOwner) return
@@ -275,9 +229,6 @@ export function AgentContacts({ mode = 'contacts', agents, reloadAgents, showCre
     }
   }
 
-  const currentAgent = editingAgentId ? agents.find((agent) => agent.id === editingAgentId) : null
-  const canEditCurrent = mode === 'contacts' && (!editingAgentId || currentAgent?.canEdit !== false)
-
   const toggleListAgent = async (agent: any) => {
     await api.updateAgent(agent.id, { marketListed: !agent.marketListed })
     await reloadAgents()
@@ -285,28 +236,7 @@ export function AgentContacts({ mode = 'contacts', agents, reloadAgents, showCre
 
   return (
     <div className="space-y-4">
-      {mode === 'contacts' ? <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="font-semibold text-gray-800">Agent</h3><p className="text-sm text-gray-500 mt-1">管理自己创建或已关注的 Agent；上传 npm tgz 包会校验并直接上架市场。</p></div><div className="flex flex-wrap gap-2"><button onClick={() => showCreateAgent && !editingAgentId ? resetAgentEditor() : openCreateAgent()} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"><Plus className="w-4 h-4" />新增 AI</button><button disabled={packageUploading} onClick={() => packageInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"><Upload className="w-4 h-4" />{packageUploading ? '上传中...' : '上传并上架包'}</button><input ref={packageInputRef} type="file" accept=".tgz,.tar.gz" className="hidden" onChange={(e) => uploadAgentPackage(e.target.files?.[0])} /></div></div> : <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-emerald-800"><p className="font-semibold text-emerald-900">AI 市场</p><p className="mt-0.5">这里用于发现和关注已上架 Agent；新增和编辑请到通讯录。</p></div>}
-      {mode === 'contacts' && <AgentEditorDialog
-        open={showCreateAgent}
-        editingAgentId={editingAgentId}
-        currentAgent={currentAgent}
-        agentForm={agentForm}
-        setAgentForm={setAgentForm}
-        canEdit={canEditCurrent}
-        skills={skills}
-        editingSkillId={editingSkillId}
-        skillForm={skillForm}
-        skillSaving={skillSaving}
-        onClose={resetAgentEditor}
-        onSaveAgent={createAgentFromContacts}
-        onToggleTool={toggleAgentTool}
-        onStartNewSkill={startNewSkill}
-        onStartEditSkill={startEditSkill}
-        onRemoveSkill={removeSkill}
-        onSetEditingSkillId={setEditingSkillId}
-        onSetSkillForm={setSkillForm}
-        onSaveSkill={saveSkill}
-      />}
+      {mode === 'contacts' ? <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="font-semibold text-gray-800">Agent</h3><p className="text-sm text-gray-500 mt-1">管理自己创建或已关注的 Agent；上传 npm tgz 包会校验并直接上架市场。</p></div><div className="flex flex-wrap gap-2"><button onClick={openCreateAgent} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"><Plus className="w-4 h-4" />新增 AI</button><button disabled={packageUploading} onClick={() => packageInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"><Upload className="w-4 h-4" />{packageUploading ? '上传中...' : '上传并上架包'}</button><input ref={packageInputRef} type="file" accept=".tgz,.tar.gz" className="hidden" onChange={(e) => uploadAgentPackage(e.target.files?.[0])} /></div></div> : <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-emerald-800"><p className="font-semibold text-emerald-900">AI 市场</p><p className="mt-0.5">这里用于发现和关注已上架 Agent；新增和编辑请到通讯录。</p></div>}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {agents.length === 0 ? <p className="text-sm text-gray-400">AI市场暂无内容，点击右上角新建一个。</p> : [...agents].sort((a, b) => (a.builtInKey === 'default_assistant' ? -1 : 0) - (b.builtInKey === 'default_assistant' ? -1 : 0)).map((a) => (
           <Fragment key={a.id}>

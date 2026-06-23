@@ -258,6 +258,7 @@ export const api = {
     request(`/agents/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteAgent: (id: string) => request(`/agents/${id}`, { method: 'DELETE' }),
   getAgentDetail: (id: string) => request<{ agent: any; skills: any[]; scripts: any[] }>(`/agents/${id}/detail`),
+  getAgentKnowledge: (id: string) => request<{ agentId: string; managedByClient: boolean; client?: any; knowledge?: any }>(`/agents/${id}/knowledge`),
   getAgentPermissions: (id: string) => request<{ canManage: boolean; members: any[]; requests: any[] }>(`/agents/${id}/permissions`),
   grantAgentPermission: (id: string, userId: string, role = 'editor') =>
     request<{ members: any[] }>(`/agents/${id}/permissions`, { method: 'POST', body: JSON.stringify({ userId, role }) }),

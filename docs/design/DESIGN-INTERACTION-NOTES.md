@@ -5,6 +5,25 @@
 - 文件区目录/文件使用 `Folder`、`FileText`。
 - 房间 Tab 使用 `MessageCircle`、`Folder`、`PanelsTopLeft`、`CheckSquare`。
 
+### Agent 设置独立页面与客户端知识库
+
+移动端 Agent 配置不使用弹窗/抽屉，统一进入独立设置页，避免表单、Skills、知识库和发布运行信息挤在联系人列表里：
+
+- Web 新增 `/agents/new` 与 `/agents/:agentId/settings`。
+- 首页通讯录和市场中的 Agent 查看/编辑按钮跳转独立页；新增 AI 跳转 `/agents/new`。
+- Agent 设置页使用顶部横向 Tab，移动端可横向滚动：`基础 / 能力 / 知识库 / 发布 / 运行`。
+  - 基础：名称、描述、专长、system prompt、AGENT.md。
+  - 能力：工具权限和 Skills 管理。
+  - 知识库：展示 Agent Client 接管状态与本地知识库边界，不在 FreeChat Server 伪造/保存知识正文。
+  - 发布：发布方/收费方、市场状态和后续计费入口。
+  - 运行：deployment、接管客户端和在线状态。
+- FreeChat Server 新增 Agent 知识库状态接口，只返回接管状态、客户端信息和“知识库由客户端维护”的说明；Server 不保存知识库正文。
+- Agent Client 本地知识库 MVP：
+  - 本地目录：`<agent workdir 或 ~/.freechat-agent-client/work/{agentId}>/knowledge/`。
+  - 本地 API：`GET /api/local/agents/:id/knowledge`、`POST /api/local/agents/:id/knowledge`、`DELETE /api/local/agents/:id/knowledge/files/:path`、`POST /api/local/agents/:id/knowledge/reindex`。
+  - 客户端控制台 Agent 编辑页支持新增/覆盖文本知识文件、删除文件、重建 `.freechat-knowledge-index.json`。
+  - Agent 运行时写入 `.freechat/KNOWLEDGE.md` 和 `runtime-spec.json.knowledgeDir`，提示 Agent 按需读取本地知识库，不主动把知识库内容复制进聊天。
+
 ### 设置页分 Tab 信息架构
 
 个人设置页和房间设置页都使用顶部横向 Tab，移动端允许横向滚动，避免一个长页面承载所有配置：

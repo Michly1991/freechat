@@ -149,10 +149,39 @@ export async function registerAgentRoutes(app: FastifyInstance) {
       const skills = agentCapabilityService.listSkills(id)
       const scripts = agentCapabilityService.listScripts(id)
       const agentMarkdown = await agentPackageService.readAgentMarkdown(agent).catch(() => '')
-      return reply.send({ success: true, data: { agent: { ...agent, agentMarkdown }, skills, scripts } })
+      const connectorSummary = remoteAgentConnectorService.getConnectorSummary(id)
+      return reply.send({ success: true, data: { agent: { ...agent, ...connectorSummary, agentMarkdown }, skills, scripts } })
     } catch (err: any) {
       throw err
     }
+  })
+
+  app.get('/api/agents/:id/knowledge', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    await agentService.getAgent(id)
+    const canEdit = await agentService.canEditAgent(id, user)
+    const summary = remoteAgentConnectorService.getConnectorSummary(id)
+    return reply.send({
+      success: true,
+      data: {
+        agentId: id,
+        managedByClient: !!summary.managedByClient,
+        client: summary.managedByClient ? {
+          connectorId: summary.clientConnectorId,
+          name: summary.clientConnectorName,
+          status: summary.clientConnectorStatus,
+          lastSeenAt: summary.clientLastSeenAt,
+        } : null,
+        knowledge: {
+          source: 'agent-client-local',
+          editable: canEdit && !!summary.managedByClient,
+          message: summary.managedByClient
+            ? '知识库由 Agent Client 本地维护；请在接管该 Agent 的客户端控制台管理文件。'
+            : '该 Agent 尚未绑定 Agent Client，暂无客户端知识库。',
+        },
+      },
+    })
   })
 
   app.get('/api/agents/:id/permissions', async (request, reply) => {

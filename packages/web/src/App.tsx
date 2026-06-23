@@ -6,6 +6,7 @@ import RoomPage from './pages/RoomPage'
 import RoomSettingsPage from './pages/RoomSettingsPage'
 import SettingsPage from './pages/SettingsPage'
 import DmPage from './pages/DmPage'
+import AgentSettingsPage from './pages/AgentSettingsPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((state) => state.token)
@@ -46,6 +47,22 @@ export default function App() {
           element={
             <PrivateRoute>
               <DmPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/agents/new"
+          element={
+            <PrivateRoute>
+              <AgentSettingsPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/agents/:agentId/settings"
+          element={
+            <PrivateRoute>
+              <AgentSettingsPage />
             </PrivateRoute>
           }
         />

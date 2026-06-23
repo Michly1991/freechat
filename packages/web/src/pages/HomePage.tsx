@@ -179,15 +179,11 @@ export default function HomePage() {
   }
 
   const openCreateAgent = () => {
-    setEditingAgentId(null)
-    setAgentForm(emptyAgentForm())
-    setShowCreateAgent(true)
+    navigate('/agents/new')
   }
 
   const openEditAgent = (agent: any) => {
-    setEditingAgentId(agent.id)
-    setAgentForm(agentToForm(agent))
-    setShowCreateAgent(true)
+    navigate(`/agents/${agent.id}/settings`)
   }
 
   const toggleAgentTool = (key: AgentToolKey) => {

@@ -8,6 +8,7 @@ import { createPairingCode, createServerAgent, getServerMe, listManagedRooms, li
 import { healthSnapshot } from '../health/checks.js'
 import { runtimeState, startWorker, stopWorker } from '../worker/runtime.js'
 import { renderConsoleHtml } from './web.js'
+import { deleteKnowledgeFile, listKnowledge, putKnowledgeFile, reindexKnowledge } from './knowledge.js'
 
 const sessions = new Set<string>()
 
@@ -171,7 +172,18 @@ export function startLocalServer() {
       }
       if (path === '/agents/pair' && req.method === 'POST') { const body = await readBody(req); const agent = await pairAgentRemote(loadConfig(), body.pairingCode, body.name); upsertAgent(agent); json(res, 200, { success: true, data: { ...agent, accessToken: undefined, connectorToken: undefined } }); return }
       const agentKnowledge = path.match(/^\/agents\/([^/]+)\/knowledge$/)
-      if (agentKnowledge && req.method === 'GET') { json(res, 200, { success: true, data: agentKnowledgeSummary(decodeURIComponent(agentKnowledge[1])) }); return }
+      if (agentKnowledge && req.method === 'GET') {
+        const agentId = decodeURIComponent(agentKnowledge[1])
+        json(res, 200, { success: true, data: { ...agentKnowledgeSummary(agentId), knowledge: listKnowledge(agentId) } }); return
+      }
+      if (agentKnowledge && req.method === 'POST') {
+        const body = await readBody(req); const agentId = decodeURIComponent(agentKnowledge[1])
+        json(res, 200, { success: true, data: putKnowledgeFile(agentId, body.name, body.content || '', body.encoding || 'utf8') }); return
+      }
+      const agentKnowledgeReindex = path.match(/^\/agents\/([^/]+)\/knowledge\/reindex$/)
+      if (agentKnowledgeReindex && req.method === 'POST') { json(res, 200, { success: true, data: reindexKnowledge(decodeURIComponent(agentKnowledgeReindex[1])) }); return }
+      const agentKnowledgeFile = path.match(/^\/agents\/([^/]+)\/knowledge\/files\/(.+)$/)
+      if (agentKnowledgeFile && req.method === 'DELETE') { json(res, 200, { success: true, data: deleteKnowledgeFile(decodeURIComponent(agentKnowledgeFile[1]), decodeURIComponent(agentKnowledgeFile[2])) }); return }
       const agentPatch = path.match(/^\/agents\/([^/]+)$/)
       if (agentPatch && req.method === 'PATCH') { const body = await readBody(req); const agent = updateAgent(decodeURIComponent(agentPatch[1]), body); json(res, 200, { success: true, data: { ...agent, accessToken: undefined, connectorToken: undefined } }); return }
       if (agentPatch && req.method === 'DELETE') { removeAgent(decodeURIComponent(agentPatch[1])); json(res, 200, { success: true }); return }
