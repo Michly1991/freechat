@@ -35,15 +35,15 @@ const mobileTabs = [
 
 export function MobileNav({ activeHomeTab, setActiveHomeTab }: MobileNavProps) {
   return (
-    <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 safe-area-inset-bottom">
-      <div className="grid grid-cols-5 h-16">
+    <nav className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_rgba(15,23,42,0.06)]">
+      <div className="grid min-h-[64px] grid-cols-5 px-1 py-1">
         {mobileTabs.map(({ key, label, Icon }) => (
           <button
             key={key}
             onClick={() => setActiveHomeTab(key)}
-            className={`flex flex-col items-center justify-center gap-0.5 text-xs ${activeHomeTab === key ? 'text-blue-600' : 'text-gray-500'}`}
+            className={`fc-pressable flex min-h-14 flex-col items-center justify-center gap-0.5 rounded-2xl text-xs ${activeHomeTab === key ? 'bg-blue-50 text-blue-600 shadow-sm' : 'text-gray-500'}`}
           >
-            <Icon className="w-5 h-5" />
+            <span className={`flex h-7 w-10 items-center justify-center rounded-full ${activeHomeTab === key ? 'bg-white' : ''}`}><Icon className="w-5 h-5" /></span>
             <span>{label}</span>
           </button>
         ))}

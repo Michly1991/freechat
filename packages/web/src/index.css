@@ -132,6 +132,14 @@ body {
   background: rgba(255, 255, 255, 0.92);
 }
 
+.fc-scrollbar-hide {
+  scrollbar-width: none;
+}
+
+.fc-scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 @media (max-width: 640px) {
   .fc-mobile-card {
     border-radius: 1rem;
