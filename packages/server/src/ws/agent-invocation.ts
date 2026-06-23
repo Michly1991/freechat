@@ -122,34 +122,36 @@ export class AgentInvocationHandler {
 
   async maybeAutoInvokeAssistant(roomId: string, actorName: string, content: string, mentions: any[] = [], actorUserId?: string) {
     if (!this.isCreatorCommand(roomId, actorUserId)) return
-    const room = db.prepare('SELECT room_kind FROM rooms WHERE id = ?').get(roomId) as any
+    const room = db.prepare('SELECT room_kind, workgroup_entry_id FROM rooms WHERE id = ?').get(roomId) as any
     const isDirectAgentRoom = room?.room_kind === 'direct_agent'
-    if (!isDirectAgentRoom && await this.maybeHandleAssistantHandoffCommand(roomId, content, actorUserId)) return
+    const isEntryAgentRoom = room?.room_kind === 'entry' || !!room?.workgroup_entry_id
+    const isPrivateAgentRoom = isDirectAgentRoom || isEntryAgentRoom
+    if (!isPrivateAgentRoom && await this.maybeHandleAssistantHandoffCommand(roomId, content, actorUserId)) return
     const pendingInteractions = interactionService.list(roomId, { status: 'pending' }).slice(0, 5)
     const pendingReplyText = pendingInteractions.length > 0 && /^(确认|可以|同意|开始|继续|取消|不要|不用|否|好|好的|ok|OK|yes|no)[。.!！?？]*$/.test(String(content || '').trim())
-    if (!isDirectAgentRoom && !shouldConsiderAssistantAutoReply(content, { hasPendingInteraction: pendingInteractions.length > 0 })) return
+    if (!isPrivateAgentRoom && !shouldConsiderAssistantAutoReply(content, { hasPendingInteraction: pendingInteractions.length > 0 })) return
 
     const now = Date.now()
     const last = this.assistantAutoReplyCooldowns.get(roomId) || 0
     const cooldownMs = 30_000
-    if (!isDirectAgentRoom && !pendingReplyText && now - last < cooldownMs) return
+    if (!isPrivateAgentRoom && !pendingReplyText && now - last < cooldownMs) return
 
     const assistant = await agentService.getAutoAgent(roomId)
     if (!assistant) return
 
-    if (!isDirectAgentRoom) this.assistantAutoReplyCooldowns.set(roomId, now)
+    if (!isPrivateAgentRoom) this.assistantAutoReplyCooldowns.set(roomId, now)
 
     if (await this.maybeCreateObviousExpertTaskPlan(roomId, assistant, content)) return
 
-    const recentMessages = await messageService.getMessages(roomId, isDirectAgentRoom ? 6 : 12)
+    const recentMessages = await messageService.getMessages(roomId, isPrivateAgentRoom ? 6 : 12)
     const context = recentMessages
       .filter((m: any) => m.kind !== 'agent_receipt')
-      .slice(isDirectAgentRoom ? -4 : -10)
+      .slice(isPrivateAgentRoom ? -4 : -10)
       .map((m) => `${m.actorRole === 'ai' ? 'AI' : '用户'} ${m.actorName}: ${m.content}`)
       .join('\n')
 
     const contentWithFiles = `${content}${mentions.length > 0 ? await fileMentionContextService.build(roomId, mentions) : ''}`
-    const decision = !isDirectAgentRoom && pendingInteractions.length === 0 ? await longTaskService.decideWithAgent(roomId, assistant, contentWithFiles, context, actorUserId) : { mode: 'chat' as const }
+    const decision = !isPrivateAgentRoom && pendingInteractions.length === 0 ? await longTaskService.decideWithAgent(roomId, assistant, contentWithFiles, context, actorUserId) : { mode: 'chat' as const }
     if (decision.mode === 'long_task') {
       const plan = await longTaskService.createPlan(roomId, actorUserId, assistant, contentWithFiles, context, decision)
       const responseMsg = await messageService.createMessage(roomId, assistant.id, assistant.name, 'ai', plan.summaryMessage)
@@ -161,7 +163,7 @@ export class AgentInvocationHandler {
       return
     }
 
-    const prompt = isDirectAgentRoom
+    const prompt = isPrivateAgentRoom
       ? [
           '你正在和用户一对一私聊。直接回答用户最新消息，不需要判断是否介入，不要输出 [SILENT]，不要分派其他 Agent。',
           context ? `最近对话：\n${context}` : '',

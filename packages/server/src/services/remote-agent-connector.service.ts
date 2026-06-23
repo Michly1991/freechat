@@ -216,7 +216,21 @@ export class RemoteAgentConnectorService {
   enqueueRun(roomId: string, agentId: string, input: string, context: EnqueueContext = {}) {
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as any
     if (!agent) throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found' }
-    const room = db.prepare('SELECT created_by FROM rooms WHERE id = ?').get(roomId) as any
+    const room = db.prepare('SELECT created_by, room_kind, workgroup_entry_id FROM rooms WHERE id = ?').get(roomId) as any
+    const preflight = billingService.checkRoomAgentInvocation(roomId, agentId)
+    if (!preflight.allowed) {
+      const isSharedEntry = room?.room_kind === 'entry' || !!room?.workgroup_entry_id
+      throw {
+        code: 'INSUFFICIENT_CREDITS',
+        message: isSharedEntry
+          ? `余额不足，无法使用分享入口 Agent。本次会话费用由你承担，请先充值 credit 后再继续。`
+          : `余额不足，无法启动 Agent。预计至少需要 ${preflight.estimatedMinCredits} credit，当前余额 ${preflight.balance} credit。`,
+        payerUserId: preflight.payerUserId,
+        estimatedMinCredits: preflight.estimatedMinCredits,
+        balance: preflight.balance,
+      }
+    }
+    const payerUserId = room?.created_by || context.actorUserId || agent.owner_id || null
     const now = Date.now()
     const runId = `arun_${uuidv4()}`
     const eventId = `raevt_${uuidv4()}`
@@ -224,7 +238,7 @@ export class RemoteAgentConnectorService {
     db.prepare(`
       INSERT INTO agent_runs (id, room_id, agent_id, status, input, actor_user_id, payer_user_id, run_source, task_id, subtask_id, parent_run_id, resume_attempt, runtime, started_at)
       VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, 'remote-claude-code', ?)
-    `).run(runId, roomId, agentId, input, context.actorUserId || null, room?.created_by || context.actorUserId || agent.owner_id || null, context.runSource || eventType, context.taskId || null, context.subtaskId || null, context.parentRunId || null, context.resumeAttempt || 0, now)
+    `).run(runId, roomId, agentId, input, context.actorUserId || null, payerUserId, context.runSource || eventType, context.taskId || null, context.subtaskId || null, context.parentRunId || null, context.resumeAttempt || 0, now)
     db.prepare(`
       INSERT INTO remote_agent_events (id, run_id, room_id, agent_id, type, payload_json, status, created_at)
       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
