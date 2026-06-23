@@ -296,6 +296,8 @@ export class WorkgroupService {
     if (input.description !== undefined) { updates.push('description = ?'); values.push(input.description || null) }
     if (input.welcomeMessage !== undefined) { updates.push('welcome_message = ?'); values.push(input.welcomeMessage || null) }
     if (input.enabled !== undefined) { updates.push('enabled = ?'); values.push(input.enabled ? 1 : 0) }
+    if (input.maxUses !== undefined) { updates.push('max_uses = ?'); values.push(input.maxUses ? Number(input.maxUses) : null) }
+    if (input.expiresAt !== undefined) { updates.push('expires_at = ?'); values.push(input.expiresAt ? Number(input.expiresAt) : null) }
     if (input.agentId !== undefined) { const agent = this.resolveAgent(workgroupId, input.agentId); updates.push('agent_id = ?'); values.push(agent.id) }
     if (!updates.length) return publicEntry(db.prepare('SELECT e.*, a.name agent_name FROM workgroup_entries e JOIN agents a ON a.id = e.agent_id WHERE e.id = ?').get(entryId) as any)
     updates.push('updated_at = ?'); values.push(now(), entryId, workgroupId)
@@ -329,6 +331,7 @@ export class WorkgroupService {
     db.prepare('INSERT OR IGNORE INTO workgroup_members (workgroup_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)').run(entry.workgroupId, userId, 'member', now())
     const room = await roomService.createRoom(entry.title, entry.description || null, userId, [], [{ agentId: entry.agentId, roomRole: 'assistant', autoEnabled: true, priority: 0 }], { roomKind: 'entry', workgroupId: entry.workgroupId, workgroupEntryId: entry.id, syncInitialMembersToWorkgroup: false })
     db.prepare('UPDATE workgroup_entries SET used_count = COALESCE(used_count, 0) + 1, updated_at = ? WHERE id = ?').run(now(), entry.id)
+    await messageService.createMessage(room.id, 'system', '系统', 'ai', `你正在通过「${entry.title}」分享入口使用「${entry.agentName || 'Agent'}」。本会话为你的独立对话，费用由你自己承担（包含可能产生的模型费和 Agent 服务费）。`, undefined, undefined, 'system_notice', { reason: 'workgroup_entry_joined', entryId: entry.id, agentId: entry.agentId, payerUserId: userId })
     if (entry.welcomeMessage) await messageService.createMessage(room.id, entry.agentId, entry.agentName || 'Agent', 'ai', entry.welcomeMessage, undefined, undefined, 'text')
     return { entry, room }
   }
