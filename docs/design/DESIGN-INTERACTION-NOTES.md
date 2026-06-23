@@ -5,6 +5,17 @@
 - 文件区目录/文件使用 `Folder`、`FileText`。
 - 房间 Tab 使用 `MessageCircle`、`Folder`、`PanelsTopLeft`、`CheckSquare`。
 
+### 工作组 Agent 管理与分享入口
+
+工作组不只是展示资源池，还需要可管理 Agent 和对外分享入口：
+
+- 工作组管理员（owner/admin）可以添加、移出工作组 Agent，并修改 Agent 在工作组内的角色：`member / assistant / expert / operator`。
+- 工作组管理员可以调整成员角色或移出成员；不允许移除/降级最后一个 owner。
+- 后端补齐接口：`GET /api/workgroups/:id/available-agents`、`PATCH/DELETE /api/workgroups/:id/agents/:agentId`、`PATCH/DELETE /api/workgroups/:id/members/:userId`。
+- 工作组分享入口基于 `workgroup_entries`：每个入口绑定一个接待 Agent，生成 `/workgroup-entry/:token` 链接。
+- 分享入口第一版要求用户登录后使用；点击“开始对话”后创建 `room_kind='entry'` 的工作组房间，自动加入当前用户和入口绑定 Agent，Agent 可发送入口欢迎语。
+- Web 通讯录工作组详情展示人员、Agent、分享入口和房间；入口支持创建、停用/启用、删除和复制链接。
+
 ### Agent 设置独立页面与服务端知识库
 
 移动端 Agent 配置不使用弹窗/抽屉，统一进入独立设置页，避免表单、Skills、知识库和发布运行信息挤在联系人列表里：

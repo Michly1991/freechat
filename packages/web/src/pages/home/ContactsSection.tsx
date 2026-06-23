@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { Bot, Compass, Cpu, Eye, Heart, Map, MessageCircle, Pencil, Plus, Store, Trash2, Upload, Users } from 'lucide-react'
+import { Bot, Compass, Cpu, Eye, Heart, Map, MessageCircle, Pencil, Plus, Store, Trash2, Upload } from 'lucide-react'
 import { api } from '../../lib/api'
 import type { ContactsSectionProps } from './types'
 import { AgentConfigEditor } from '../room/components/AgentConfigEditor'
 import { TemplatePermissionPanel } from '../room/components/TemplatePermissionPanel'
 import { KnowledgePanel } from '../room/components/KnowledgePanel'
+import { WorkgroupContacts } from './WorkgroupContacts'
 
 function IdentityBadge({ identityType }: { identityType?: string }) {
   const isAgent = identityType === 'agent'
@@ -143,33 +144,6 @@ function PeopleContacts({ searchQ, setSearchQ, searchResults, friends, friendReq
       </div>
     </div>
   )
-}
-
-function WorkgroupContacts({ workgroups, reloadWorkgroups }: { workgroups: any[]; reloadWorkgroups: () => void }) {
-  const [creating, setCreating] = useState(false)
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [detail, setDetail] = useState<any>(null)
-  const loadDetail = async (id: string) => { setSelectedId(id); setDetail(await api.getWorkgroup(id)) }
-  const create = async () => {
-    if (!name.trim()) return
-    const data = await api.createWorkgroup({ name: name.trim(), description })
-    setName(''); setDescription(''); setCreating(false); await reloadWorkgroups(); setDetail(data); setSelectedId(data.workgroup?.id || null)
-  }
-  const list = detail?.workgroup ? detail : null
-  return <div className="space-y-4">
-    <ContactCreateHeader title="工作组" description="把人员和 Agent 组织成可复用资源池，房间归属工作组后，房间助理可从资源池创建协作会话。" buttonLabel="新建工作组" onCreate={() => setCreating(!creating)} />
-    {creating && <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 space-y-2"><input value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="工作组名称" /><textarea value={description} onChange={(e) => setDescription(e.target.value)} className="w-full rounded-lg border px-3 py-2 text-sm" placeholder="描述（可选）" rows={2} /><div className="flex justify-end gap-2"><button onClick={() => setCreating(false)} className="rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-600">取消</button><button onClick={create} className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">创建</button></div></div>}
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      {workgroups.length === 0 ? <p className="text-sm text-gray-400">暂无工作组。</p> : workgroups.map((wg) => <button key={wg.id} onClick={() => loadDetail(wg.id)} className={`fc-pressable min-h-[96px] rounded-xl border p-3 text-left shadow-sm transition ${selectedId === wg.id ? 'border-blue-200 bg-blue-50/60' : 'border-gray-100 bg-white hover:border-blue-100 hover:bg-blue-50/30'}`}><div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600"><Users className="h-5 w-5" /></span><div className="min-w-0"><p className="truncate text-sm font-semibold text-gray-800">{wg.name}</p><p className="mt-1 text-xs text-gray-500">成员 {wg.member_count || 0} · Agent {wg.agent_count || 0} · 房间 {wg.room_count || 0}</p><p className="mt-1 text-xs text-gray-400">{wg.current_user_role || 'member'}{wg.canManage ? ' · 可管理' : ''}</p><p className="mt-2 text-xs font-medium text-blue-500">进入详情</p></div></div></button>)}
-    </div>
-    {list && <div className="rounded-xl border border-gray-100 bg-white p-4"><h3 className="font-semibold text-gray-800">{list.workgroup.name}</h3><p className="mt-1 text-sm text-gray-500">{list.workgroup.description || '暂无描述'}</p><div className="mt-3 grid gap-3 sm:grid-cols-3"><MiniList title="人员" items={(list.members || []).map((m: any) => m.nickname || m.username)} /><MiniList title="Agent" items={(list.agents || []).map((a: any) => a.name)} /><MiniList title="房间" items={(list.rooms || []).map((r: any) => r.name)} /></div></div>}
-  </div>
-}
-
-function MiniList({ title, items }: { title: string; items: string[] }) {
-  return <div className="rounded-xl border border-gray-100 bg-gray-50 p-3"><p className="mb-2 text-xs font-medium text-gray-500">{title}</p><div className="max-h-36 overflow-y-auto text-sm text-gray-600">{items.length ? items.map((item, index) => <p key={`${item}-${index}`} className="truncate rounded-lg px-2 py-1.5 active:bg-white">{item}</p>) : <p className="text-gray-400">暂无</p>}</div></div>
 }
 
 function ModelContacts() {

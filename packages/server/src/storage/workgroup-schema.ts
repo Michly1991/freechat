@@ -44,7 +44,12 @@ export function ensureWorkgroupSchema(db: Database.Database) {
       description TEXT,
       access_mode TEXT NOT NULL DEFAULT 'private_link',
       token_hash TEXT,
+      token TEXT,
       enabled INTEGER NOT NULL DEFAULT 1,
+      welcome_message TEXT,
+      max_uses INTEGER,
+      used_count INTEGER DEFAULT 0,
+      expires_at INTEGER,
       created_by TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
@@ -57,6 +62,14 @@ export function ensureWorkgroupSchema(db: Database.Database) {
   if (!roomCols.some((col) => col.name === 'workgroup_entry_id')) db.exec('ALTER TABLE rooms ADD COLUMN workgroup_entry_id TEXT')
   if (!roomCols.some((col) => col.name === 'source_room_id')) db.exec('ALTER TABLE rooms ADD COLUMN source_room_id TEXT')
   db.exec('CREATE INDEX IF NOT EXISTS idx_rooms_workgroup ON rooms(workgroup_id, last_active_at)')
+  const entryCols = db.prepare('PRAGMA table_info(workgroup_entries)').all() as any[]
+  if (!entryCols.some((col) => col.name === 'token')) db.exec('ALTER TABLE workgroup_entries ADD COLUMN token TEXT')
+  if (!entryCols.some((col) => col.name === 'welcome_message')) db.exec('ALTER TABLE workgroup_entries ADD COLUMN welcome_message TEXT')
+  if (!entryCols.some((col) => col.name === 'max_uses')) db.exec('ALTER TABLE workgroup_entries ADD COLUMN max_uses INTEGER')
+  if (!entryCols.some((col) => col.name === 'used_count')) db.exec('ALTER TABLE workgroup_entries ADD COLUMN used_count INTEGER DEFAULT 0')
+  if (!entryCols.some((col) => col.name === 'expires_at')) db.exec('ALTER TABLE workgroup_entries ADD COLUMN expires_at INTEGER')
   db.exec('CREATE INDEX IF NOT EXISTS idx_workgroup_members_user ON workgroup_members(user_id)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_workgroup_agents_agent ON workgroup_agents(agent_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workgroup_entries_workgroup ON workgroup_entries(workgroup_id, enabled)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workgroup_entries_token ON workgroup_entries(token_hash)')
 }
