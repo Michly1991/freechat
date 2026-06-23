@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Copy, FileText, Image as ImageIcon, Paperclip, X } from 'lucide-react'
+import { Check, Copy, FileText, Image as ImageIcon, Paperclip, Send, X } from 'lucide-react'
 import { VoicePlaybackButton } from '../../../features/voice/VoicePlaybackButton'
 import { VoiceConversationButton } from '../../../features/voice/VoiceConversationButton'
 import type { FileNode, Message } from '../../room-page-model'
@@ -220,7 +220,7 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
           <label className="fc-pressable fc-mobile-touch inline-flex min-w-11 cursor-pointer items-center justify-center rounded-xl px-2.5 py-2 text-gray-500 hover:bg-white hover:text-blue-600" title="上传图片/文件"><Paperclip className="h-5 w-5" /><input type="file" multiple className="hidden" onChange={(e) => { onAddAttachments?.(e.target.files); e.currentTarget.value = '' }} /></label>
           <textarea ref={inputRef} value={input} onChange={handleInputChange} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) sendMessage(e) }} rows={1} placeholder="输入消息，@成员..." className="min-w-0 flex-1 max-h-32 resize-none bg-transparent px-3 py-2.5 text-base sm:text-sm border-0 rounded-xl focus:ring-0 focus:outline-none overflow-y-auto leading-6" />
           {voiceAvailable && onVoiceTranscript && onVoiceEnable && onVoiceDisable && <VoiceConversationButton roomId={roomId} enabled={voiceChatEnabled} busy={voiceBusy} status={voiceStatus} onEnable={onVoiceEnable} onDisable={onVoiceDisable} onTranscript={onVoiceTranscript} onRecordingChange={onVoiceRecordingChange} onBusyChange={onVoiceBusyChange} />}
-          {!voiceChatEnabled && <button type="submit" disabled={!input.trim() && pendingAttachments.length === 0} className="fc-pressable fc-mobile-touch min-w-11 bg-blue-600 text-white px-3 sm:px-6 py-2 rounded-xl hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed shadow-sm shadow-blue-500/20"><span className="sm:hidden">{input.trim() || pendingAttachments.length > 0 ? '发' : '发'}</span><span className="hidden sm:inline">发送</span></button>}
+          {!voiceChatEnabled && <button type="submit" disabled={!input.trim() && pendingAttachments.length === 0} className="fc-pressable fc-mobile-touch inline-flex min-w-11 items-center justify-center gap-1.5 bg-blue-600 text-white px-3 sm:px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed shadow-sm shadow-blue-500/20" title="发送"><Send className="h-5 w-5" /><span className="hidden sm:inline">发送</span></button>}
         </div>
       </form>
     </div>
