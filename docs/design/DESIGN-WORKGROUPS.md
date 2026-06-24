@@ -174,3 +174,12 @@ CLI：
 - 系统记录 `view` 与 `join` 事件，并在专属链接上维护 `visit_count / join_count / last_used_at`。
 - 入口会话创建后，房间记录 `workgroup_entry_share_link_id` 与 `workgroup_entry_sharer_user_id`，后续可按分享者统计入口访问、会话数、token、Credit 消耗和转化效果。
 - 普通成员只能复制自己的专属链接；管理员可继续管理入口配置。
+
+## 分享入口分析报表
+
+工作组详情的分享入口卡片提供“分析报表”按钮：
+
+- 普通成员查看自己的专属链接数据：访问数、使用数、创建房间数、token、Credit。
+- owner/admin 查看该入口下所有成员专属链接的汇总与明细。
+- 报表聚合来源：`workgroup_entry_share_links`、`workgroup_entry_share_events`、入口房间上的 `workgroup_entry_share_link_id`、以及按房间关联的 `billing_ledger_entries`。
+- 报表第一版在入口卡片内展开，后续可独立成分析页面并增加时间范围、转化漏斗、Agent/模型维度。

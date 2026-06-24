@@ -93,6 +93,7 @@ export const api = {
   updateWorkgroupAgent: (id: string, agentId: string, body: any) => request<any>(`/workgroups/${id}/agents/${agentId}`, { method: 'PATCH', body: JSON.stringify(body) }),
   removeWorkgroupAgent: (id: string, agentId: string) => request<any>(`/workgroups/${id}/agents/${agentId}`, { method: 'DELETE' }),
   getWorkgroupEntries: (id: string) => request<{ entries: any[] }>(`/workgroups/${id}/entries`),
+  getWorkgroupEntryAnalytics: (id: string, entryId: string) => request<any>(`/workgroups/${id}/entries/${entryId}/analytics`),
   createWorkgroupEntry: (id: string, body: any) => request<{ entry: any }>(`/workgroups/${id}/entries`, { method: 'POST', body: JSON.stringify(body) }),
   updateWorkgroupEntry: (id: string, entryId: string, body: any) => request<{ entry: any }>(`/workgroups/${id}/entries/${entryId}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteWorkgroupEntry: (id: string, entryId: string) => request<{ entries: any[] }>(`/workgroups/${id}/entries/${entryId}`, { method: 'DELETE' }),

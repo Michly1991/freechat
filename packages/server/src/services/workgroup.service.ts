@@ -310,6 +310,62 @@ export class WorkgroupService {
     `).get(id) as any)
   }
 
+
+
+  getEntryAnalytics(workgroupId: string, entryId: string, userId: string) {
+    const membership = this.assertUserInWorkgroup(workgroupId, userId)
+    const canManage = ['owner', 'admin'].includes(membership.role)
+    const entry = db.prepare(`
+      SELECT e.*, a.name agent_name
+      FROM workgroup_entries e
+      JOIN agents a ON a.id = e.agent_id
+      WHERE e.workgroup_id = ? AND e.id = ?
+    `).get(workgroupId, entryId) as any
+    if (!entry) throw { code: 'ENTRY_NOT_FOUND', message: 'Workgroup entry not found' }
+    const params: any[] = [entryId]
+    const scopeSql = canManage ? '' : 'AND sl.sharer_user_id = ?'
+    if (!canManage) params.push(userId)
+    const links = db.prepare(`
+      SELECT sl.*, COALESCE(u.nickname, u.username) sharer_name,
+        COUNT(DISTINCT CASE WHEN ev.event_type = 'view' THEN ev.id END) event_visit_count,
+        COUNT(DISTINCT CASE WHEN ev.event_type = 'join' THEN ev.id END) event_join_count,
+        COUNT(DISTINCT r.id) room_count,
+        COALESCE(SUM(ble.amount), 0) credits,
+        COALESCE(SUM(CAST(json_extract(ble.token_snapshot_json, '$.totalTokens') AS INTEGER)), 0) total_tokens,
+        COALESCE(SUM(CAST(json_extract(ble.token_snapshot_json, '$.inputTokens') AS INTEGER)), 0) input_tokens,
+        COALESCE(SUM(CAST(json_extract(ble.token_snapshot_json, '$.outputTokens') AS INTEGER)), 0) output_tokens
+      FROM workgroup_entry_share_links sl
+      JOIN users u ON u.id = sl.sharer_user_id
+      LEFT JOIN workgroup_entry_share_events ev ON ev.share_link_id = sl.id
+      LEFT JOIN rooms r ON r.workgroup_entry_share_link_id = sl.id AND r.deleted_at IS NULL
+      LEFT JOIN billing_ledger_entries ble ON ble.room_id = r.id AND ble.account_role = 'payer'
+      WHERE sl.entry_id = ? ${scopeSql}
+      GROUP BY sl.id
+      ORDER BY sl.join_count DESC, sl.visit_count DESC, sl.created_at DESC
+    `).all(...params) as any[]
+    const normalized = links.map((row: any) => ({
+      ...publicShareLink(row),
+      eventVisitCount: row.event_visit_count || 0,
+      eventJoinCount: row.event_join_count || 0,
+      roomCount: row.room_count || 0,
+      credits: row.credits || 0,
+      totalTokens: row.total_tokens || 0,
+      inputTokens: row.input_tokens || 0,
+      outputTokens: row.output_tokens || 0,
+    }))
+    const summary = normalized.reduce((acc: any, row: any) => {
+      acc.visitCount += row.visitCount || 0
+      acc.joinCount += row.joinCount || 0
+      acc.roomCount += row.roomCount || 0
+      acc.credits += row.credits || 0
+      acc.totalTokens += row.totalTokens || 0
+      acc.inputTokens += row.inputTokens || 0
+      acc.outputTokens += row.outputTokens || 0
+      return acc
+    }, { visitCount: 0, joinCount: 0, roomCount: 0, credits: 0, totalTokens: 0, inputTokens: 0, outputTokens: 0 })
+    return { entry: publicEntry(entry), scope: canManage ? 'workgroup' : 'self', summary, links: normalized }
+  }
+
   createEntry(workgroupId: string, userId: string, input: any) {
     this.assertCanManage(workgroupId, userId)
     const agent = this.resolveAgent(workgroupId, input.agentId || input.agent || input.id)

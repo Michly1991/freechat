@@ -130,6 +130,13 @@ export async function registerWorkgroupRoutes(app: FastifyInstance) {
     } catch (err: any) { return routeError(reply, err) }
   })
 
+  app.get('/api/workgroups/:id/entries/:entryId/analytics', async (request, reply) => {
+    const user = (request as any).user
+    const { id, entryId } = request.params as any
+    try { return reply.send({ success: true, data: workgroupService.getEntryAnalytics(id, entryId, user.id) }) }
+    catch (err: any) { return routeError(reply, err) }
+  })
+
   app.post('/api/workgroups/:id/entries', async (request, reply) => {
     const user = (request as any).user
     const { id } = request.params as any
@@ -149,7 +156,7 @@ export async function registerWorkgroupRoutes(app: FastifyInstance) {
     const { id, entryId } = request.params as any
     try {
       workgroupService.deleteEntry(id, entryId, user.id)
-      return reply.send({ success: true, data: { entries: workgroupService.listEntries(id) } })
+      return reply.send({ success: true, data: { entries: workgroupService.listEntries(id, user.id) } })
     } catch (err: any) { return routeError(reply, err) }
   })
 }
