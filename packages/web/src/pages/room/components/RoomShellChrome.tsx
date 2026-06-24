@@ -1,4 +1,4 @@
-import { Folder, ListTodo, MessageCircle, PanelsTopLeft, Settings, Users } from 'lucide-react'
+import { CreditCard, Folder, ListTodo, MessageCircle, PanelsTopLeft, Settings, Users } from 'lucide-react'
 import type { Panel } from '../../room-page-model'
 import { getAgentStatusDotClass, getAgentStatusLabel } from '../room-ui-utils'
 
@@ -7,6 +7,7 @@ export const roomPanels: { key: Panel; label: string; icon: string }[] = [
   { key: 'files', label: '文件', icon: 'folder' },
   { key: 'tabs', label: '页面', icon: 'panels' },
   { key: 'tasks', label: '任务', icon: 'check' },
+  { key: 'billing', label: '账单', icon: 'billing' },
 ]
 
 export function RoomHeader({ room, members, roomAgents, workingAgents, defaultAssistant, openMemberProfile, setShowMobileMembers, openSettings, navigate }: any) {
@@ -19,6 +20,7 @@ function PanelIcon({ panel, mobile = false }: { panel: any; mobile?: boolean }) 
   if (panel.icon === 'message') return <MessageCircle className={cls} />
   if (panel.icon === 'folder') return <Folder className={cls} />
   if (panel.icon === 'panels') return <PanelsTopLeft className={cls} />
+  if (panel.icon === 'billing') return <CreditCard className={cls} />
   return <ListTodo className={cls} />
 }
 

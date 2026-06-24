@@ -14,6 +14,7 @@ function signedCredit(n: any) { const v = Number(n || 0); return `${v >= 0 ? '+'
 function fmtDate(ts: any) { const n = Number(ts || 0); return n ? new Date(n).toLocaleDateString() : '-' }
 function ledgerTypeLabel(type: string) {
   const map: Record<string, string> = {
+    usage_record: '0元用量',
     run_charge: '运行扣费',
     agent_income: 'Agent 收入',
     model_income: '模型收入',

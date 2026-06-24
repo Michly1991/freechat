@@ -13,6 +13,7 @@ import db from '../storage/db.js'
 import { agentPackageImportService } from '../services/agent-package-import.service.js'
 import { remoteAgentConnectorService } from '../services/remote-agent-connector.service.js'
 import { registerAgentKnowledgeRoutes } from './agent-knowledge.js'
+import { agentClientBindRequestService } from '../services/agent-client-bind-request.service.js'
 
 export async function registerAgentRoutes(app: FastifyInstance) {
   const isRoomCreator = (roomId: string, userId: string) => {
@@ -33,7 +34,8 @@ export async function registerAgentRoutes(app: FastifyInstance) {
         const isFollowing = marketEngagementService.isFollowing(user.id, 'agent', agent.id)
         const isBuiltInDefault = agent.builtInKey === 'default_assistant'
         const connectorSummary = remoteAgentConnectorService.getConnectorSummary(agent.id)
-        return { ...agent, ...connectorSummary, canEdit, canDelete: canEdit && agent.canDelete !== false, isOwner, isFollowing, canUse: isOwner || isFollowing || isBuiltInDefault || canEdit || user.role === 'admin' }
+        const bindSummary = agentClientBindRequestService.summary(agent.id)
+        return { ...agent, ...connectorSummary, ...bindSummary, canEdit, canDelete: canEdit && agent.canDelete !== false, isOwner, isFollowing, canUse: isOwner || isFollowing || isBuiltInDefault || canEdit || user.role === 'admin' }
       }))
       return reply.send({ success: true, data: { agents: enriched } })
     } catch (err: any) {
@@ -104,13 +106,25 @@ export async function registerAgentRoutes(app: FastifyInstance) {
         status: body.status,
         marketListed: body.marketListed,
       })
-      return reply.send({ success: true, data: { agent: updated } })
+      let bindRequest = null
+      if (body.marketListed === true) bindRequest = agentClientBindRequestService.autoEnsureForListedClientAgent(id, user.id)
+      return reply.send({ success: true, data: { agent: updated, bindRequest } })
     } catch (err: any) {
       if (err.code === 'AGENT_NOT_FOUND') {
         return reply.code(404).send({ success: false, error: err })
       }
       throw err
     }
+  })
+
+  // POST /api/agents/:id/client-bind-request - let an online Agent Client auto-claim this Agent
+  app.post('/api/agents/:id/client-bind-request', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    await agentService.assertAgentOwner(id, user.id, user.role)
+    const body = request.body as any
+    const requestRow = agentClientBindRequestService.create(id, user.id, body?.preferredInstanceId)
+    return reply.code(201).send({ success: true, data: { request: requestRow } })
   })
 
   // POST /api/agents/:id/connectors/pairing-code - create short-lived remote connector pairing code
@@ -151,7 +165,8 @@ export async function registerAgentRoutes(app: FastifyInstance) {
       const scripts = agentCapabilityService.listScripts(id)
       const agentMarkdown = await agentPackageService.readAgentMarkdown(agent).catch(() => '')
       const connectorSummary = remoteAgentConnectorService.getConnectorSummary(id)
-      return reply.send({ success: true, data: { agent: { ...agent, ...connectorSummary, agentMarkdown }, skills, scripts } })
+      const bindSummary = agentClientBindRequestService.summary(id)
+      return reply.send({ success: true, data: { agent: { ...agent, ...connectorSummary, ...bindSummary, agentMarkdown }, skills, scripts } })
     } catch (err: any) {
       throw err
     }

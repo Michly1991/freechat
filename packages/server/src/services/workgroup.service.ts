@@ -69,9 +69,13 @@ export class WorkgroupService {
 
   getOverview(workgroupId: string, userId: string) {
     const workgroup = this.getWorkgroup(workgroupId)
-    this.assertUserInWorkgroup(workgroupId, userId)
+    const membership = this.assertUserInWorkgroup(workgroupId, userId)
     return {
-      workgroup,
+      workgroup: {
+        ...workgroup,
+        current_user_role: membership.role,
+        canManage: ['owner', 'admin'].includes(membership.role),
+      },
       members: this.listMembers(workgroupId),
       agents: this.listAgents(workgroupId),
       rooms: this.listRooms(workgroupId, userId),

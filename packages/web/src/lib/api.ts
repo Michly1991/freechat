@@ -153,6 +153,14 @@ export const api = {
     return request<any>(`/rooms/${id}/analytics/runs${qs ? `?${qs}` : ''}`)
   },
   getRoomAnalyticsRunDetail: (id: string, runId: string) => request<any>(`/rooms/${id}/analytics/runs/${runId}`),
+  getRoomBillingSummary: (id: string, params?: { from?: number; to?: number }) => {
+    const qs = params ? new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString() : ''
+    return request<any>(`/rooms/${id}/billing/summary${qs ? `?${qs}` : ''}`)
+  },
+  getRoomBillingLedger: (id: string, params?: { from?: number; to?: number; limit?: number }) => {
+    const qs = params ? new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString() : ''
+    return request<any>(`/rooms/${id}/billing/ledger${qs ? `?${qs}` : ''}`)
+  },
   getPersonalAnalytics: (params?: { from?: number; to?: number; scope?: 'member' | 'owned' | 'triggered' }) => {
     const qs = params ? new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString() : ''
     return request<any>(`/me/analytics${qs ? `?${qs}` : ''}`)
@@ -267,6 +275,8 @@ export const api = {
   },
   updateAgent: (id: string, body: Record<string, any>) =>
     request(`/agents/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  requestAgentClientBind: (id: string) =>
+    request<{ request: any }>(`/agents/${id}/client-bind-request`, { method: 'POST', body: JSON.stringify({}) }),
   deleteAgent: (id: string) => request(`/agents/${id}`, { method: 'DELETE' }),
   getAgentDetail: (id: string) => request<{ agent: any; skills: any[]; scripts: any[] }>(`/agents/${id}/detail`),
   getAgentKnowledge: (id: string) => request<{ agentId: string; files: any[]; summary: any; canEdit: boolean; managedByClient?: boolean; client?: any }>(`/agents/${id}/knowledge`),

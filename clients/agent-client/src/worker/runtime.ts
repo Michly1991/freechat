@@ -1,7 +1,9 @@
 import type { AgentCredential, RemoteEvent, RuntimeState } from '../config/types.js'
 import { connectEventWebSocket, heartbeat, pollEvents, runActivity, runComplete, runFail, streamEvents } from '../connector/api.js'
 import { executeEvent } from '../executor/claude.js'
-import { loadConfig, updateAgent } from '../config/store.js'
+import { loadConfig, updateAgent, upsertAgent } from '../config/store.js'
+import { completeBindRequest, createPairingCode, failBindRequest, listBindRequests } from '../connector/server-admin.js'
+import { pairAgent } from '../connector/api.js'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -80,7 +82,30 @@ function reconcileStreams(enabledAgents: AgentCredential[]) {
   }
 }
 
+async function claimPendingBindRequests() {
+  const cfg = loadConfig()
+  if (!cfg.serverAuthToken) return
+  let requests: any[] = []
+  try { requests = await listBindRequests(cfg) } catch (err: any) { log(`Bind request check failed: ${err?.message || err}`); return }
+  for (const request of requests) {
+    if (loadConfig().agents.some((agent) => agent.agentId === request.agentId)) continue
+    try {
+      log(`Claiming Agent bind request ${request.id} for ${request.agentName || request.agentId}`)
+      const pairing = await createPairingCode(loadConfig(), request.agentId)
+      const agent = await pairAgent(loadConfig(), pairing.code, loadConfig().clientName)
+      upsertAgent(agent)
+      await completeBindRequest(loadConfig(), request.id, agent.connectorId)
+      log(`Agent ${request.agentName || request.agentId} bound to this client`)
+    } catch (err: any) {
+      const message = err?.message || String(err)
+      log(`Bind request ${request.id} failed: ${message}`)
+      try { await failBindRequest(loadConfig(), request.id, message) } catch {}
+    }
+  }
+}
+
 async function tick() {
+  await claimPendingBindRequests()
   const cfg = loadConfig()
   const enabledAgents = cfg.agents.filter((agent) => agent.enabled)
   reconcileStreams(enabledAgents)

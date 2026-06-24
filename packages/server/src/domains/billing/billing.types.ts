@@ -7,7 +7,7 @@ export type BillingLedgerEntry = UsageTokenSnapshot & {
   accountUserId: string
   accountRole: 'payer' | 'agent_provider' | 'model_provider' | 'platform'
   direction: 'debit' | 'credit'
-  entryType: 'usage_charge' | 'model_usage_charge' | 'agent_usage_charge' | 'agent_purchase' | 'agent_income' | 'model_income' | 'refund' | 'adjustment'
+  entryType: 'usage_record' | 'usage_charge' | 'model_usage_charge' | 'agent_usage_charge' | 'agent_purchase' | 'agent_income' | 'model_income' | 'refund' | 'adjustment'
   amount: number
   currency: 'CREDIT' | 'MICRO_CREDIT'
   roomId?: string | null

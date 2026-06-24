@@ -70,4 +70,24 @@ export function ensureRemoteAgentSchema(db: Database.Database) {
   `)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_remote_agent_events_agent_status_created ON remote_agent_events(agent_id, status, created_at)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_remote_agent_events_run ON remote_agent_events(run_id)`)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_client_bind_requests (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      owner_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      preferred_instance_id TEXT,
+      claimed_connector_id TEXT,
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      claimed_at INTEGER,
+      FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+      FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (claimed_connector_id) REFERENCES agent_connectors(id) ON DELETE SET NULL
+    )
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_client_bind_requests_owner_status ON agent_client_bind_requests(owner_id, status, created_at)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_client_bind_requests_agent_status ON agent_client_bind_requests(agent_id, status, created_at)`)
 }

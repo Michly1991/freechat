@@ -14,6 +14,21 @@ import { marketEngagementService } from '../services/market-engagement.service.j
 import { creditWalletService } from '../services/credit-wallet.service.js'
 import { roomAssistantService } from '../services/room-assistant.service.js'
 import { workgroupService } from '../services/workgroup.service.js'
+import { billingQueryRepository } from '../domains/billing/billing-query.repository.js'
+
+function routeToInt(value: any): number {
+  const n = Number(value || 0)
+  return Number.isFinite(n) ? Math.trunc(n) : 0
+}
+
+async function canViewRoomBilling(roomId: string, userId: string) {
+  const room = db.prepare('SELECT id, created_by, room_kind, workgroup_entry_id FROM rooms WHERE id = ? AND deleted_at IS NULL').get(roomId) as any
+  if (!room) throw { code: 'ROOM_NOT_FOUND', message: 'Room not found' }
+  const isMember = await roomService.isMember(roomId, userId)
+  if (!isMember) return { allowed: false, fullAccess: false, room }
+  const fullAccess = room.created_by === userId
+  return { allowed: true, fullAccess, room }
+}
 
 export async function registerRoomRoutes(app: FastifyInstance) {
   // Get user's rooms
@@ -151,6 +166,29 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     if (!(await roomService.isMember(id, user.id))) return reply.code(403).send({ success: false, error: { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' } })
     const result = await roomAssistantService.requestHandoff({ roomId: id, targetAgentId: String(agentId || ''), requestedBy: user.id, requestedByType: 'human', reason, source: 'web', policy: 'auto', wake: true })
     return reply.send({ success: true, data: result })
+  })
+
+  app.get('/api/rooms/:id/billing/summary', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    const { allowed, fullAccess } = await canViewRoomBilling(id, user.id)
+    if (!allowed) return reply.code(403).send({ success: false, error: { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' } })
+    const query = request.query as any
+    const range = { from: query?.from ? Number(query.from) : undefined, to: query?.to ? Number(query.to) : undefined }
+    const result = billingQueryRepository.roomSummary(id, user.id, fullAccess, range)
+    return reply.send({ success: true, data: { ...result, scope: fullAccess ? 'room' : 'self', canViewFullRoomBilling: fullAccess } })
+  })
+
+  app.get('/api/rooms/:id/billing/ledger', async (request, reply) => {
+    const user = (request as any).user
+    const { id } = request.params as any
+    const { allowed, fullAccess } = await canViewRoomBilling(id, user.id)
+    if (!allowed) return reply.code(403).send({ success: false, error: { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' } })
+    const query = request.query as any
+    const range = { from: query?.from ? Number(query.from) : undefined, to: query?.to ? Number(query.to) : undefined }
+    const limit = Math.min(100, Math.max(1, routeToInt(query?.limit || 50)))
+    const items = billingQueryRepository.roomLedger(id, user.id, fullAccess, range, limit)
+    return reply.send({ success: true, data: { items, scope: fullAccess ? 'room' : 'self', canViewFullRoomBilling: fullAccess } })
   })
 
   // Get room tasks

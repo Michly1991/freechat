@@ -123,6 +123,17 @@ CLI：
 - 当前 Agent 会自动加入新房间，除非已经在传入 Agent 列表中。
 - 新房间默认 `room_kind = service`，也可显式传入通用 kind。
 
+## 权限与详情接口
+
+工作组管理权限由 `workgroup_members.role` 决定：`owner` 和 `admin` 可管理工作组成员、Agent 资源和分享入口；`member` / `viewer` 只读。
+
+`GET /api/workgroups` 列表项和 `GET /api/workgroups/:id` 详情中的 `workgroup` 都必须返回当前用户视角字段：
+
+- `current_user_role`: 当前用户在该工作组的角色。
+- `canManage`: 是否可管理，即 `current_user_role in ('owner', 'admin')`。
+
+前端工作组详情页统一根据详情接口的 `workgroup.canManage` 展示或隐藏成员编辑、Agent 加入/移出、分享入口创建/编辑等管理入口，并显示当前角色/可管理状态，避免列表与详情权限判断不一致。
+
 ## 可见性原则
 
 工作组可见性不等于房间内容可见性：

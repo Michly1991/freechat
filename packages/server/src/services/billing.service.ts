@@ -52,6 +52,16 @@ export class BillingService {
 
       const charge = this.calculateCharge(event)
       const tx = db.transaction(() => {
+        if (charge.totalCharge === 0 && event.totalTokens > 0) {
+          billingLedgerRepository.createEntry(event, {
+            accountUserId: event.payerUserId,
+            accountRole: 'payer',
+            direction: 'debit',
+            entryType: 'usage_record',
+            amount: 0,
+            ruleSnapshot: charge.snapshot,
+          })
+        }
         if (charge.modelCharge > 0) {
           const entry = billingLedgerRepository.createEntry(event, {
             accountUserId: event.payerUserId,
@@ -96,7 +106,7 @@ export class BillingService {
           })
           creditWalletService.apply(event.agentProviderUserId, charge.agentCharge, 'agent_income', { runId, ledgerId: entry.id, note: `Agent service ${event.agentTemplateId || event.agentId}` })
         }
-        usageRepository.markStatus(event.id, charge.status === 'billed' ? 'charged' : 'ignored')
+        usageRepository.markStatus(event.id, charge.status === 'billed' || event.totalTokens > 0 ? 'charged' : 'ignored')
       })
       tx()
       return charge.status

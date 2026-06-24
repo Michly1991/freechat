@@ -12,6 +12,7 @@ import { registerAgentFileRoutes } from './routes/agent-files.js'
 import { registerTabRoutes } from './routes/tabs.js'
 import { registerTabConfigRoutes } from './routes/tab-config.js'
 import { registerAgentRoutes } from './routes/agents.js'
+import { registerAgentClientBindRequestRoutes } from './routes/agent-client-bind-requests.js'
 import { registerProfileRoutes } from './routes/profiles.js'
 import { registerFriendRoutes } from './routes/friends.js'
 import { registerDmRoutes } from './routes/dm.js'
@@ -115,6 +116,7 @@ async function buildApp() {
   await registerTabRoutes(app)
   await registerTabConfigRoutes(app)
   await registerAgentRoutes(app)
+  await registerAgentClientBindRequestRoutes(app)
   await registerFriendRoutes(app)
   await registerProfileRoutes(app)
   await registerDmRoutes(app)

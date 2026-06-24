@@ -165,7 +165,10 @@ export class AgentInvocationHandler {
 
     const prompt = isPrivateAgentRoom
       ? [
-          '你正在和用户一对一私聊。直接回答用户最新消息，不需要判断是否介入，不要输出 [SILENT]，不要分派其他 Agent。',
+          isEntryAgentRoom
+            ? '你正在处理工作组分享入口的一对一接待会话。请直接回应用户，但如果你的职责是客服/接待/分流，必须允许使用工作组工具查询资源并用 room handoff 转交给合适 Agent；不要凭空编造人员名单，不要输出 [SILENT]。'
+            : '你正在和用户一对一私聊。直接回答用户最新消息，不需要判断是否介入，不要输出 [SILENT]，不要分派其他 Agent。',
+          isEntryAgentRoom ? '分享入口接待规则：先用 ./freechat workgroup agents 查看当前工作组可用 Agent；匹配到合适 Agent 后，用 ./freechat room handoff --agent <名称或ID> --reason <原因> 转接。工具成功前不要说“已转接”；找不到匹配对象时再向用户补充提问。' : '',
           context ? `最近对话：\n${context}` : '',
           `最新消息来自 ${actorName}: ${contentWithFiles}`,
           '请用简短、自然、面向当前用户的中文回复。',
