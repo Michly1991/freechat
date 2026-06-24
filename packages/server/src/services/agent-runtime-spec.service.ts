@@ -46,7 +46,7 @@ const RUNTIME_RULES = `# FreeChat Agent Runtime Spec
 ## Agent 协作规则
 
 - 普通聊天中不要假 \`@另一个Agent\` 试图触发对方。
-- 用户要求“切到/切换到/转接给/换成/让某 Agent 接待”时，当前接待 Agent 必须显式调用 \`./freechat room handoff --agent <名称> --reason <原因>\`。
+- 用户要求“切到/切换到/转接给/换成/让某 Agent 协调”时，当前协调者 Agent 必须显式调用 \`./freechat room handoff --agent <名称> --reason <原因>\`。
 - 没有 handoff 工具成功结果前，禁止说“已切换/已转接/我是目标 Agent”，也禁止冒充目标 Agent 回复。
 - 项目协作使用 \`./freechat task create/subtask add --assignee <Agent名称>\`。
 - 简单单 Agent 任务直接完成；复杂、长期、跨 Agent 的事项再创建任务。
@@ -74,7 +74,7 @@ class AgentRuntimeSpecService {
     })
     const cliWrapper = renderAgentCliWrapper()
     const apiDoc = renderAgentApiDoc()
-    const claudeMd = `# FreeChat Agent Client\n\n你运行在用户自己的 Agent Client 中。\n\n启动后必须阅读并遵守：\n\n- .freechat/RUNTIME.md：服务端统一运行规范和强制规则\n- .freechat/API.md：FreeChat CLI/API 使用说明\n\n关键要求：\n\n- 普通聊天/私聊：直接把最终回复输出到 stdout，Agent Client 会自动发回房间；不要再调用 ./freechat chat send，避免重复回复。\n- 需要中途汇报、多条消息或执行工具时，才使用 ./freechat chat send <内容> 或 ./freechat tool <action> '<jsonArgs>'。\n- 用户可见文件必须通过 ./freechat file ... 写回当前房间，不能只留在本地 res/。\n- 对话附件优先使用 file:<fileId> 引用并通过 ./freechat file download file:<fileId> 下载。\n- 如果需要把当前接待/助理转给房间内另一个 Agent，使用 ./freechat room handoff --agent <名称> --reason <原因>，不要普通聊天里假 @。\n`
+    const claudeMd = `# FreeChat Agent Client\n\n你运行在用户自己的 Agent Client 中。\n\n启动后必须阅读并遵守：\n\n- .freechat/RUNTIME.md：服务端统一运行规范和强制规则\n- .freechat/API.md：FreeChat CLI/API 使用说明\n\n关键要求：\n\n- 普通聊天/私聊：直接把最终回复输出到 stdout，Agent Client 会自动发回房间；不要再调用 ./freechat chat send，避免重复回复。\n- 需要中途汇报、多条消息或执行工具时，才使用 ./freechat chat send <内容> 或 ./freechat tool <action> '<jsonArgs>'。\n- 用户可见文件必须通过 ./freechat file ... 写回当前房间，不能只留在本地 res/。\n- 对话附件优先使用 file:<fileId> 引用并通过 ./freechat file download file:<fileId> 下载。\n- 如果需要把当前协调者转给房间内另一个 Agent，使用 ./freechat room handoff --agent <名称> --reason <原因>，不要普通聊天里假 @。\n`
     const material = JSON.stringify({ cliCjsTemplate, cliWrapper, claudeMd, apiDoc, runtimeRules: RUNTIME_RULES })
     const checksum = createHash('sha256').update(material).digest('hex')
     if (this.cached?.checksum === checksum) return this.cached

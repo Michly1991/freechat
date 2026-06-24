@@ -7,7 +7,7 @@ const TOOL_KEYS = ['chat', 'task', 'file', 'tab', 'interaction', 'members']
 function fmtCredit(n: any) { return Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 }) }
 
 function formatAgentPrice(agent: any, rule: any | null) {
-  if (agent?.builtInKey === 'default_assistant') return '免费（系统内置助理，模型费另计）'
+  if (agent?.builtInKey === 'default_assistant') return '免费（系统内置协调者，模型费另计）'
   if (!rule) return '暂无定价'
   if (rule.billingMode === 'free') return '免费'
   const input = fmtCredit(rule.inputCreditPerMillion)
@@ -157,7 +157,7 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
         <div>
           <h3 className="font-semibold text-gray-900">{canEdit ? '基础配置' : 'AI 介绍'}</h3>
           <p className="text-xs text-gray-400 mt-1">{canEdit ? scopeLabel : 'AI 市场公开信息：介绍、发布人和价格。'}</p>
-          {agent?.builtInKey === 'default_assistant' && <p className="text-xs text-amber-600 mt-1">系统默认助理已锁定：可查看和使用，不可编辑或删除。</p>}
+          {agent?.builtInKey === 'default_assistant' && <p className="text-xs text-amber-600 mt-1">系统默认协调者已锁定：可查看和使用，不可编辑或删除。</p>}
           {!canEdit && agent?.builtInKey !== 'default_assistant' && <p className="text-xs text-amber-600 mt-1">你可以查看/使用该 AI，但只有发布人/admin 可以查看完整配置并修改。</p>}
         </div>
         {canEdit && <button onClick={startEditProfile} className="text-sm text-blue-600">编辑</button>}
@@ -171,7 +171,7 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{TOOL_KEYS.map((key) => <label key={key} className="text-sm flex items-center gap-2 border rounded-lg px-3 py-2"><input type="checkbox" checked={profileForm.tools[key] !== false} onChange={() => setProfileForm({ ...profileForm, tools: { ...profileForm.tools, [key]: profileForm.tools[key] === false } })} />{key}</label>)}</div>
         <div className="flex justify-end gap-2"><button onClick={() => setEditingProfile(false)} className="px-3 py-2 bg-gray-100 rounded-lg text-sm">取消</button><button onClick={saveProfile} className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm">保存</button></div>
       </div> : <div>
-        <div className="flex items-center gap-2 flex-wrap"><h4 className="text-lg font-semibold text-gray-900">{agent.name}</h4><span className="text-xs px-2 py-1 rounded-full bg-violet-50 text-violet-600">Agent</span>{agent.builtInKey === 'default_assistant' && <span className="text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-600">系统内置</span>}{agent.autoEnabled && <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-600">房间助理</span>}{canEdit && agent.isModified && <span className="text-xs px-2 py-1 rounded-full bg-orange-50 text-orange-600">本地已修改</span>}</div>
+        <div className="flex items-center gap-2 flex-wrap"><h4 className="text-lg font-semibold text-gray-900">{agent.name}</h4><span className="text-xs px-2 py-1 rounded-full bg-violet-50 text-violet-600">Agent</span>{agent.builtInKey === 'default_assistant' && <span className="text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-600">系统内置</span>}{agent.autoEnabled && <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-600">协调者</span>}{canEdit && agent.isModified && <span className="text-xs px-2 py-1 rounded-full bg-orange-50 text-orange-600">本地已修改</span>}</div>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           <div className="rounded-xl bg-gray-50 px-3 py-2"><p className="text-[11px] text-gray-400">发布人</p><p className="text-sm text-gray-700">{agent.ownerName || agent.ownerId || '未知'}</p></div>
           <div className="rounded-xl bg-blue-50 px-3 py-2"><p className="text-[11px] text-blue-400">价格</p><p className="text-sm text-blue-700">{priceText}</p></div>

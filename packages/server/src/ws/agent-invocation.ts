@@ -23,18 +23,18 @@ export class AgentInvocationHandler {
     const text = String(content || '').replace(/\s+/g, '')
     const patterns = [
       /(?:切换到|切到|转接给|交接给|换成|切成|转给|由|让)([\u4e00-\u9fa5A-Za-z0-9_-]{2,20})/,
-      /([\u4e00-\u9fa5A-Za-z0-9_-]{2,20})(?:来接待|接待|接手)/,
+      /([\u4e00-\u9fa5A-Za-z0-9_-]{2,20})(?:来协调|协调|接手)/,
     ]
     for (const pattern of patterns) {
       const match = text.match(pattern)
-      if (match?.[1]) return match[1].replace(/(?:接待|助理|律师|专家)$/g, '')
+      if (match?.[1]) return match[1].replace(/(?:协调|协调者|律师|Agent)$/g, '')
     }
     return ''
   }
 
   private async maybeHandleAssistantHandoffCommand(roomId: string, content: string, actorUserId?: string): Promise<boolean> {
     const text = String(content || '')
-    if (!/(?:切换|切到|转接|交接|换成|切成|接待|接手|handoff)/i.test(text)) return false
+    if (!/(?:切换|切到|转接|交接|换成|切成|协调|接手|handoff)/i.test(text)) return false
     const targetName = this.extractHandoffTargetName(text)
     if (!targetName) return false
     const agents = await agentService.getRoomAgents(roomId)
@@ -46,7 +46,7 @@ export class AgentInvocationHandler {
     if (!target) return false
     const current = await agentService.getAutoAgent(roomId)
     if (current?.id === target.id) return false
-    await roomAssistantService.requestHandoff({ roomId, targetAgentId: target.id, requestedBy: actorUserId || 'system', requestedByType: actorUserId ? 'human' : 'system', source: 'auto_router', reason: `用户要求切换当前接待为 ${target.name}`, wake: true, announce: true })
+    await roomAssistantService.requestHandoff({ roomId, targetAgentId: target.id, requestedBy: actorUserId || 'system', requestedByType: actorUserId ? 'human' : 'system', source: 'auto_router', reason: `用户要求切换当前协调者为 ${target.name}`, wake: true, announce: true })
     return true
   }
 
@@ -74,7 +74,7 @@ export class AgentInvocationHandler {
     const result = await interactionService.create(roomId, { id: assistant.id, name: assistant.name, role: 'ai' }, {
       type: 'task_plan',
       title: '任务计划预览：剧本与分镜协作',
-      description: '我会先让编剧专家完成文字剧本，再让分镜专家基于剧本输出分镜。未指定时长/受众时先按短视频默认方案处理，后续可调整。',
+      description: '我会先让编剧 Agent完成文字剧本，再让分镜 Agent基于剧本输出分镜。未指定时长/受众时先按短视频默认方案处理，后续可调整。',
       priority: 'important',
       payload: {
         taskPlan: {
@@ -166,9 +166,9 @@ export class AgentInvocationHandler {
     const prompt = isPrivateAgentRoom
       ? [
           isEntryAgentRoom
-            ? '你正在处理工作组分享入口的一对一接待会话。请直接回应用户，但如果你的职责是客服/接待/分流，必须允许使用工作组工具查询资源并用 room handoff 转交给合适 Agent；不要凭空编造人员名单，不要输出 [SILENT]。'
+            ? '你正在处理工作组分享入口的一对一协调会话。请直接回应用户，但如果你的职责是客服/协调/分流，必须允许使用工作组工具查询资源并用 room handoff 转交给合适 Agent；不要凭空编造人员名单，不要输出 [SILENT]。'
             : '你正在和用户一对一私聊。直接回答用户最新消息，不需要判断是否介入，不要输出 [SILENT]，不要分派其他 Agent。',
-          isEntryAgentRoom ? '分享入口接待规则：先用 ./freechat workgroup agents 查看当前工作组可用 Agent；匹配到合适 Agent 后，用 ./freechat room handoff --agent <名称或ID> --reason <原因> 转接。工具成功前不要说“已转接”；找不到匹配对象时再向用户补充提问。' : '',
+          isEntryAgentRoom ? '分享入口协调规则：先用 ./freechat workgroup agents 查看当前工作组可用 Agent；匹配到合适 Agent 后，用 ./freechat room handoff --agent <名称或ID> --reason <原因> 转接。工具成功前不要说“已转接”；找不到匹配对象时再向用户补充提问。' : '',
           context ? `最近对话：\n${context}` : '',
           `最新消息来自 ${actorName}: ${contentWithFiles}`,
           '请用简短、自然、面向当前用户的中文回复。',

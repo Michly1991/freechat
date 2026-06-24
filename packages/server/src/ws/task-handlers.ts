@@ -72,7 +72,7 @@ export class TaskHandler {
 
     if (client.role === 'human' && assigneeType === 'agent' && assigneeId) {
       const prompt = [
-        '你是 FreeChat 房间助理，刚刚自动接管了一个新父任务。',
+        '你是 FreeChat 协调者，刚刚自动接管了一个新父任务。',
         '',
         `任务ID: ${task.id}`,
         `任务标题: ${task.title}`,
@@ -80,14 +80,14 @@ export class TaskHandler {
         '',
         '请立即判断该任务如何处理：',
         '- 如果简单、单 Agent 可完成，不要再创建父任务，直接完成并在聊天中汇报。',
-        '- 如果复杂、需要专门能力，或当前房间有更合适的专家 Agent，请优先使用 ./freechat task subtask add 拆分子任务并分派专家，不要自己硬做。',
-        '- 不要通过普通聊天 @ 专家制造自动对话；专家应通过任务/子任务分派被唤醒。',
+        '- 如果复杂、需要专门能力，或当前房间有更合适的 Agent，请优先使用 ./freechat task subtask add 拆分子任务并分派Agent，不要自己硬做。',
+        '- 不要通过普通聊天 @ Agent 制造自动对话；其他 Agent 应通过任务/子任务分派被唤醒。',
         '- 开始处理前可用 ./freechat task update 更新父任务状态，例如 status doing。',
         '- 接管后先用 ./freechat chat send 主动汇报。',
         '- 用 ./freechat task progress 写入最近进展，用户会在任务卡片看到。',
         '- 子任务状态要及时维护，父任务会汇总显示子任务状态。',
       ].filter(Boolean).join('\n')
-      void this.invokeMentionedAgents(client.currentRoomId, prompt, [{ id: assigneeId, name: assigneeName || '助理', role: 'ai' }], 'task', client.userId)
+      void this.invokeMentionedAgents(client.currentRoomId, prompt, [{ id: assigneeId, name: assigneeName || '协调者', role: 'ai' }], 'task', client.userId)
     }
   }
 

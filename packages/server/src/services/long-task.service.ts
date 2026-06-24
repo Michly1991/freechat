@@ -67,7 +67,7 @@ function normalizeDecision(input: any): LongTaskDecision {
 
 export class LongTaskService {
   async decideWithAgent(roomId: string, assistant: { id: string; name: string }, content: string, context = '', actorUserId?: string): Promise<LongTaskDecision> {
-    const prompt = `你是当前房间助理的执行调度判断器。请只判断“最新用户消息”应该普通聊天处理，还是应该拆成现有任务体系中的长任务。
+    const prompt = `你是当前协调者的执行调度判断器。请只判断“最新用户消息”应该普通聊天处理，还是应该拆成现有任务体系中的长任务。
 
 不要执行任务，不要写正文，不要调用工具。只输出 JSON。
 
@@ -160,7 +160,7 @@ ${content}
         decision.reason ? `判断原因：${decision.reason}` : '',
         `原始需求：${content}`,
         `产物目录：${root}`,
-        '执行方式：由助理判断后拆分为串行子任务；每步独立落盘；失败只影响当前子任务，可单独重试。',
+        '执行方式：由协调者判断后拆分为串行子任务；每步独立落盘；失败只影响当前子任务，可单独重试。',
       ].filter(Boolean).join('\n'),
       'medium',
       assistant.id,
@@ -197,7 +197,7 @@ ${content}
       subtasks,
       firstSubtask,
       summaryMessage: [
-        '这是一个长任务，我已让助理先判断并拆成串行子任务。',
+        '这是一个长任务，我已让协调者先判断并拆成串行子任务。',
         '',
         `父任务：${task.title}`,
         `产物目录：${root}`,

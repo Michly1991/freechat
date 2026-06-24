@@ -43,17 +43,17 @@ function agentManagerPageHtml() {
   </section>
   <section class="grid">
     <div class="card"><h3>Agent 副本</h3><p>项目里的 Agent 是从模板克隆而来，修改不会影响全局模板或其他项目。</p><span class="badge">clone</span><span class="badge">local editable</span></div>
-    <div class="card"><h3>通用助理</h3><p>Agent 管理能力已融合进默认助理；由助理负责模板、Skill、Script、场景维护协助。</p><span class="badge">assistant</span><span class="badge">agent api</span></div>
+    <div class="card"><h3>通用协调者</h3><p>Agent 管理能力已融合进默认协调者；由协调者负责模板、Skill、Script、场景维护协助。</p><span class="badge">coordinator</span><span class="badge">agent api</span></div>
     <div class="card"><h3>页面</h3><p>历史技术名 tab，产品语义统一叫页面。页面也由场景克隆进项目。</p><span class="badge">page</span></div>
   </section>
   <section class="card" style="margin-top: 18px;">
-    <h2>给助理的 CLI 能力</h2>
+    <h2>给协调者的 CLI 能力</h2>
     <code>./freechat members list
 ./freechat agent list-available
 ./freechat agent add "Agent名称"
 ./freechat tab list        # 兼容旧命令，产品上称为页面
 ./freechat tab create-local "Agent管理" res/agent-manager.html</code>
-    <p>Agent 管理能力写入通用助理的拆分 Skill / Script；长参考资料放入 res，避免单个 Skill 过大。</p>
+    <p>Agent 管理能力写入通用协调者的拆分 Skill / Script；长参考资料放入 res，避免单个 Skill 过大。</p>
   </section>
 </main>
 </body>

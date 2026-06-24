@@ -38,7 +38,7 @@
 - `enabled`
 - `added_at`
 
-注意：`workgroup_agents.role` 不是 Agent 本体类型。Agent 本身不区分专家/助理；是否作为房间助理由房间配置决定。
+注意：`workgroup_agents.role` 仅作为历史兼容字段，新增 Agent 默认写入 `member`。产品界面不再在工作组层区分“助理/专家/运营”等 Agent 角色；工作组只表达 Agent 是否属于该资源池、是否启用、是否可被入口或房间调用。房间运行时可指定一个“协调者”负责默认响应和分流，其余 Agent 作为普通 Agent 成员参与。
 
 ### workgroup_entries
 
@@ -118,7 +118,7 @@ CLI：
 `room.create` 约束：
 
 - 只能从当前房间所属工作组中选择成员和 Agent。
-- 默认只有当前房间助理 Agent 可主动创建。
+- 默认只有当前房间协调者 Agent 可主动创建。
 - 默认包含当前 actor 用户；可通过 `includeActor=false` 关闭。
 - 当前 Agent 会自动加入新房间，除非已经在传入 Agent 列表中。
 - 新房间默认 `room_kind = service`，也可显式传入通用 kind。

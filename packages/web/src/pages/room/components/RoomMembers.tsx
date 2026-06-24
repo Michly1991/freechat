@@ -130,7 +130,7 @@ function AddAvailableAgents({ roomId, roomAgents, feedback, onMembersChanged, co
         return <div key={agent.id} className="rounded-lg bg-white border border-gray-100 p-2 space-y-2">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0"><p className="text-sm font-medium text-gray-800 truncate">{agent.name}</p>{agent.description && <p className="text-xs text-gray-400 mt-1 line-clamp-2">{agent.description}</p>}</div>
-            {already ? <span className="text-xs text-gray-400 shrink-0">已在群聊</span> : <div className="flex flex-col gap-1 shrink-0"><button onClick={() => addAgent(agent, false)} className="text-xs text-green-600 hover:text-green-700">添加</button><button onClick={() => addAgent(agent, true)} className="text-xs text-blue-600 hover:text-blue-700">设为接待</button></div>}
+            {already ? <span className="text-xs text-gray-400 shrink-0">已在群聊</span> : <div className="flex flex-col gap-1 shrink-0"><button onClick={() => addAgent(agent, false)} className="text-xs text-green-600 hover:text-green-700">添加</button><button onClick={() => addAgent(agent, true)} className="text-xs text-blue-600 hover:text-blue-700">设为协调</button></div>}
           </div>
         </div>
       })}
@@ -162,7 +162,7 @@ export function DesktopMembersPanel({ showMembers, setShowMembers, members, room
   const orderedMembers = useMemo(() => sortedMembers(members), [members])
   const admins = orderedMembers.filter((member: any) => member.role === 'owner')
   const payer = orderedMembers.find((member: any) => (member.userId || member.id) === room?.createdBy)
-  const handoffAgent = async (agent: any) => { if (!roomId) return; try { await api.handoffRoomAssistant(roomId, agent.id, `手动切换当前接待为 ${agent.name}`); feedback?.success?.(`已切换当前接待为 ${agent.name}`); onMembersChanged?.() } catch (err: any) { feedback?.error?.(err?.message || '切换接待失败') } }
+  const handoffAgent = async (agent: any) => { if (!roomId) return; try { await api.handoffRoomAssistant(roomId, agent.id, `手动切换当前协调者为 ${agent.name}`); feedback?.success?.(`已切换当前协调者为 ${agent.name}`); onMembersChanged?.() } catch (err: any) { feedback?.error?.(err?.message || '切换协调者失败') } }
   const removeAgent = async (agent: any) => {
     if (!roomId) return
     const ok = feedback?.confirm ? await feedback.confirm({ title: '移除 Agent？', message: `确认把「${agent.name}」从当前群聊移除？不会删除通讯录里的 Agent。`, confirmText: '确认移除' }) : window.confirm(`确认把「${agent.name}」从当前群聊移除？不会删除通讯录里的 Agent。`)
@@ -188,7 +188,7 @@ export function MobileMembersDrawer({ showMobileMembers, setShowMobileMembers, m
   const orderedMembers = useMemo(() => sortedMembers(members), [members])
   const admins = orderedMembers.filter((member: any) => member.role === 'owner')
   const payer = orderedMembers.find((member: any) => (member.userId || member.id) === room?.createdBy)
-  const handoffAgent = async (agent: any) => { if (!roomId) return; try { await api.handoffRoomAssistant(roomId, agent.id, `手动切换当前接待为 ${agent.name}`); feedback?.success?.(`已切换当前接待为 ${agent.name}`); onMembersChanged?.() } catch (err: any) { feedback?.error?.(err?.message || '切换接待失败') } }
+  const handoffAgent = async (agent: any) => { if (!roomId) return; try { await api.handoffRoomAssistant(roomId, agent.id, `手动切换当前协调者为 ${agent.name}`); feedback?.success?.(`已切换当前协调者为 ${agent.name}`); onMembersChanged?.() } catch (err: any) { feedback?.error?.(err?.message || '切换协调者失败') } }
   const removeAgent = async (agent: any) => {
     if (!roomId) return
     const ok = feedback?.confirm ? await feedback.confirm({ title: '移除 Agent？', message: `确认把「${agent.name}」从当前群聊移除？不会删除通讯录里的 Agent。`, confirmText: '确认移除' }) : window.confirm(`确认把「${agent.name}」从当前群聊移除？不会删除通讯录里的 Agent。`)
@@ -222,7 +222,7 @@ export function ProfileModal({ selectedProfile, setSelectedProfile, restartAgent
         <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2"><span className="text-gray-500">状态</span><span className="font-medium text-gray-700 inline-flex items-center gap-1.5">{selectedProfile.kind === 'agent' && <span className={`w-2 h-2 rounded-full ${getAgentStatusDotClass(selectedProfile)}`}></span>}{selectedProfile.status}</span></div>
         {selectedProfile.kind === 'member' && <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2"><span className="text-gray-500">身份</span><IdentityBadge identityType={selectedProfile.identityType || selectedProfile.type} /></div>}
         {selectedProfile.kind === 'member' && <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2"><span className="text-gray-500">房间角色</span><MemberRoleBadge role={selectedProfile.roomRole} /></div>}
-        {selectedProfile.kind === 'agent' && <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2"><span className="text-gray-500">房间状态</span><span className="font-medium text-gray-700 inline-flex items-center gap-1"><ShieldCheck className="w-4 h-4" />{selectedProfile.autoEnabled ? '当前接待' : '可接待'}</span></div>}
+        {selectedProfile.kind === 'agent' && <div className="flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2"><span className="text-gray-500">房间状态</span><span className="font-medium text-gray-700 inline-flex items-center gap-1"><ShieldCheck className="w-4 h-4" />{selectedProfile.autoEnabled ? '当前协调者' : '可响应'}</span></div>}
         {selectedProfile.specialties?.length > 0 && <div className="flex flex-wrap gap-1.5 pt-1">{selectedProfile.specialties.map((s: string) => <span key={s} className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-full">{s}</span>)}</div>}
         {selectedProfile.kind === 'agent' && <button onClick={() => restartAgent?.(selectedProfile)} className="mt-2 w-full rounded-xl bg-blue-50 px-3 py-2 text-sm font-medium text-blue-600 hover:bg-blue-100">软重启 Agent</button>}
       </div>

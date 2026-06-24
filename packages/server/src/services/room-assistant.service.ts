@@ -72,7 +72,7 @@ export class RoomAssistantService {
     const invocation = options.wake === false ? null : await agentInvocationService.invoke(
       roomId,
       target.id,
-      `你已接手成为本房间当前接待 Agent。转接原因：${reason || '当前接待已切换给你'}。请结合最近上下文直接继续接待用户，给出下一步回复。`,
+      `你已接手成为本房间当前协调者 Agent。转接原因：${reason || '当前协调者已切换给你'}。请结合最近上下文直接继续协调用户，给出下一步回复。`,
       { actorUserId: requestedByType === 'human' ? requestedBy : undefined, runSource: 'handoff', responseMode: 'final_to_chat', metadata: { handoffRequestId: options.requestId, handoffId: handoff.id, previousAssistantId: before.currentAssistantAgentId, currentAssistantId: target.id } }
     )
     return { room, agents, handoff, invocation }

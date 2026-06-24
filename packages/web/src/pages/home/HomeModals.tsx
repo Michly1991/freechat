@@ -200,12 +200,12 @@ function CollaboratorPicker({ friends, agents, selectedFriendIds, selectedAgents
                     <input type="checkbox" checked={!!selected} onChange={() => toggleSelectedAgent(a.id)} />
                     <span className="truncate">{a.name}</span>
                   </label>
-                  {selected && <select value={selected.autoEnabled ? 'auto' : 'normal'} onChange={(e) => setAgentAutoEnabled(a.id, e.target.value === 'auto')} className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white"><option value="normal">普通</option><option value="auto">房间助理</option></select>}
+                  {selected && <select value={selected.autoEnabled ? 'auto' : 'normal'} onChange={(e) => setAgentAutoEnabled(a.id, e.target.value === 'auto')} className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white"><option value="normal">普通</option><option value="auto">协调者</option></select>}
                 </div>
               )
             })}
           </div>
-          <p className="text-xs text-gray-500 mt-2 px-1">每个群聊只有一个房间助理；默认第一个选中的 Agent 作为房间助理。</p>
+          <p className="text-xs text-gray-500 mt-2 px-1">每个群聊只有一个协调者；默认第一个选中的 Agent 作为协调者。</p>
         </div>
       )}
     </div>

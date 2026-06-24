@@ -171,8 +171,8 @@ class AgentGrowthService {
     const notifyEvidence = contents.filter((c) => /通知|音效|不吵|可控|强提醒|普通消息/.test(c)).slice(-MAX_EVIDENCE)
     if (notifyEvidence.length) push('ux_preference', '通知和提醒功能应默认克制：强提醒可明显反馈，普通消息默认不打扰，并提供用户可控开关。', 0.82, notifyEvidence)
 
-    const agentEvidence = contents.filter((c) => /Agent|助理|专家|分派|任务计划|自己成长|用户习惯|梦境/.test(c)).slice(-MAX_EVIDENCE)
-    if (agentEvidence.length) push('agent_collaboration_preference', '助理应作为入口和协调者，复杂事项先给计划或创建任务计划预览，再按确认分派专家。', 0.8, agentEvidence)
+    const agentEvidence = contents.filter((c) => /Agent|协调者|协作|分派|任务计划|自己成长|用户习惯|梦境/.test(c)).slice(-MAX_EVIDENCE)
+    if (agentEvidence.length) push('agent_collaboration_preference', '协调者应作为入口和分流者，复杂事项先给计划或创建任务计划预览，再按确认分派给合适 Agent。', 0.8, agentEvidence)
 
     return this.dedupeSeeds(seeds)
   }

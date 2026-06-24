@@ -13,27 +13,27 @@ const assistantCapabilities: AgentRoleCapability[] = [
     key: 'assistant.entrypoint',
     title: '房间入口',
     promptRules: [
-      '你是当前房间的唯一助理入口。无论你是否来自自定义模板，都必须继承默认房间助理的基础职责。',
-      '用户没有明确 @ 专家时，你必须先承接请求，只代表自己/助理响应。',
+      '你是当前房间的唯一协调者入口。无论你是否来自自定义模板，都必须继承默认协调者的基础职责。',
+      '用户没有明确 @ Agent 时，你必须先承接请求，只代表自己/协调者响应。',
     ],
     workspaceRules: [
-      '助理 Agent 是默认入口和调度者；用户没有明确 @ 专家时，只由助理接收请求。',
-      '只要你是助理角色，就必须像默认助理一样主动接住用户任务，说明下一步。',
+      '协调者 Agent 是默认入口和调度者；用户没有明确 @ Agent 时，只由协调者接收请求。',
+      '只要你是协调者角色，就必须像默认协调者一样主动接住用户任务，说明下一步。',
     ],
     autoPromptRules: [
-      '用户没有明确 @ 专家时，系统只会触发你；你是房间入口，必须先接住用户请求。',
+      '用户没有明确 @ Agent 时，系统只会触发你；你是房间入口，必须先接住用户请求。',
     ],
   },
   {
     key: 'assistant.active_task_intake',
     title: '主动接任务',
     promptRules: [
-      '用户提出明确需求、安排、修改、创建、排查、推进事项时，你要像默认助理一样主动接任务。',
+      '用户提出明确需求、安排、修改、创建、排查、推进事项时，你要像默认协调者一样主动接任务。',
       '不要只解释能力或等待用户再次指派；应说明下一步并推进执行。',
     ],
     workspaceRules: [
-      '明确需求、安排、修改、创建、排查、推进事项出现时，助理必须主动承接。',
-      '简单且没有匹配 Agent的事项：助理应直接处理并简短汇报，不创建任务。',
+      '明确需求、安排、修改、创建、排查、推进事项出现时，协调者必须主动承接。',
+      '简单且没有匹配 Agent的事项：协调者应直接处理并简短汇报，不创建任务。',
     ],
     autoPromptRules: [
       '如果用户在提问、寻求方案、任务推进、总结、安排、创建/修改内容、排查问题、阻塞处理、决策建议，必须回复并主动承接任务。',
@@ -80,11 +80,11 @@ const assistantCapabilities: AgentRoleCapability[] = [
     promptRules: [
       '在需要时创建任务/计划/交互卡，推进执行、分派 Agent、跟踪状态。',
       '在其他 Agent 完成后做最终整合、判断和决策，但不要绕过明确应由其他 Agent 完成的专业工作。',
-      '你的自定义提示词只是在上述助理职责上的补充/定制，不得取消助理入口、主动接任务与协调职责。',
+      '你的自定义提示词只是在上述协调者职责上的补充/定制，不得取消协调者入口、主动接任务与协调职责。',
     ],
     workspaceRules: [
-      '用户已明确要求立即执行或已确认计划时，助理作为入口创建父任务，判断合适 Agent并分派。',
-      '自定义逻辑只影响助理如何处理该场景的任务，不取消主动接任务、协调专家、跟进状态的基础职责。',
+      '用户已明确要求立即执行或已确认计划时，协调者作为入口创建父任务，判断合适 Agent并分派。',
+      '自定义逻辑只影响协调者如何处理该场景的任务，不取消主动接任务、协调 Agent、跟进状态的基础职责。',
     ],
   },
 ]
@@ -94,12 +94,12 @@ const specialistCapabilities: AgentRoleCapability[] = [
     key: 'specialist.scope',
     title: '普通 Agent 边界',
     promptRules: [
-      '普通 Agent 只处理人类明确 @ 或任务分派给自己的事项；不要抢房间助理的入口职责。',
+      '普通 Agent 只处理人类明确 @ 或任务分派给自己的事项；不要抢协调者的入口职责。',
       '不要主动组织其他 Agent 讨论。',
     ],
     workspaceRules: [
       '普通 Agent 只在“人类明确 @ 自己”或“任务/子任务分派给自己”时处理。',
-      '不要主动组织其他 Agent 讨论，不要抢房间助理的入口职责。',
+      '不要主动组织其他 Agent 讨论，不要抢协调者的入口职责。',
     ],
   },
 ]
@@ -111,7 +111,7 @@ export function getRoleCapabilities(roleType: AgentRoleType): AgentRoleCapabilit
 export function renderRoleCapabilitiesForPrompt(roleType: AgentRoleType): string {
   const capabilities = getRoleCapabilities(roleType)
   if (capabilities.length === 0) return ''
-  const title = roleType === 'assistant' ? '房间助理能力' : '普通 Agent 能力'
+  const title = roleType === 'assistant' ? '协调者能力' : '普通 Agent 能力'
   return [`【${title}】`, ...capabilities.flatMap((capability) => [
     `- ${capability.title}`,
     ...capability.promptRules.map((rule) => `  - ${rule}`),

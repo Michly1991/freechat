@@ -53,7 +53,7 @@ export function createRoomProfileController({ members, roomAgents, setSelectedPr
     if (item.assigneeType === 'agent') {
       const agent = roomAgents.find((a) => a.id === item.assigneeId || a.name === item.assigneeName) || {
         name: item.assigneeName,
-        roleType: item.assigneeName.includes('助理') ? 'assistant' : 'specialist',
+        roleType: item.assigneeName.includes('协调者') ? 'assistant' : 'specialist',
         status: 'active',
       }
       return <span className={`inline-flex items-center ${labelClass}`}>{renderAgentAvatar(agent, avatarSize, iconSize)}<span>{item.assigneeName}</span></span>
