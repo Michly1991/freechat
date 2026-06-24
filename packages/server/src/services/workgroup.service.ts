@@ -35,7 +35,9 @@ function asList(value: any): any[] {
 function userLabel(row: any) { return row.nickname || row.username || row.user_id || row.id }
 function hashToken(token: string) { return crypto.createHash('sha256').update(token).digest('hex') }
 function makeEntryToken() { return crypto.randomBytes(24).toString('base64url') }
-function publicEntry(row: any, token?: string) { return row ? { id: row.id, workgroupId: row.workgroup_id, agentId: row.agent_id, agentName: row.agent_name, title: row.title, description: row.description, accessMode: row.access_mode, enabled: !!row.enabled, welcomeMessage: row.welcome_message, maxUses: row.max_uses, usedCount: row.used_count || 0, expiresAt: row.expires_at, createdBy: row.created_by, createdAt: row.created_at, updatedAt: row.updated_at, token: token || row.token } : null }
+function makeShareToken() { return crypto.randomBytes(18).toString('base64url') }
+function publicShareLink(row: any) { return row ? { id: row.id, entryId: row.entry_id, sharerUserId: row.sharer_user_id, sharerName: row.sharer_name, token: row.token, enabled: !!row.enabled, visitCount: row.visit_count || 0, joinCount: row.join_count || 0, lastUsedAt: row.last_used_at, createdAt: row.created_at } : null }
+function publicEntry(row: any, token?: string, extra: any = {}) { return row ? { id: row.id, workgroupId: row.workgroup_id, agentId: row.agent_id, agentName: row.agent_name, title: row.title, description: row.description, accessMode: row.access_mode, enabled: !!row.enabled, welcomeMessage: row.welcome_message, maxUses: row.max_uses, usedCount: row.used_count || 0, expiresAt: row.expires_at, createdBy: row.created_by, createdAt: row.created_at, updatedAt: row.updated_at, token: token || row.token, ...extra } : null }
 
 export class WorkgroupService {
   createWorkgroup(userId: string, input: { name: string; description?: string }) {
@@ -265,14 +267,47 @@ export class WorkgroupService {
     if (!other) throw { code: 'VALIDATION_ERROR', message: '不能移除或降级最后一个 owner' }
   }
 
-  listEntries(workgroupId: string) {
-    return (db.prepare(`
+  listEntries(workgroupId: string, viewerUserId?: string) {
+    const rows = db.prepare(`
       SELECT e.*, a.name agent_name
       FROM workgroup_entries e
       JOIN agents a ON a.id = e.agent_id
       WHERE e.workgroup_id = ?
       ORDER BY e.created_at DESC
-    `).all(workgroupId) as any[]).map((row) => publicEntry(row))
+    `).all(workgroupId) as any[]
+    return rows.map((row) => {
+      const myShareLink = viewerUserId ? this.ensureEntryShareLink(row.id, workgroupId, viewerUserId) : null
+      return publicEntry(row, undefined, { myShareLink })
+    })
+  }
+
+  ensureEntryShareLink(entryId: string, workgroupId: string, sharerUserId: string) {
+    const member = db.prepare(`
+      SELECT wm.user_id, wm.role, u.username, u.nickname, u.identity_type
+      FROM workgroup_members wm JOIN users u ON u.id = wm.user_id
+      WHERE wm.workgroup_id = ? AND wm.user_id = ?
+    `).get(workgroupId, sharerUserId) as any
+    if (!member || (member.identity_type || 'human') !== 'human') return null
+    const existing = db.prepare(`
+      SELECT sl.*, COALESCE(u.nickname, u.username) sharer_name
+      FROM workgroup_entry_share_links sl
+      JOIN users u ON u.id = sl.sharer_user_id
+      WHERE sl.entry_id = ? AND sl.sharer_user_id = ?
+    `).get(entryId, sharerUserId) as any
+    if (existing) return publicShareLink(existing)
+    const token = makeShareToken()
+    const id = `wges_${uuidv4()}`
+    const ts = now()
+    db.prepare(`
+      INSERT INTO workgroup_entry_share_links (id, workgroup_id, entry_id, sharer_user_id, token_hash, token, enabled, visit_count, join_count, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 1, 0, 0, ?, ?)
+    `).run(id, workgroupId, entryId, sharerUserId, hashToken(token), token, ts, ts)
+    return publicShareLink(db.prepare(`
+      SELECT sl.*, COALESCE(u.nickname, u.username) sharer_name
+      FROM workgroup_entry_share_links sl
+      JOIN users u ON u.id = sl.sharer_user_id
+      WHERE sl.id = ?
+    `).get(id) as any)
   }
 
   createEntry(workgroupId: string, userId: string, input: any) {
@@ -288,7 +323,9 @@ export class WorkgroupService {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 0, ?, ?, ?, ?)
     `).run(id, workgroupId, agent.id, title, input.description || null, input.accessMode || 'private_link', hashToken(token), token, input.welcomeMessage || null, input.maxUses || null, input.expiresAt || null, userId, ts, ts)
     const row = db.prepare('SELECT e.*, a.name agent_name FROM workgroup_entries e JOIN agents a ON a.id = e.agent_id WHERE e.id = ?').get(id) as any
-    return publicEntry(row, token)
+    const entry = publicEntry(row, token) as any
+    this.ensureEntryShareLink(id, workgroupId, userId)
+    return entry
   }
 
   updateEntry(workgroupId: string, entryId: string, userId: string, input: any) {
@@ -315,7 +352,7 @@ export class WorkgroupService {
     db.prepare('DELETE FROM workgroup_entries WHERE id = ? AND workgroup_id = ?').run(entryId, workgroupId)
   }
 
-  getEntryByToken(token: string) {
+  getEntryByToken(token: string, refToken?: string, viewerUserId?: string) {
     const row = db.prepare(`
       SELECT e.*, wg.name workgroup_name, wg.description workgroup_description, a.name agent_name, a.description agent_description
       FROM workgroup_entries e
@@ -326,16 +363,41 @@ export class WorkgroupService {
     if (!row || !row.enabled) throw { code: 'ENTRY_NOT_FOUND', message: '分享入口不存在或已停用' }
     if (row.expires_at && row.expires_at < now()) throw { code: 'ENTRY_EXPIRED', message: '分享入口已过期' }
     if (row.max_uses && row.used_count >= row.max_uses) throw { code: 'ENTRY_EXPIRED', message: '分享入口使用次数已满' }
-    return { ...publicEntry(row), workgroupName: row.workgroup_name, workgroupDescription: row.workgroup_description, agentDescription: row.agent_description }
+    const rawShareLink = refToken ? this.resolveEntryShareLink(row.id, refToken) : null
+    this.recordShareEvent(row, rawShareLink, viewerUserId, 'view')
+    return { ...publicEntry(row, undefined, { shareLink: publicShareLink(rawShareLink) }), workgroupName: row.workgroup_name, workgroupDescription: row.workgroup_description, agentDescription: row.agent_description }
   }
 
-  async joinEntry(token: string, userId: string) {
-    const entry = this.getEntryByToken(token) as any
+  resolveEntryShareLink(entryId: string, refToken?: string) {
+    if (!refToken) return null
+    const row = db.prepare(`
+      SELECT sl.*, COALESCE(u.nickname, u.username) sharer_name
+      FROM workgroup_entry_share_links sl
+      JOIN users u ON u.id = sl.sharer_user_id
+      WHERE sl.entry_id = ? AND sl.token_hash = ? AND sl.enabled = 1
+    `).get(entryId, hashToken(refToken)) as any
+    return row || null
+  }
+
+  recordShareEvent(entry: any, shareLink: any, visitorUserId: string | undefined, eventType: 'view' | 'join', roomId?: string) {
+    if (eventType === 'view' && !shareLink) return
+    const ts = now()
+    db.prepare(`
+      INSERT INTO workgroup_entry_share_events (id, workgroup_id, entry_id, share_link_id, sharer_user_id, visitor_user_id, event_type, room_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(`wgese_${uuidv4()}`, entry.workgroup_id || entry.workgroupId, entry.id, shareLink?.id || null, shareLink?.sharer_user_id || shareLink?.sharerUserId || null, visitorUserId || null, eventType, roomId || null, ts)
+    if (shareLink) db.prepare(`UPDATE workgroup_entry_share_links SET ${eventType === 'join' ? 'join_count = join_count + 1,' : 'visit_count = visit_count + 1,'} last_used_at = ?, updated_at = ? WHERE id = ?`).run(ts, ts, shareLink.id)
+  }
+
+  async joinEntry(token: string, userId: string, refToken?: string) {
+    const entry = this.getEntryByToken(token, refToken, userId) as any
     const account = db.prepare('SELECT balance FROM credit_accounts WHERE user_id = ?').get(userId) as any
     if (!account || account.balance <= 0) throw { code: 'INSUFFICIENT_CREDITS', message: '余额不足，不能创建分享入口会话。请先充值 credit。' }
     db.prepare('INSERT OR IGNORE INTO workgroup_members (workgroup_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)').run(entry.workgroupId, userId, 'member', now())
     const room = await roomService.createRoom(entry.title, entry.description || null, userId, [], [{ agentId: entry.agentId, roomRole: 'assistant', autoEnabled: true, priority: 0 }], { roomKind: 'entry', workgroupId: entry.workgroupId, workgroupEntryId: entry.id, syncInitialMembersToWorkgroup: false })
+    if (entry.shareLink) db.prepare('UPDATE rooms SET workgroup_entry_share_link_id = ?, workgroup_entry_sharer_user_id = ? WHERE id = ?').run(entry.shareLink.id, entry.shareLink.sharerUserId, room.id)
     db.prepare('UPDATE workgroup_entries SET used_count = COALESCE(used_count, 0) + 1, updated_at = ? WHERE id = ?').run(now(), entry.id)
+    this.recordShareEvent({ ...entry, workgroup_id: entry.workgroupId }, entry.shareLink, userId, 'join', room.id)
     await messageService.createMessage(room.id, 'system', '系统', 'ai', `你正在通过「${entry.title}」分享入口使用「${entry.agentName || 'Agent'}」。本会话为你的独立对话，费用由你自己承担（包含可能产生的模型费和 Agent 服务费）。`, undefined, undefined, 'system_notice', { reason: 'workgroup_entry_joined', entryId: entry.id, agentId: entry.agentId, payerUserId: userId })
     if (entry.welcomeMessage) await messageService.createMessage(room.id, entry.agentId, entry.agentName || 'Agent', 'ai', entry.welcomeMessage, undefined, undefined, 'text')
     return { entry, room }

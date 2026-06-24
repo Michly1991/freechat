@@ -61,6 +61,8 @@ export function ensureWorkgroupSchema(db: Database.Database) {
   if (!roomCols.some((col) => col.name === 'workgroup_id')) db.exec('ALTER TABLE rooms ADD COLUMN workgroup_id TEXT')
   if (!roomCols.some((col) => col.name === 'workgroup_entry_id')) db.exec('ALTER TABLE rooms ADD COLUMN workgroup_entry_id TEXT')
   if (!roomCols.some((col) => col.name === 'source_room_id')) db.exec('ALTER TABLE rooms ADD COLUMN source_room_id TEXT')
+  if (!roomCols.some((col) => col.name === 'workgroup_entry_share_link_id')) db.exec('ALTER TABLE rooms ADD COLUMN workgroup_entry_share_link_id TEXT')
+  if (!roomCols.some((col) => col.name === 'workgroup_entry_sharer_user_id')) db.exec('ALTER TABLE rooms ADD COLUMN workgroup_entry_sharer_user_id TEXT')
   db.exec('CREATE INDEX IF NOT EXISTS idx_rooms_workgroup ON rooms(workgroup_id, last_active_at)')
   const entryCols = db.prepare('PRAGMA table_info(workgroup_entries)').all() as any[]
   if (!entryCols.some((col) => col.name === 'token')) db.exec('ALTER TABLE workgroup_entries ADD COLUMN token TEXT')
@@ -72,4 +74,43 @@ export function ensureWorkgroupSchema(db: Database.Database) {
   db.exec('CREATE INDEX IF NOT EXISTS idx_workgroup_agents_agent ON workgroup_agents(agent_id)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_workgroup_entries_workgroup ON workgroup_entries(workgroup_id, enabled)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_workgroup_entries_token ON workgroup_entries(token_hash)')
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workgroup_entry_share_links (
+      id TEXT PRIMARY KEY,
+      workgroup_id TEXT NOT NULL,
+      entry_id TEXT NOT NULL,
+      sharer_user_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      token TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      visit_count INTEGER NOT NULL DEFAULT 0,
+      join_count INTEGER NOT NULL DEFAULT 0,
+      last_used_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(entry_id, sharer_user_id),
+      FOREIGN KEY (workgroup_id) REFERENCES workgroups(id) ON DELETE CASCADE,
+      FOREIGN KEY (entry_id) REFERENCES workgroup_entries(id) ON DELETE CASCADE,
+      FOREIGN KEY (sharer_user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workgroup_entry_share_events (
+      id TEXT PRIMARY KEY,
+      workgroup_id TEXT NOT NULL,
+      entry_id TEXT NOT NULL,
+      share_link_id TEXT,
+      sharer_user_id TEXT,
+      visitor_user_id TEXT,
+      event_type TEXT NOT NULL,
+      room_id TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (workgroup_id) REFERENCES workgroups(id) ON DELETE CASCADE,
+      FOREIGN KEY (entry_id) REFERENCES workgroup_entries(id) ON DELETE CASCADE,
+      FOREIGN KEY (share_link_id) REFERENCES workgroup_entry_share_links(id) ON DELETE SET NULL
+    )
+  `)
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workgroup_entry_share_links_entry ON workgroup_entry_share_links(entry_id, sharer_user_id)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workgroup_entry_share_links_token ON workgroup_entry_share_links(token_hash)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_workgroup_entry_share_events_entry ON workgroup_entry_share_events(entry_id, created_at)')
 }

@@ -11,18 +11,20 @@ export default function WorkgroupEntryPage() {
   const [joining, setJoining] = useState(false)
   const [message, setMessage] = useState('')
 
+  const ref = new URLSearchParams(window.location.search).get('ref') || undefined
+
   useEffect(() => { void load() }, [token])
   async function load() {
     if (!token) return
     setLoading(true)
-    try { const data = await api.getWorkgroupEntry(token); setEntry(data.entry); setMessage('') }
+    try { const data = await api.getWorkgroupEntry(token, ref); setEntry(data.entry); setMessage('') }
     catch (err: any) { setMessage(err.message || '分享入口不可用') }
     finally { setLoading(false) }
   }
   async function join() {
     if (!token) return
     setJoining(true)
-    try { const data = await api.joinWorkgroupEntry(token); navigate(`/room/${data.room.id}`, { replace: true }) }
+    try { const data = await api.joinWorkgroupEntry(token, ref); navigate(`/room/${data.room.id}`, { replace: true }) }
     catch (err: any) { setMessage(err.message || '进入失败') }
     finally { setJoining(false) }
   }

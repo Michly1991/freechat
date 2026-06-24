@@ -163,3 +163,14 @@ CLI：
 工作组分享入口的“查看/复制链接”能力对同工作组真人成员开放。也就是说，进入同一工作组的真人用户都可以在工作组详情中看到现有分享入口并复制入口链接。
 
 管理能力仍不放开：创建、编辑、启停、删除分享入口仍要求 `owner/admin`。普通工作组成员只能查看和复制，不能修改入口配置，也不能管理工作组 Agent。
+
+## 成员专属分享链接与流量归因
+
+分享入口支持成员专属链接，用于后续流量分析和收益/成本归因：
+
+- 主入口仍使用 `/workgroup-entry/:entryToken`。
+- 工作组真人成员在工作组详情中复制入口时，复制的是专属链接：`/workgroup-entry/:entryToken?ref=:memberShareToken`。
+- `memberShareToken` 绑定 `entry_id + sharer_user_id`，同一入口下不同真人成员的 token 不同。
+- 系统记录 `view` 与 `join` 事件，并在专属链接上维护 `visit_count / join_count / last_used_at`。
+- 入口会话创建后，房间记录 `workgroup_entry_share_link_id` 与 `workgroup_entry_sharer_user_id`，后续可按分享者统计入口访问、会话数、token、Credit 消耗和转化效果。
+- 普通成员只能复制自己的专属链接；管理员可继续管理入口配置。

@@ -22,15 +22,18 @@ export async function registerWorkgroupRoutes(app: FastifyInstance) {
   })
 
   app.get('/api/workgroup-entries/:token', async (request, reply) => {
+    const user = (request as any).user
     const { token } = request.params as any
-    try { return reply.send({ success: true, data: { entry: workgroupService.getEntryByToken(token) } }) }
+    const { ref } = request.query as any
+    try { return reply.send({ success: true, data: { entry: workgroupService.getEntryByToken(token, ref, user?.id) } }) }
     catch (err: any) { return routeError(reply, err) }
   })
 
   app.post('/api/workgroup-entries/:token/join', async (request, reply) => {
     const user = (request as any).user
     const { token } = request.params as any
-    try { return reply.send({ success: true, data: await workgroupService.joinEntry(token, user.id) }) }
+    const { ref } = request.query as any
+    try { return reply.send({ success: true, data: await workgroupService.joinEntry(token, user.id, ref) }) }
     catch (err: any) { return routeError(reply, err) }
   })
 
@@ -123,7 +126,7 @@ export async function registerWorkgroupRoutes(app: FastifyInstance) {
     const { id } = request.params as any
     try {
       workgroupService.assertUserInWorkgroup(id, user.id)
-      return reply.send({ success: true, data: { entries: workgroupService.listEntries(id) } })
+      return reply.send({ success: true, data: { entries: workgroupService.listEntries(id, user.id) } })
     } catch (err: any) { return routeError(reply, err) }
   })
 
