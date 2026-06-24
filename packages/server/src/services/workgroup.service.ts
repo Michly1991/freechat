@@ -75,6 +75,7 @@ export class WorkgroupService {
         ...workgroup,
         current_user_role: membership.role,
         canManage: ['owner', 'admin'].includes(membership.role),
+        canViewEntries: true,
       },
       members: this.listMembers(workgroupId),
       agents: this.listAgents(workgroupId),
