@@ -6,6 +6,7 @@ import { ensureAgentDreamSchema } from './agent-dream-schema.js'
 import { ensureAgentGrowthSchema } from './agent-growth-schema.js'
 import { ensureNotificationSchema } from './notification-schema.js'
 import { ensureBillingSchema } from './billing-schema.js'
+import { ensureAuditSchema } from '../services/audit-log.service.js'
 import { ensureWorkgroupSchema } from './workgroup-schema.js'
 import { ensureAgentAnalyticsSchema } from './agent-analytics-schema.js'
 import { ensureRemoteAgentSchema } from './remote-agent-schema.js'
@@ -550,6 +551,7 @@ export function initDatabase() {
   `)
 
   ensureBillingSchema(db)
+  ensureAuditSchema(db)
   ensureWorkgroupSchema(db)
 
   // Historical Agent conversation cache retained for existing schema compatibility

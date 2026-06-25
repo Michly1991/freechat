@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
+import { useFeedback } from '../../components/FeedbackProvider'
+import { useAuthStore } from '../../stores/authStore'
 
 type Role = 'payer' | 'agent_provider' | 'model_provider' | 'scene_provider'
 const roles: Array<{ id: Role; label: string; hint: string }> = [
@@ -28,10 +30,17 @@ function ledgerTypeLabel(type: string) {
 }
 
 export function BillingPanel() {
+  const feedback = useFeedback()
+  const { user } = useAuthStore()
   const [role, setRole] = useState<Role>('payer')
   const [summaries, setSummaries] = useState<Record<Role, any>>({ payer: null, agent_provider: null, model_provider: null, scene_provider: null })
   const [ledger, setLedger] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
+  const [showTopup, setShowTopup] = useState(false)
+  const [topupAmount, setTopupAmount] = useState('1000')
+  const [topupNote, setTopupNote] = useState('')
+  const [topupUserId, setTopupUserId] = useState('')
+  const [toppingUp, setToppingUp] = useState(false)
   const load = async () => {
     setLoading(true)
     try {
@@ -47,6 +56,49 @@ export function BillingPanel() {
     } finally { setLoading(false) }
   }
   useEffect(() => { void load() }, [role])
+
+  const exportCsv = () => {
+    const headers = ['时间', '类型', '项目', 'Agent', '模型', 'Token', '缓存', '模型费', 'Agent费', '合计']
+    const rows = ledger.map((row) => [
+      fmtDate(row.created_at || row.createdAt),
+      ledgerTypeLabel(row.entry_type),
+      row.sceneName || row.roomName || row.room_id || '未关联项目',
+      row.agentName || row.agent_id || '-',
+      row.model || '-',
+      fmtInt(row.total_tokens),
+      fmtInt(Number(row.cache_read_tokens || 0) + Number(row.cache_write_tokens || 0)),
+      fmtCredit(row.model_credit_amount),
+      fmtCredit(row.agent_credit_amount),
+      fmtCredit(row.credit_amount),
+    ])
+    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const date = new Date().toISOString().slice(0, 10)
+    a.download = `freechat-billing-${date}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    feedback.success('账单已导出')
+  }
+
+  const doTopup = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const amount = Number(topupAmount) || 0
+    if (amount <= 0) return
+    setToppingUp(true)
+    try {
+      await api.adminTopupWallet({ amount, note: topupNote || '手工充值', userId: topupUserId.trim() || undefined })
+      feedback.success(`已充值 ${amount} credit`)
+      setShowTopup(false)
+      setTopupAmount('1000')
+      setTopupNote('')
+      setTopupUserId('')
+      void load()
+    } catch (err: any) { feedback.error(err.message || '充值失败') }
+    finally { setToppingUp(false) }
+  }
 
   const summary = summaries[role]
   const spend = Math.abs(Number(summaries.payer?.summary?.credits || 0))
@@ -105,7 +157,9 @@ export function BillingPanel() {
     </div>
 
     <DimensionAnalysis summary={summary} role={role} />
-    <div><h3 className="mb-2 font-medium text-gray-800">最近流水</h3><div className="overflow-x-auto rounded-xl border border-gray-100"><table className="min-w-full text-sm"><thead className="bg-gray-50 text-gray-500"><tr><th className="px-3 py-2 text-left">类型</th><th className="px-3 py-2 text-left">项目</th><th className="px-3 py-2 text-left">Agent</th><th className="px-3 py-2 text-left">模型</th><th className="px-3 py-2 text-right">Token</th><th className="px-3 py-2 text-right">缓存</th><th className="px-3 py-2 text-right">模型费</th><th className="px-3 py-2 text-right">Agent费</th><th className="px-3 py-2 text-right">合计</th></tr></thead><tbody>{ledger.length === 0 && <tr><td className="px-3 py-6 text-center text-gray-400" colSpan={9}>暂无流水</td></tr>}{ledger.map((row) => <tr key={row.id} className="border-t border-gray-100"><td className="px-3 py-2 text-gray-600">{ledgerTypeLabel(row.entry_type)}</td><td className="px-3 py-2 text-gray-600">{row.sceneName || row.roomName || row.room_id || '未关联项目'}</td><td className="px-3 py-2 text-gray-600">{row.agentName || row.agent_id || '-'}</td><td className="px-3 py-2 text-gray-600">{row.model || '-'}</td><td className="px-3 py-2 text-right text-gray-600">{fmtInt(row.total_tokens)}</td><td className="px-3 py-2 text-right text-gray-500">{fmtInt(Number(row.cache_read_tokens || 0) + Number(row.cache_write_tokens || 0))}</td><td className="px-3 py-2 text-right text-gray-700">{fmtCredit(row.model_credit_amount)}</td><td className="px-3 py-2 text-right text-gray-700">{fmtCredit(row.agent_credit_amount)}</td><td className="px-3 py-2 text-right font-medium text-gray-800">{fmtCredit(row.credit_amount)}</td></tr>)}</tbody></table></div></div>
+    <div><div className="flex items-center justify-between mb-2"><h3 className="font-medium text-gray-800">最近流水</h3><button onClick={exportCsv} className="text-xs text-blue-600 hover:text-blue-700">导出 CSV</button></div><div className="overflow-x-auto rounded-xl border border-gray-100"><table className="min-w-full text-sm"><thead className="bg-gray-50 text-gray-500"><tr><th className="px-3 py-2 text-left">类型</th><th className="px-3 py-2 text-left">项目</th><th className="px-3 py-2 text-left">Agent</th><th className="px-3 py-2 text-left">模型</th><th className="px-3 py-2 text-right">Token</th><th className="px-3 py-2 text-right">缓存</th><th className="px-3 py-2 text-right">模型费</th><th className="px-3 py-2 text-right">Agent费</th><th className="px-3 py-2 text-right">合计</th></tr></thead><tbody>{ledger.length === 0 && <tr><td className="px-3 py-6 text-center text-gray-400" colSpan={9}>暂无流水</td></tr>}{ledger.map((row) => <tr key={row.id} className="border-t border-gray-100"><td className="px-3 py-2 text-gray-600">{ledgerTypeLabel(row.entry_type)}</td><td className="px-3 py-2 text-gray-600">{row.sceneName || row.roomName || row.room_id || '未关联项目'}</td><td className="px-3 py-2 text-gray-600">{row.agentName || row.agent_id || '-'}</td><td className="px-3 py-2 text-gray-600">{row.model || '-'}</td><td className="px-3 py-2 text-right text-gray-600">{fmtInt(row.total_tokens)}</td><td className="px-3 py-2 text-right text-gray-500">{fmtInt(Number(row.cache_read_tokens || 0) + Number(row.cache_write_tokens || 0))}</td><td className="px-3 py-2 text-right text-gray-700">{fmtCredit(row.model_credit_amount)}</td><td className="px-3 py-2 text-right text-gray-700">{fmtCredit(row.agent_credit_amount)}</td><td className="px-3 py-2 text-right font-medium text-gray-800">{fmtCredit(row.credit_amount)}</td></tr>)}</tbody></table></div></div>
+
+  {showTopup && <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"><div className="bg-white rounded-2xl p-5 w-full max-w-md shadow-xl"><div className="flex items-center justify-between mb-4"><h3 className="text-lg font-semibold text-gray-900">充值</h3><button onClick={() => setShowTopup(false)} className="text-gray-400 hover:text-gray-600">&times;</button></div><form onSubmit={doTopup} className="space-y-4"><div><label className="text-sm text-gray-600 block mb-1">充值金额 (credit)</label><input type="number" step="1" min="1" value={topupAmount} onChange={(e) => setTopupAmount(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-200 outline-none" placeholder="1000" /></div>{(user?.role === 'admin') && <div><label className="text-sm text-gray-600 block mb-1">用户 ID (admin 可给其他用户充值)</label><input value={topupUserId} onChange={(e) => setTopupUserId(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-200 outline-none" placeholder="留空则给自己充值" /></div>}<div><label className="text-sm text-gray-600 block mb-1">备注 (可选)</label><input value={topupNote} onChange={(e) => setTopupNote(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-200 outline-none" placeholder="备注说明" /></div><button type="submit" disabled={toppingUp} className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60">{toppingUp ? '充值中...' : '确认充值'}</button></form></div></div>}
   </section>
 }
 

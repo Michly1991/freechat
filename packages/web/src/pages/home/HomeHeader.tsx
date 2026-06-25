@@ -1,5 +1,7 @@
-import { Bell, Plus } from 'lucide-react'
+import { Bell, Plus, Wallet } from 'lucide-react'
 import { NotificationPanel } from '../../features/notifications/NotificationPanel'
+import { useEffect, useState } from 'react'
+import { api } from '../../lib/api'
 import type { HeaderProps } from './types'
 
 export function HomeHeader({
@@ -20,6 +22,12 @@ export function HomeHeader({
   onMarkAllNotificationsRead,
   onOpenNotification,
 }: HeaderProps) {
+  const [billingAccount, setBillingAccount] = useState<any>(null)
+  useEffect(() => {
+    api.getBillingAccount().then((res) => setBillingAccount(res.account)).catch(() => {})
+  }, [])
+  const balance = Number(billingAccount?.balance || 0)
+  const balanceLow = balance < 10
   const runQuickAction = (action: () => void) => {
     setShowQuickActions(false)
     action()
@@ -30,6 +38,7 @@ export function HomeHeader({
       <div className="max-w-5xl mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-800">FreeChat</h1>
         <div className="flex items-center gap-2.5 sm:gap-4 relative">
+          {balanceLow && <div className="hidden sm:flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1 text-xs text-rose-600"><Wallet className="w-3.5 h-3.5" />余额 {balance.toFixed(0)} cr</div>}
           <button
             onClick={() => setShowNotifications((v) => !v)}
             className="fc-pressable relative w-9 h-9 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center hover:bg-gray-200"

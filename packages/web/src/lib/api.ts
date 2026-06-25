@@ -174,6 +174,7 @@ export const api = {
   getModelProfiles: () => request<{ profiles: any[] }>('/model-profiles'),
   createModelProfile: (body: any) => request<{ profile: any }>('/model-profiles', { method: 'POST', body: JSON.stringify(body) }),
   updateModelProfile: (id: string, body: any) => request<{ profile: any }>(`/model-profiles/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  adminTopupWallet: (body: { amount: number; note?: string; userId?: string }) => request<any>('/billing/adjust', { method: 'POST', body: JSON.stringify(body) }),
   getModelBillingRules: (profileId: string) => request<{ rules: any[] }>(`/model-profiles/${profileId}/billing-rules`),
   upsertModelBillingRule: (profileId: string, model: string, body: any) => request<{ rule: any }>(`/model-profiles/${profileId}/billing-rules/${encodeURIComponent(model)}`, { method: 'PUT', body: JSON.stringify(body) }),
   getAgentBillingRule: (agentId: string) => request<{ rule: any | null }>(`/agents/${agentId}/billing-rule`),
@@ -387,4 +388,17 @@ export const api = {
   // Users
   getUser: (userId: string) => request<any>(`/users/${userId}`),
   searchUsers: (q: string) => request<{ users: any[] }>(`/users/search?q=${encodeURIComponent(q)}`),
+
+  // Audit Logs
+  getAuditLogs: (params?: { userId?: string; action?: string; targetType?: string; targetId?: string; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams()
+    if (params?.userId) qs.set('userId', params.userId)
+    if (params?.action) qs.set('action', params.action)
+    if (params?.targetType) qs.set('targetType', params.targetType)
+    if (params?.targetId) qs.set('targetId', params.targetId)
+    if (params?.limit) qs.set('limit', String(params.limit))
+    if (params?.offset) qs.set('offset', String(params.offset))
+    return request(`/audit/logs${qs.toString() ? `?${qs.toString()}` : ''}`)
+  },
+  getAuditStats: () => request('/audit/stats'),
 }

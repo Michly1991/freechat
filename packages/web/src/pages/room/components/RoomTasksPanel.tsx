@@ -1,4 +1,5 @@
-import { Check, ListTodo, X } from 'lucide-react'
+import { Check, ListTodo, MessageSquare, X } from 'lucide-react'
+import { TaskDetailDrawer, type TaskDetail } from './TaskDetailDrawer'
 
 const statusColors: Record<string, string> = {
   todo: 'bg-gray-100 text-gray-700',

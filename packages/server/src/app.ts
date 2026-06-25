@@ -35,6 +35,7 @@ import { registerManagedAgentRoomRoutes } from './routes/managed-agent-rooms.js'
 import { registerVoiceRoutes } from './routes/voice.js'
 import { registerKnowledgeRoutes } from './routes/knowledge.js'
 import { registerWorkgroupRoutes } from './routes/workgroups.js'
+import { registerAuditLogRoutes } from './routes/audit-logs.js'
 import { authenticate } from './auth/middleware.js'
 import { initDatabase } from './storage/db.js'
 import { initWebSocket } from './ws/gateway.js'
@@ -139,6 +140,8 @@ async function buildApp() {
   await registerKnowledgeRoutes(app)
   await registerWorkgroupRoutes(app)
   await registerAgentToolRoutes(app)
+  await registerAuditLogRoutes(app)
+  await registerAuditLogRoutes(app)
 
   // Error handler
   app.setErrorHandler((error: any, request, reply) => {
