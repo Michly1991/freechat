@@ -4,8 +4,6 @@ import jwt from 'jsonwebtoken'
 import { v4 as uuidv4 } from 'uuid'
 import db from '../storage/db.js'
 import { config } from '../config.js'
-import { billingLedgerRepository } from '../domains/billing/billing-ledger.repository.js'
-import { creditWalletService } from './credit-wallet.service.js'
 import { billingService } from './billing.service.js'
 
 const ACCESS_EXPIRES_IN = '7d'
@@ -217,20 +215,20 @@ export class RemoteAgentConnectorService {
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as any
     if (!agent) throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found' }
     const room = db.prepare('SELECT created_by, room_kind, workgroup_entry_id FROM rooms WHERE id = ?').get(roomId) as any
-    const preflight = billingService.checkRoomAgentInvocation(roomId, agentId)
+    const preflight = billingService.checkRoomAgentInvocation(roomId, agentId, context.actorUserId)
     if (!preflight.allowed) {
       const isSharedEntry = room?.room_kind === 'entry' || !!room?.workgroup_entry_id
       throw {
         code: 'INSUFFICIENT_CREDITS',
         message: isSharedEntry
-          ? `余额不足，无法使用分享入口 Agent。本次会话费用由你承担，请先充值 credit 后再继续。`
-          : `余额不足，无法启动 Agent。预计至少需要 ${preflight.estimatedMinCredits} credit，当前余额 ${preflight.balance} credit。`,
+          ? `余额不足，无法使用分享入口 Agent。本次会话模型费用由你承担，请先充值 credit 后再继续。`
+          : `余额不足，无法启动 Agent。预计模型费用至少需要 ${preflight.estimatedMinCredits} credit，当前余额 ${preflight.balance} credit。`,
         payerUserId: preflight.payerUserId,
         estimatedMinCredits: preflight.estimatedMinCredits,
         balance: preflight.balance,
       }
     }
-    const payerUserId = room?.created_by || context.actorUserId || agent.owner_id || null
+    const payerUserId = context.actorUserId || room?.created_by || agent.owner_id || null
     const now = Date.now()
     const runId = `arun_${uuidv4()}`
     const eventId = `raevt_${uuidv4()}`
@@ -381,28 +379,7 @@ export class RemoteAgentConnectorService {
   }
 
   private settleRemoteRun(runId: string) {
-    const run = db.prepare('SELECT * FROM agent_runs WHERE id = ?').get(runId) as any
-    if (!run) return
-    const agent = db.prepare('SELECT owner_id, source_template_id FROM agents WHERE id = ?').get(run.agent_id) as any
-    const templateId = agent?.source_template_id || run.agent_id
-    const rule = db.prepare('SELECT * FROM agent_billing_rules WHERE agent_template_id = ? AND enabled = 1 LIMIT 1').get(templateId) as any
-    if (!rule || rule.billing_mode === 'free') return
-    if (['per_token', 'token_metered', 'token_multiplier'].includes(rule.billing_mode)) {
-      billingService.billRun(runId)
-      return
-    }
-    if (!['per_run_fixed', 'fixed_per_run'].includes(rule.billing_mode)) return
-    if (billingLedgerRepository.existsForRun(runId)) return
-    const amount = Number(rule.fixed_credits_per_run || 0)
-    if (!Number.isFinite(amount) || amount <= 0) return
-    const payerUserId = run.payer_user_id
-    const providerUserId = (db.prepare('SELECT owner_id FROM agents WHERE id = ?').get(templateId) as any)?.owner_id || agent?.owner_id
-    if (!payerUserId || !providerUserId || payerUserId === providerUserId) return
-    const event = { id: null, runId, roomId: run.room_id, agentId: run.agent_id, agentTemplateId: templateId, payerUserId, modelProfileId: null, model: null } as any
-    const debit = billingLedgerRepository.createEntry(event, { accountUserId: payerUserId, accountRole: 'payer', direction: 'debit', entryType: 'agent_usage_charge', amount, ruleSnapshot: JSON.stringify({ agentRule: rule, remote: true, usageSource: 'client_reported' }) })
-    creditWalletService.apply(payerUserId, -amount, 'agent_usage_charge', { runId, ledgerId: debit.id, note: `Remote Agent service ${runId}` })
-    const credit = billingLedgerRepository.createEntry(event, { accountUserId: providerUserId, accountRole: 'agent_provider', direction: 'credit', entryType: 'agent_income', amount, ruleSnapshot: JSON.stringify({ agentRule: rule, remote: true, usageSource: 'client_reported' }) })
-    creditWalletService.apply(providerUserId, amount, 'agent_income', { runId, ledgerId: credit.id, note: `Remote Agent service ${templateId}` })
+    billingService.billRun(runId)
   }
 }
 

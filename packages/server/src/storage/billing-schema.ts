@@ -173,6 +173,7 @@ function ensureMicrocreditMigration(db: Database.Database) {
       ['agent_billing_rules', 'output_credit_per_million'],
       ['agent_billing_rules', 'cache_write_credit_per_million'],
       ['agent_billing_rules', 'cache_read_credit_per_million'],
+      ['agent_billing_rules', 'min_credits_per_run'],
       ['agent_purchases', 'price_microcredits'],
       ['scene_billing_rules', 'fixed_credits_per_purchase'],
       ['billing_ledger_entries', 'amount'],
@@ -249,13 +250,14 @@ export function ensureBillingSchema(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS agent_billing_rules (
       id TEXT PRIMARY KEY,
       agent_template_id TEXT NOT NULL,
-      billing_mode TEXT NOT NULL DEFAULT 'token_multiplier',
+      billing_mode TEXT NOT NULL DEFAULT 'free',
       token_multiplier REAL DEFAULT 0,
       fixed_credits_per_run INTEGER DEFAULT 0,
       input_credit_per_million INTEGER DEFAULT 0,
       output_credit_per_million INTEGER DEFAULT 0,
       cache_write_credit_per_million INTEGER DEFAULT 0,
       cache_read_credit_per_million INTEGER DEFAULT 0,
+      min_credits_per_run INTEGER DEFAULT 0,
       revenue_share_rate REAL DEFAULT 1,
       enabled INTEGER DEFAULT 1,
       created_at INTEGER NOT NULL,
@@ -264,18 +266,26 @@ export function ensureBillingSchema(db: Database.Database) {
     )
   `)
   const agentRuleCols = db.prepare('PRAGMA table_info(agent_billing_rules)').all() as any[]
-  if (!agentRuleCols.some((col) => col.name === 'fixed_credits_per_purchase')) {
+  if (!agentRuleCols.some((col) => col.name === 'billing_mode')) {
+    db.exec("ALTER TABLE agent_billing_rules ADD COLUMN billing_mode TEXT NOT NULL DEFAULT 'free'")
+  }
+  const refreshedAgentRuleCols = db.prepare('PRAGMA table_info(agent_billing_rules)').all() as any[]
+  if (!refreshedAgentRuleCols.some((col) => col.name === 'fixed_credits_per_purchase')) {
     db.exec('ALTER TABLE agent_billing_rules ADD COLUMN fixed_credits_per_purchase INTEGER DEFAULT 0')
+  }
+  if (!refreshedAgentRuleCols.some((col) => col.name === 'min_credits_per_run')) {
+    db.exec('ALTER TABLE agent_billing_rules ADD COLUMN min_credits_per_run INTEGER DEFAULT 0')
   }
   db.exec(`
     UPDATE agent_billing_rules
-    SET billing_mode = 'per_token',
+    SET billing_mode = 'free',
         fixed_credits_per_run = 0,
         fixed_credits_per_purchase = 0,
-        input_credit_per_million = CASE WHEN input_credit_per_million = 0 THEN 5000 ELSE input_credit_per_million END,
-        output_credit_per_million = CASE WHEN output_credit_per_million = 0 THEN 10000 ELSE output_credit_per_million END,
-        cache_write_credit_per_million = CASE WHEN cache_write_credit_per_million = 0 THEN 5000 ELSE cache_write_credit_per_million END,
-        cache_read_credit_per_million = CASE WHEN cache_read_credit_per_million = 0 THEN 500 ELSE cache_read_credit_per_million END
+        input_credit_per_million = 0,
+        output_credit_per_million = 0,
+        cache_write_credit_per_million = 0,
+        cache_read_credit_per_million = 0,
+        min_credits_per_run = 0
     WHERE enabled = 1 AND billing_mode NOT IN ('free', 'per_token')
   `)
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_billing_rules_template ON agent_billing_rules(agent_template_id)`)

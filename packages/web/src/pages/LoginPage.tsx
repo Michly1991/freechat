@@ -16,7 +16,8 @@ export default function LoginPage() {
   const token = useAuthStore((s) => s.token)
 
   if (token) {
-    navigate('/')
+    const redirect = new URLSearchParams(window.location.search).get('redirect')
+    navigate(redirect || '/')
     return null
   }
 
@@ -30,7 +31,8 @@ export default function LoginPage() {
         ? await api.login({ username, password })
         : await api.register({ username, password, nickname, identityType })
       setUser(result.user, result.token)
-      navigate('/')
+      const redirect = new URLSearchParams(window.location.search).get('redirect')
+      navigate(redirect || '/')
     } catch (err: any) {
       setError(err.message)
     } finally {

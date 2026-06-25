@@ -2,6 +2,10 @@ import db from '../storage/db.js'
 import { hashPassword, verifyPassword, generateToken } from '../auth/jwt.js'
 import { v4 as uuidv4 } from 'uuid'
 import type { User, AuthResponse, UserIdentityType } from '@freechat/shared'
+import { creditWalletService } from './credit-wallet.service.js'
+import { creditToMicro } from '../domains/billing/money.js'
+
+const SIGNUP_INITIAL_CREDITS = 1000
 
 function normalizeIdentityType(value: unknown): UserIdentityType {
   return value === 'agent' ? 'agent' : 'human'
@@ -35,6 +39,8 @@ export class AuthService {
       INSERT INTO users (id, username, password_hash, nickname, role, identity_type, created_at, updated_at)
       VALUES (?, ?, ?, ?, 'user', ?, ?, ?)
     `).run(id, username, passwordHash, nickname, normalizeIdentityType(identityType), now, now)
+
+    creditWalletService.apply(id, creditToMicro(SIGNUP_INITIAL_CREDITS), 'signup_bonus', { note: 'new user initial credits' })
 
     const user: User = { id, username, nickname, role: 'user', identityType: normalizeIdentityType(identityType), createdAt: now }
     const token = generateToken(user)

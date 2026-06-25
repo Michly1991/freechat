@@ -14,10 +14,10 @@
 
 ## 和平台托管 Agent 的区别
 
-| 类型 | deployment | Claude Code 运行位置 | 模型 Key | 模型费 | Agent 服务费 |
+| 类型 | deployment | Claude Code 运行位置 | 模型 Key | 模型费 | Agent 本身费用 |
 | --- | --- | --- | --- | --- | --- |
-| 平台托管 Agent | `server` | FreeChat 服务端 | FreeChat 模型配置/模型服务 | 可计费 | 可计费 |
-| 远程 Claude Agent | `client` | 用户/第三方服务器 | 远程服务器本地配置 | MVP 不计 | 可计费 |
+| 平台托管/中心配置 Agent | `server`/中心配置 | FreeChat 服务端或 Agent Client | FreeChat 模型配置/模型服务 | 由使用方承担，可计费 | 免费 |
+| 远程 Claude Agent | `client` | 用户/第三方服务器 | 远程服务器本地配置 | FreeChat 只按 Agent token 服务费结算给 Agent owner，不计算平台模型费 | 默认免费，可配置 per-token |
 
 远程 Agent 的 Claude Code 环境由外部服务器维护，例如：
 
@@ -37,7 +37,7 @@ FreeChat 只需要 connector 凭证，不需要 Anthropic/OpenAI/百炼等模型
 5. Client 将凭证保存在本机，只用于该 Agent 的心跳、事件、工具调用和 run 状态上报。
 6. 后续同一 Agent 可由客户端控制台继续接管/暂停/恢复接收请求。
 
-配对码只使用一次，并有短有效期。连接凭证不是模型 API Key。Agent Client 的本地登录密码只保护 5188 控制台，不代表业务身份；业务身份始终是保存的 FreeChat Server 账号，Agent 发布方/收费方是 `agents.owner_id`。
+配对码只使用一次，并有短有效期。连接凭证不是模型 API Key。Agent Client 的本地登录密码只保护 5188 控制台，不代表业务身份；业务身份始终是保存的 FreeChat Server 账号。Agent 发布方/拥有者可通过服务端的 Agent per-token 计费规则获得 Agent 服务费；客户端托管运行不产生平台模型费。
 
 ## 当前协议
 
@@ -121,26 +121,19 @@ type RemoteAgentEvent = {
 
 ## 计费
 
-FreeChat 对远程 Agent 使用统一 Token 账单，但计量可信等级不同：
+FreeChat 对远程 Agent 继续记录 Token 用量，并按 Agent 服务规则结算：Agent Client 在 complete 时上报 token 账单，服务端按对应 Agent 的收费模式计算 Agent 费给 Agent 创建者；客户端托管运行不计算平台模型费。
 
 - 服务端/平台托管 Agent：`usage_source = server_metered`，`usage_trust_level = trusted`，由服务端直接采集模型 usage。
-- Agent Client 托管 Agent：`usage_source = client_reported`，`usage_trust_level = provider_reported`，由 Agent Client 在 `complete` 时上报 Claude Code usage；平台记录并结算，但在账单中明确这是提供方客户端上报，用户和提供方需自行建立信任。
+- Agent Client 托管 Agent：`usage_source = client_reported`，`usage_trust_level = provider_reported`，由 Agent Client 在 `complete` 时上报 Claude Code usage；账单中应明确这是客户端上报，用户和提供方需自行建立信任。
 
-远程 Agent 的模型 API Key 与实际模型成本仍属于 Agent 提供方本地环境，FreeChat 不保存远程模型 API Key，也不向平台模型提供方结算远程模型成本。远程 Agent 的自动账单按该 Agent 的统一价格卡计算：
+计费规则：
 
-```text
-agent_usage_charge = token_usage × agent_billing_rules(per_token)
-项目创建人 debit agent_usage_charge
-Agent 提供者 credit agent_income
-```
+1. Agent 服务费默认 `0`；仅当 `agent_billing_rules.billing_mode='per_token'` 且配置 token 单价后，生成 `agent_usage_charge` / `agent_income`。
+2. 使用方是本次 run 的 payer：优先使用触发者 `actorUserId`，分享入口/工作组房间使用进入者；普通项目房间通常是房间创建人。
+3. 客户端托管 Agent 不生成 `model_usage_charge` / `model_income`；上报的模型名只用于审计/展示，不用于匹配平台模型规则。
+4. 平台/服务端提供的 Agent runtime 才同时计算 Agent 服务费和平台/共享模型费。
 
-支持模式：
-
-- `free`：私有/内部 Agent，不自动扣费；
-- `per_token` / `token_metered`：按输入、输出、cache 写、cache 读 token 和 Agent 价格卡结算；
-- `per_run_fixed`：旧版兼容模式，仅对成功完成 run 收固定 Agent 服务费。
-
-Credit 精度统一为 4 位小数。API 以 credit 为单位传输，数据库以 microcredit 整数保存：`1 credit = 10000 microcredits`。每条 run/usage event 保存 `raw_usage_json`、`reported_by_connector_id` 和价格快照，便于审计与争议排查。
+Credit 精度统一为 4 位小数。API 以 credit 为单位传输，数据库以 microcredit 整数保存：`1 credit = 10000 microcredits`。每条 run/usage event 保存 `raw_usage_json`、`reported_by_connector_id` 和模型计费快照，便于审计与争议排查。
 
 ## 数据表
 
@@ -229,7 +222,7 @@ AGENT_CLIENT_ADMIN_PASSWORD='strong-password'
 FreeChat Server 是唯一中心服务器，但不再承载实际 Agent Runtime：
 
 - 所有 Agent 统一为 `deployment='client'`；即使服务端保存 Agent 记录，也只是中心配置、权限、调度、run、账单和消息。
-- 业务 Agent、专家 Agent、自定义 Agent、付费 Agent 都由 Agent Client 接管执行。
+- 业务 Agent、专家 Agent、自定义 Agent 都由 Agent Client 接管执行。
 - 客户端负责本机执行器、工作目录、日志、启停、并发、环境检测和 Agent 知识库。
 - Agent 知识库存在客户端上，服务端不默认保存知识库正文；服务端最多保存/展示客户端上报的状态或元数据。
 

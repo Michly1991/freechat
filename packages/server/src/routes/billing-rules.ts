@@ -23,11 +23,12 @@ function rowToAgentRule(row: any) {
   return {
     id: row.id,
     agentTemplateId: row.agent_template_id,
-    billingMode: row.billing_mode === 'free' ? 'free' : 'per_token',
+    billingMode: row.billing_mode === 'per_token' ? 'per_token' : 'free',
     inputCreditPerMillion: microToCredit(row.input_credit_per_million),
     outputCreditPerMillion: microToCredit(row.output_credit_per_million),
     cacheWriteCreditPerMillion: microToCredit(row.cache_write_credit_per_million),
     cacheReadCreditPerMillion: microToCredit(row.cache_read_credit_per_million),
+    minCreditsPerRun: microToCredit(row.min_credits_per_run),
     revenueShareRate: Number(row.revenue_share_rate ?? 1),
     enabled: !!row.enabled,
     createdAt: row.created_at,

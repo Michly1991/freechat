@@ -11,7 +11,6 @@ import { taskRetryService } from '../services/task-retry.service.js'
 import { notificationService } from '../services/notification.service.js'
 import { sceneTemplateService } from '../services/scene-template.service.js'
 import { marketEngagementService } from '../services/market-engagement.service.js'
-import { creditWalletService } from '../services/credit-wallet.service.js'
 import { roomAssistantService } from '../services/room-assistant.service.js'
 import { workgroupService } from '../services/workgroup.service.js'
 import { billingQueryRepository } from '../domains/billing/billing-query.repository.js'
@@ -55,10 +54,6 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     }
 
     try {
-      const account = creditWalletService.getAccount(user.id)
-      if (account.balance <= 0) {
-        return reply.code(402).send({ success: false, error: { code: 'INSUFFICIENT_CREDITS', message: '余额不足，不能创建项目。请先充值 credit。' } })
-      }
       const targetWorkgroupId = workgroupId ? String(workgroupId) : undefined
       if (targetWorkgroupId) workgroupService.assertUserInWorkgroup(targetWorkgroupId, user.id)
       const initialMemberIds = Array.isArray(memberIds)

@@ -49,7 +49,7 @@ export function RoomBillingPanel({ roomId }: { roomId: string }) {
   return <section className="flex-1 overflow-y-auto bg-gray-50 p-4 sm:p-6 space-y-5">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-semibold text-gray-900">房间账单</h2><p className="mt-1 text-sm text-gray-500">{scopeText}</p></div><button onClick={load} disabled={loading} className="w-fit rounded-lg bg-white px-3 py-2 text-sm text-gray-600 shadow-sm ring-1 ring-gray-200 hover:bg-gray-50 disabled:opacity-60">{loading ? '刷新中...' : '刷新'}</button></div>
     {error && <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>}
-    {hasUnbilled && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">有 {fmtInt(unbilled.count)} 次运行已记录用量但未生成 Credit 流水，通常是计费规则为免费或缺少规则。未计费 token：{fmtInt(unbilled.totalTokens)}。</div>}
+    {hasUnbilled && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">有 {fmtInt(unbilled.count)} 次运行已记录用量但未生成 Credit 流水，通常是模型计费规则为免费或缺少规则。未计费 token：{fmtInt(unbilled.totalTokens)}。</div>}
 
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
       <Metric label="本房间支出" value={fmtCredit(spend)} suffix="cr" tone="rose" />

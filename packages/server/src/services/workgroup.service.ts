@@ -178,11 +178,24 @@ export class WorkgroupService {
 
   listRooms(workgroupId: string, userId?: string) {
     const params: any[] = [workgroupId]
-    const visibility = userId ? 'AND (r.created_by = ? OR EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id = r.id AND rm.user_id = ?))' : ''
-    if (userId) params.push(userId, userId)
+    let visibility = ''
+    if (userId) {
+      const membership = db.prepare('SELECT role FROM workgroup_members WHERE workgroup_id = ? AND user_id = ?').get(workgroupId, userId) as any
+      const canManage = ['owner', 'admin'].includes(membership?.role)
+      if (!canManage) {
+        visibility = 'AND (r.created_by = ? OR EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id = r.id AND rm.user_id = ?))'
+        params.push(userId, userId)
+      }
+    }
     return db.prepare(`
-      SELECT r.id, r.name, r.description, r.room_kind, r.created_by, r.last_active_at, r.created_at
+      SELECT r.id, r.name, r.description, r.room_kind, r.created_by, r.last_active_at, r.created_at,
+        COALESCE(u.nickname, u.username, r.created_by) visitor_name,
+        e.title entry_title,
+        a.name agent_name
       FROM rooms r
+      LEFT JOIN users u ON u.id = r.created_by
+      LEFT JOIN workgroup_entries e ON e.id = r.workgroup_entry_id
+      LEFT JOIN agents a ON a.id = e.agent_id
       WHERE r.workgroup_id = ? AND r.deleted_at IS NULL ${visibility}
       ORDER BY r.last_active_at DESC
       LIMIT 100
@@ -447,14 +460,20 @@ export class WorkgroupService {
 
   async joinEntry(token: string, userId: string, refToken?: string) {
     const entry = this.getEntryByToken(token, refToken, userId) as any
-    const account = db.prepare('SELECT balance FROM credit_accounts WHERE user_id = ?').get(userId) as any
-    if (!account || account.balance <= 0) throw { code: 'INSUFFICIENT_CREDITS', message: '余额不足，不能创建分享入口会话。请先充值 credit。' }
-    db.prepare('INSERT OR IGNORE INTO workgroup_members (workgroup_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)').run(entry.workgroupId, userId, 'member', now())
+    const existingRoom = db.prepare(`
+      SELECT * FROM rooms
+      WHERE room_kind = 'entry' AND workgroup_entry_id = ? AND created_by = ? AND deleted_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(entry.id, userId) as any
+    if (existingRoom) {
+      return { entry, room: existingRoom }
+    }
     const room = await roomService.createRoom(entry.title, entry.description || null, userId, [], [{ agentId: entry.agentId, roomRole: 'assistant', autoEnabled: true, priority: 0 }], { roomKind: 'entry', workgroupId: entry.workgroupId, workgroupEntryId: entry.id, syncInitialMembersToWorkgroup: false })
     if (entry.shareLink) db.prepare('UPDATE rooms SET workgroup_entry_share_link_id = ?, workgroup_entry_sharer_user_id = ? WHERE id = ?').run(entry.shareLink.id, entry.shareLink.sharerUserId, room.id)
     db.prepare('UPDATE workgroup_entries SET used_count = COALESCE(used_count, 0) + 1, updated_at = ? WHERE id = ?').run(now(), entry.id)
     this.recordShareEvent({ ...entry, workgroup_id: entry.workgroupId }, entry.shareLink, userId, 'join', room.id)
-    await messageService.createMessage(room.id, 'system', '系统', 'ai', `你正在通过「${entry.title}」分享入口使用「${entry.agentName || 'Agent'}」。本会话为你的独立对话，费用由你自己承担（包含可能产生的模型费和 Agent 服务费）。`, undefined, undefined, 'system_notice', { reason: 'workgroup_entry_joined', entryId: entry.id, agentId: entry.agentId, payerUserId: userId })
+    await messageService.createMessage(room.id, 'system', '系统', 'ai', `你正在通过「${entry.title}」分享入口使用「${entry.agentName || 'Agent'}」。本会话为你的独立访客对话；如 Agent 设置了服务费会按 token 计费给 Agent 发布人，模型费按模型规则计费给模型提供方。`, undefined, undefined, 'system_notice', { reason: 'workgroup_entry_joined', entryId: entry.id, agentId: entry.agentId, payerUserId: userId, visitor: true })
     if (entry.welcomeMessage) await messageService.createMessage(room.id, entry.agentId, entry.agentName || 'Agent', 'ai', entry.welcomeMessage, undefined, undefined, 'text')
     return { entry, room }
   }

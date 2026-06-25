@@ -72,10 +72,6 @@ export default function RoomSettingsPage() {
   const removeAgent = async (agentId: string) => { try { await api.removeRoomAgent(roomId!, agentId); feedback.success('Agent 已移除'); loadAll() } catch (e: any) { feedback.error(e.message || '移除失败') } }
   const addAgent = async (agent: any, options?: { roomRole?: 'assistant' | 'specialist'; autoEnabled?: boolean }) => {
     try {
-      if (!agent.isOwner) {
-        const ok = await feedback.confirm({ title: '启用收费 Agent？', message: `「${agent.name}」按 token 收取 Agent 服务费，实际运行时会扣除 credit。确认添加到项目？`, confirmText: '确认添加' })
-        if (!ok) return
-      }
       await api.addRoomAgent(roomId!, agent.id, options)
       feedback.success('Agent 已添加')
       loadAll()

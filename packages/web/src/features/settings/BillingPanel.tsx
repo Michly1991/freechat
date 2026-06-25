@@ -3,7 +3,7 @@ import { api } from '../../lib/api'
 
 type Role = 'payer' | 'agent_provider' | 'model_provider' | 'scene_provider'
 const roles: Array<{ id: Role; label: string; hint: string }> = [
-  { id: 'payer', label: '支出明细', hint: '模型运行等消费' },
+  { id: 'payer', label: '支出明细', hint: '模型/Agent 运行消费' },
   { id: 'agent_provider', label: 'Agent 收入', hint: 'Agent token 服务收入' },
   { id: 'model_provider', label: '模型收入', hint: '模型调用收入' },
   { id: 'scene_provider', label: '场景收入', hint: '场景被购买收入' },
@@ -67,7 +67,7 @@ export function BillingPanel() {
   ]
 
   return <section className="bg-white rounded-xl p-5 sm:p-6 shadow-sm border border-gray-100 space-y-5">
-    <div className="flex flex-col gap-1"><h2 className="text-lg font-semibold text-gray-800">账单与收入</h2><p className="text-sm text-gray-500">支出、Agent 收入、模型收入放在一起对比；下方切换查看各类明细。</p></div>
+    <div className="flex flex-col gap-1"><h2 className="text-lg font-semibold text-gray-800">账单与收入</h2><p className="text-sm text-gray-500">模型支出、Agent 收入、模型收入和场景收入放在一起对比。</p></div>
     {loading && <p className="text-sm text-gray-400">加载中...</p>}
 
     <div className="grid gap-3 md:grid-cols-[1.2fr,1fr]">
@@ -92,7 +92,7 @@ export function BillingPanel() {
       <CompareCard title="总收入" value={totalIncome} tone="blue" subtitle="Agent + 模型 + 场景" />
     </div>
 
-    {hasUnbilled && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">有 {fmtInt(unbilled.count)} 次 Agent 调用已记录用量但未生成 Credit 流水，通常是缺少模型/Agent 计费规则。未计费 token：{fmtInt(unbilled.totalTokens)}。</div>}
+    {hasUnbilled && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">有 {fmtInt(unbilled.count)} 次 Agent 调用已记录用量但未生成 Credit 流水，通常是缺少模型/Agent 计费规则或规则为免费。未计费 token：{fmtInt(unbilled.totalTokens)}。</div>}
 
     <div className="flex gap-2 overflow-x-auto rounded-xl bg-gray-50 p-1">
       {roles.map((item) => <button key={item.id} onClick={() => setRole(item.id)} className={`shrink-0 rounded-lg px-3 py-2 text-left text-sm transition ${role === item.id ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><span className="block font-medium">{item.label}</span><span className="block text-[11px] opacity-70">{item.hint}</span></button>)}
@@ -101,7 +101,7 @@ export function BillingPanel() {
     <div className="rounded-2xl border border-gray-100 p-4 space-y-4">
       <div className="flex items-center justify-between gap-3"><div><h3 className="font-semibold text-gray-800">{activeRole.label}</h3><p className="text-xs text-gray-400">{activeRole.hint}</p></div><p className="text-lg font-semibold text-gray-900">{fmtCredit(role === 'payer' ? spend : summary?.summary?.credits)} <span className="text-xs font-normal text-gray-400">cr</span></p></div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">{tokenCards.map(([k, v]) => <div key={k} className="rounded-xl bg-gray-50 p-3"><p className="text-xs text-gray-400">{k}</p><p className="mt-1 text-lg font-semibold text-gray-800">{v}</p></div>)}</div>
-      <p className="text-xs text-gray-400">说明：总 token = 前 token + 后 token + 缓存读 + 缓存写；Agent 服务费与模型费都按 token 结算，分别归到 Agent / 模型账单。</p>
+      <p className="text-xs text-gray-400">说明：总 token = 前 token + 后 token + 缓存读 + 缓存写；Agent 费与模型费都按 token 结算，分别归到 Agent / 模型账单。</p>
     </div>
 
     <DimensionAnalysis summary={summary} role={role} />

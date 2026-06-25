@@ -7,7 +7,6 @@ import { templatePermissionService } from '../services/template-permission.servi
 import { agentRestartService } from '../services/agent-restart.service.js'
 import { getGateway } from '../ws/gateway.js'
 import { marketEngagementService } from '../services/market-engagement.service.js'
-import { creditWalletService } from '../services/credit-wallet.service.js'
 import { agentPackageService } from '../services/agent-package.service.js'
 import db from '../storage/db.js'
 import { agentPackageImportService } from '../services/agent-package-import.service.js'
@@ -70,10 +69,6 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     }
 
     try {
-      const account = creditWalletService.getAccount(user.id)
-      if (account.balance <= 0) {
-        return reply.code(402).send({ success: false, error: { code: 'INSUFFICIENT_CREDITS', message: '余额不足，不能创建 Agent。请先充值 credit。' } })
-      }
       const result = await agentService.createAgent(user.id, {
         name,
         roleType: 'specialist',
@@ -454,7 +449,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const { clearSession = true, mode = 'soft' } = request.body as any || {}
 
     if (!isRoomCreator(roomId, user.id)) {
-      return reply.code(403).send({ success: false, error: { code: 'CREATOR_ONLY_AGENT_COMMAND', message: '只有项目创建人可以重启/指挥 Agent；运行费用由项目创建人承担。' } })
+      return reply.code(403).send({ success: false, error: { code: 'CREATOR_ONLY_AGENT_COMMAND', message: '只有项目创建人可以重启/指挥 Agent；如产生模型费用，由项目创建人承担。' } })
     }
 
     const result = await agentRestartService.restart(roomId, agentId, user.id, { mode: mode === 'force' ? 'force' : 'soft', clearSession: clearSession !== false })
@@ -496,7 +491,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
         })
       }
       if (!isRoomCreator(roomId, user.id)) {
-        return reply.code(403).send({ success: false, error: { code: 'CREATOR_ONLY_AGENT_COMMAND', message: '只有项目创建人可以指挥 Agent；运行费用由项目创建人承担。' } })
+        return reply.code(403).send({ success: false, error: { code: 'CREATOR_ONLY_AGENT_COMMAND', message: '只有项目创建人可以指挥 Agent；如产生模型费用，由项目创建人承担。' } })
       }
 
       // Mark agent as working

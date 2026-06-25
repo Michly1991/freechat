@@ -41,6 +41,14 @@ export class BillingLedgerRepository {
     return !!db.prepare('SELECT 1 FROM billing_ledger_entries WHERE run_id = ? LIMIT 1').get(runId)
   }
 
+  existsChargeForRun(runId: string): boolean {
+    return !!db.prepare("SELECT 1 FROM billing_ledger_entries WHERE run_id = ? AND entry_type != 'usage_record' LIMIT 1").get(runId)
+  }
+
+  deleteUsageRecordsForRun(runId: string): void {
+    db.prepare("DELETE FROM billing_ledger_entries WHERE run_id = ? AND entry_type = 'usage_record'").run(runId)
+  }
+
   listForRun(runId: string): BillingLedgerEntry[] {
     return (db.prepare('SELECT * FROM billing_ledger_entries WHERE run_id = ? ORDER BY created_at').all(runId) as any[]).map(mapRow)
   }

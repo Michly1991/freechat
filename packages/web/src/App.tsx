@@ -11,7 +11,8 @@ import WorkgroupEntryPage from './pages/WorkgroupEntryPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((state) => state.token)
-  return token ? <>{children}</> : <Navigate to="/login" replace />
+  const redirect = `${window.location.pathname}${window.location.search}`
+  return token ? <>{children}</> : <Navigate to={`/login?redirect=${encodeURIComponent(redirect)}`} replace />
 }
 
 export default function App() {

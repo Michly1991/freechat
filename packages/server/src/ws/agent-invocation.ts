@@ -116,7 +116,7 @@ export class AgentInvocationHandler {
     const creatorId = this.getRoomCreator(roomId)
     const creator = creatorId ? db.prepare('SELECT nickname, username FROM users WHERE id = ?').get(creatorId) as any : null
     const creatorName = creator?.nickname || creator?.username || '群聊创建人'
-    const msg = await messageService.createMessage(roomId, 'system', '系统', 'ai', `只有群聊创建人「${creatorName}」可以指挥 Agent；本群聊的 Agent 和模型运行费用也由创建人承担。`, undefined, undefined, 'system_notice', { reason: 'creator_only_agent_command', actorUserId, payerUserId: creatorId })
+    const msg = await messageService.createMessage(roomId, 'system', '系统', 'ai', `只有群聊创建人「${creatorName}」可以指挥 Agent；本群聊如产生模型费用，由创建人承担。`, undefined, undefined, 'system_notice', { reason: 'creator_only_agent_command', actorUserId, payerUserId: creatorId })
     this.broadcastToRoom(roomId, { msgId: msg.id, roomId, type: 'broadcast', action: 'chat.message', payload: msg, timestamp: Date.now() })
   }
 

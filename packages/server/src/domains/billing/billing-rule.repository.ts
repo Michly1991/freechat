@@ -52,15 +52,16 @@ export class BillingRuleRepository {
       INSERT OR REPLACE INTO agent_billing_rules (
         id, agent_template_id, billing_mode, token_multiplier, fixed_credits_per_run, fixed_credits_per_purchase,
         input_credit_per_million, output_credit_per_million, cache_write_credit_per_million,
-        cache_read_credit_per_million, revenue_share_rate, enabled, created_at, updated_at
-      ) VALUES (?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+        cache_read_credit_per_million, min_credits_per_run, revenue_share_rate, enabled, created_at, updated_at
+      ) VALUES (?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       ruleId, agentTemplateId,
-      body.billingMode || body.billing_mode || 'per_token',
+      body.billingMode || body.billing_mode || 'free',
       intValue(body.inputCreditPerMillion ?? body.input_credit_per_million),
       intValue(body.outputCreditPerMillion ?? body.output_credit_per_million),
       intValue(body.cacheWriteCreditPerMillion ?? body.cache_write_credit_per_million),
       intValue(body.cacheReadCreditPerMillion ?? body.cache_read_credit_per_million),
+      intValue(body.minCreditsPerRun ?? body.min_credits_per_run),
       Number(body.revenueShareRate ?? body.revenue_share_rate ?? 1),
       body.enabled === false ? 0 : 1,
       existing?.created_at || now,

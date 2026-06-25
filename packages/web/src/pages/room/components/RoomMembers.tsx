@@ -103,10 +103,6 @@ function AddAvailableAgents({ roomId, roomAgents, feedback, onMembersChanged, co
   const addAgent = async (agent: any, asAssistant = false) => {
     if (!roomId) return
     try {
-      if (!agent.isOwner) {
-        const ok = feedback?.confirm ? await feedback.confirm({ title: '启用收费 Agent？', message: `「${agent.name}」按 token 收取 Agent 服务费，实际运行时会扣除 credit。确认添加到群聊？`, confirmText: '确认添加' }) : window.confirm(`「${agent.name}」按 token 收取 Agent 服务费，实际运行时会扣除 credit。确认添加到群聊？`)
-        if (!ok) return
-      }
       await api.addRoomAgent(roomId, agent.id, { roomRole: asAssistant ? 'assistant' : 'specialist', autoEnabled: asAssistant })
       feedback?.success?.('Agent 已添加到群聊')
       onMembersChanged?.()
@@ -153,7 +149,7 @@ function MemberListItem({ member, room, openMemberProfile, mobile = false }: any
         <MemberRoleBadge role={member.role} compact={!mobile} />
         {isPayer && <span className={`inline-flex shrink-0 items-center rounded-full border border-blue-100 bg-blue-50 px-1.5 py-0.5 ${mobile ? 'text-[11px]' : 'text-[10px]'} font-medium text-blue-600`}>付费人</span>}
       </div>
-      <p className={`${mobile ? 'text-sm' : 'text-xs'} text-gray-400 truncate`}>{isPayer ? '可指挥 Agent · 费用由其承担' : (member.username && member.username !== getMemberDisplayName(member) ? `@${member.username}` : '可参与讨论')}</p>
+      <p className={`${mobile ? 'text-sm' : 'text-xs'} text-gray-400 truncate`}>{isPayer ? '可指挥 Agent · 模型费用由其承担' : (member.username && member.username !== getMemberDisplayName(member) ? `@${member.username}` : '可参与讨论')}</p>
     </div>
   </button>
 }
@@ -175,7 +171,7 @@ export function DesktopMembersPanel({ showMembers, setShowMembers, members, room
     <div className="p-4">
       <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center justify-between">房间成员<span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{members.length}</span></h3>
       {admins.length > 0 && <p className="mb-2 flex items-center gap-1.5 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700"><Crown className="w-3.5 h-3.5" />管理员：{admins.map(getMemberDisplayName).join('、')}</p>}
-      {payer && <p className="mb-4 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">付费人 / 可指挥 Agent：{getMemberDisplayName(payer)}</p>}
+      {payer && <p className="mb-4 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">模型付费人 / 可指挥 Agent：{getMemberDisplayName(payer)}</p>}
       <AddContactMembers roomId={roomId} members={members} feedback={feedback} onMembersChanged={onMembersChanged} />
       <AddAvailableAgents roomId={roomId} roomAgents={roomAgents} feedback={feedback} onMembersChanged={onMembersChanged} />
       <div className="space-y-1">{orderedMembers.map((member: any) => <MemberListItem key={member.id || member.userId} member={member} room={room} openMemberProfile={openMemberProfile} />)}</div>
@@ -201,7 +197,7 @@ export function MobileMembersDrawer({ showMobileMembers, setShowMobileMembers, m
       <div className="sticky top-0 fc-mobile-glass bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between rounded-t-3xl z-10"><div><h3 className="font-semibold text-gray-800">成员与 AI</h3><p className="text-xs text-gray-400">成员 {members.length} · Agent {roomAgents.length}</p></div><button onClick={() => setShowMobileMembers(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100"><X className="w-5 h-5" /></button></div>
       <div className="p-4 space-y-2">
         {admins.length > 0 && <p className="flex items-center gap-1.5 rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700"><Crown className="w-4 h-4" />管理员：{admins.map(getMemberDisplayName).join('、')}</p>}
-        {payer && <p className="rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700">付费人 / 可指挥 Agent：{getMemberDisplayName(payer)}</p>}
+        {payer && <p className="rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700">模型付费人 / 可指挥 Agent：{getMemberDisplayName(payer)}</p>}
         <AddContactMembers roomId={roomId} members={members} feedback={feedback} onMembersChanged={onMembersChanged} compact />
         <AddAvailableAgents roomId={roomId} roomAgents={roomAgents} feedback={feedback} onMembersChanged={onMembersChanged} compact />
         <h4 className="px-1 text-xs font-semibold text-gray-500 uppercase tracking-wide">在线成员</h4>

@@ -8,17 +8,10 @@ import { nonNegativeCreditToMicro } from '../domains/billing/money.js'
 
 export const PLATFORM_USER_ID = 'user_platform_model_provider'
 
-const PLATFORM_MODEL_RULES = {
-  economy: { inputCreditPerMillion: 1, outputCreditPerMillion: 1, cacheWriteCreditPerMillion: 1, cacheReadCreditPerMillion: 0, minCreditsPerRun: 0, enabled: true },
-  standard: { inputCreditPerMillion: 1, outputCreditPerMillion: 2, cacheWriteCreditPerMillion: 1, cacheReadCreditPerMillion: 0, minCreditsPerRun: 0, enabled: true },
-  premium: { inputCreditPerMillion: 1, outputCreditPerMillion: 2, cacheWriteCreditPerMillion: 1, cacheReadCreditPerMillion: 0, minCreditsPerRun: 0, enabled: true },
-}
+const PLATFORM_MODEL_RULE = { inputCreditPerMillion: 1, outputCreditPerMillion: 2, cacheWriteCreditPerMillion: 1, cacheReadCreditPerMillion: 0, minCreditsPerRun: 0, enabled: true }
 
-function defaultRuleForPlatformModel(model?: string | null) {
-  const name = String(model || '').toLowerCase()
-  if (/mini|lite|flash|turbo|small/.test(name)) return PLATFORM_MODEL_RULES.economy
-  if (/max|pro|plus|code|reason|thinking|r1|o1|o3/.test(name)) return PLATFORM_MODEL_RULES.premium
-  return PLATFORM_MODEL_RULES.standard
+function defaultRuleForPlatformModel(_model?: string | null) {
+  return PLATFORM_MODEL_RULE
 }
 
 

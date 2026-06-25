@@ -263,12 +263,6 @@ export default function HomePage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      const selectedAgentDetails = selectedAgents.map((item) => agents.find((agent) => agent.id === item.agentId)).filter(Boolean)
-      const needsAgentFeeConfirm = !selectedSceneId && selectedAgentDetails.some((agent: any) => !agent.isOwner)
-      if (needsAgentFeeConfirm) {
-        const ok = await feedback.confirm({ title: '启用收费 Agent？', message: '所选 Agent 中包含非自有 Agent，Agent 实际运行时会按 token 收取服务费。确认继续？', confirmText: '确认创建' })
-        if (!ok) return
-      }
       const result = await api.createRoom({
         name: newName,
         description: newDesc,

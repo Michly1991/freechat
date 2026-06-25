@@ -4,12 +4,8 @@ import { nonNegativeCreditToMicro } from '../domains/billing/money.js'
 
 const NATIVE_ASSISTANT_FREE_RULE = { billingMode: 'free', input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }
 
-function agentDefaultRule(row: any) {
-  const config = String(row.config || '')
-  const nativeAssistant = row.role_type === 'assistant' && (/"builtInKey":"default_assistant"|"defaultRoomAssistant":true/.test(config))
-  if (nativeAssistant) return NATIVE_ASSISTANT_FREE_RULE
-  if (row.role_type === 'assistant') return { billingMode: 'per_token', input: 0.2, output: 0.4, cacheWrite: 0.2, cacheRead: 0.02 }
-  return { billingMode: 'per_token', input: 0.5, output: 1, cacheWrite: 0.5, cacheRead: 0.05 }
+function agentDefaultRule(_row: any) {
+  return NATIVE_ASSISTANT_FREE_RULE
 }
 
 function upsertMissingAgentRule(agentId: string, rule: any) {
