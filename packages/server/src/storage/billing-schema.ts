@@ -258,6 +258,8 @@ export function ensureBillingSchema(db: Database.Database) {
       cache_write_credit_per_million INTEGER DEFAULT 0,
       cache_read_credit_per_million INTEGER DEFAULT 0,
       min_credits_per_run INTEGER DEFAULT 0,
+      model_free_runs_per_day INTEGER DEFAULT 0,
+      model_overage_policy TEXT DEFAULT 'charge',
       revenue_share_rate REAL DEFAULT 1,
       enabled INTEGER DEFAULT 1,
       created_at INTEGER NOT NULL,
@@ -276,6 +278,8 @@ export function ensureBillingSchema(db: Database.Database) {
   if (!refreshedAgentRuleCols.some((col) => col.name === 'min_credits_per_run')) {
     db.exec('ALTER TABLE agent_billing_rules ADD COLUMN min_credits_per_run INTEGER DEFAULT 0')
   }
+  if (!refreshedAgentRuleCols.some((col) => col.name === 'model_free_runs_per_day')) db.exec('ALTER TABLE agent_billing_rules ADD COLUMN model_free_runs_per_day INTEGER DEFAULT 0')
+  if (!refreshedAgentRuleCols.some((col) => col.name === 'model_overage_policy')) db.exec("ALTER TABLE agent_billing_rules ADD COLUMN model_overage_policy TEXT DEFAULT 'charge'")
   db.exec(`
     UPDATE agent_billing_rules
     SET billing_mode = 'free',
@@ -285,7 +289,9 @@ export function ensureBillingSchema(db: Database.Database) {
         output_credit_per_million = 0,
         cache_write_credit_per_million = 0,
         cache_read_credit_per_million = 0,
-        min_credits_per_run = 0
+        min_credits_per_run = 0,
+        model_free_runs_per_day = 0,
+        model_overage_policy = 'charge'
     WHERE enabled = 1 AND billing_mode NOT IN ('free', 'per_token')
   `)
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_billing_rules_template ON agent_billing_rules(agent_template_id)`)

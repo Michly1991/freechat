@@ -29,6 +29,8 @@ function rowToAgentRule(row: any) {
     cacheWriteCreditPerMillion: microToCredit(row.cache_write_credit_per_million),
     cacheReadCreditPerMillion: microToCredit(row.cache_read_credit_per_million),
     minCreditsPerRun: microToCredit(row.min_credits_per_run),
+    modelFreeRunsPerDay: Number(row.model_free_runs_per_day || 0),
+    modelOveragePolicy: row.model_overage_policy || 'charge',
     revenueShareRate: Number(row.revenue_share_rate ?? 1),
     enabled: !!row.enabled,
     createdAt: row.created_at,

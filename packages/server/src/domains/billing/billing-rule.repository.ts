@@ -48,12 +48,14 @@ export class BillingRuleRepository {
     const existing = db.prepare('SELECT id, created_at FROM agent_billing_rules WHERE agent_template_id = ?').get(agentTemplateId) as any
     const now = Date.now()
     const ruleId = existing?.id || `abr_${uuidv4()}`
+    const freeRuns = Math.max(0, Math.trunc(Number(body.modelFreeRunsPerDay ?? body.model_free_runs_per_day ?? 0) || 0))
+    const overagePolicy = body.modelOveragePolicy === 'block' || body.model_overage_policy === 'block' ? 'block' : 'charge'
     db.prepare(`
       INSERT OR REPLACE INTO agent_billing_rules (
         id, agent_template_id, billing_mode, token_multiplier, fixed_credits_per_run, fixed_credits_per_purchase,
         input_credit_per_million, output_credit_per_million, cache_write_credit_per_million,
-        cache_read_credit_per_million, min_credits_per_run, revenue_share_rate, enabled, created_at, updated_at
-      ) VALUES (?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        cache_read_credit_per_million, min_credits_per_run, model_free_runs_per_day, model_overage_policy, revenue_share_rate, enabled, created_at, updated_at
+      ) VALUES (?, ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       ruleId, agentTemplateId,
       body.billingMode || body.billing_mode || 'free',
@@ -62,6 +64,8 @@ export class BillingRuleRepository {
       intValue(body.cacheWriteCreditPerMillion ?? body.cache_write_credit_per_million),
       intValue(body.cacheReadCreditPerMillion ?? body.cache_read_credit_per_million),
       intValue(body.minCreditsPerRun ?? body.min_credits_per_run),
+      freeRuns,
+      overagePolicy,
       Number(body.revenueShareRate ?? body.revenue_share_rate ?? 1),
       body.enabled === false ? 0 : 1,
       existing?.created_at || now,

@@ -94,6 +94,7 @@ export class BuiltInAgentBootstrapService {
         existing.id
       )
       ensureCoreSkill(existing.id)
+      this.ensureXiaomiBillingRule(existing.id, now)
       void agentPackageService.ensureAgentPackage(rowToAgent({ ...existing, owner_id: SYSTEM_ADMIN_USER_ID, name: '小蜜', role_type: 'assistant', deployment: 'server', description: 'FreeChat 平台内置助手，帮助每个用户操作 Agent、Skill、项目协作和平台能力。', specialties: JSON.stringify(['FreeChat 使用助手', 'Agent 管理', 'Skill/Script 协助', '项目协作', '权限确认']), config: JSON.stringify(config), status: 'active', is_template: 1, updated_at: now })).catch((err) => console.error('[built-in-agent] ensure xiaomi package failed', err))
       return existing.id
     }
@@ -117,6 +118,7 @@ export class BuiltInAgentBootstrapService {
     )
     const row = db.prepare(`SELECT a.*, COALESCE(u.nickname, u.username) owner_name FROM agents a LEFT JOIN users u ON u.id = a.owner_id WHERE a.id = ?`).get(id) as AgentRow
     ensureCoreSkill(id)
+    this.ensureXiaomiBillingRule(id, now)
     void agentPackageService.ensureAgentPackage(rowToAgent(row)).catch((err) => console.error('[built-in-agent] ensure xiaomi package failed', err))
     return id
   }
@@ -130,6 +132,14 @@ export class BuiltInAgentBootstrapService {
   isXiaomiAgentId(agentId: string): boolean {
     const row = db.prepare('SELECT config FROM agents WHERE id = ?').get(agentId) as any
     return String(row?.config || '').includes(`"builtInKey":"${XIAOMI_AGENT_BUILT_IN_KEY}"`)
+  }
+
+  private ensureXiaomiBillingRule(agentId: string, now = Date.now()) {
+    db.prepare(`
+      INSERT INTO agent_billing_rules (id, agent_template_id, billing_mode, token_multiplier, fixed_credits_per_run, fixed_credits_per_purchase, input_credit_per_million, output_credit_per_million, cache_write_credit_per_million, cache_read_credit_per_million, min_credits_per_run, model_free_runs_per_day, model_overage_policy, revenue_share_rate, enabled, created_at, updated_at)
+      VALUES (?, ?, 'free', 0, 0, 0, 0, 0, 0, 0, 0, 20, 'charge', 1, 1, ?, ?)
+      ON CONFLICT(agent_template_id) DO UPDATE SET model_free_runs_per_day = CASE WHEN agent_billing_rules.model_free_runs_per_day = 0 THEN 20 ELSE agent_billing_rules.model_free_runs_per_day END, model_overage_policy = COALESCE(agent_billing_rules.model_overage_policy, 'charge'), updated_at = excluded.updated_at
+    `).run(`abr_${randomUUID()}`, agentId, now, now)
   }
 }
 

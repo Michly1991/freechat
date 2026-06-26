@@ -6,8 +6,10 @@ import { KnowledgePanel } from './KnowledgePanel'
 const TOOL_KEYS = ['chat', 'task', 'file', 'tab', 'interaction', 'members']
 
 function formatAgentPrice(_agent: any, rule: any | null) {
-  if (!rule || rule.billingMode === 'free' || rule.enabled === false) return 'Agent 免费（模型费另计）'
-  return `Agent 按 token 计费：输入 ${fmtCredit(rule.inputCreditPerMillion)} / 输出 ${fmtCredit(rule.outputCreditPerMillion)} cr/百万 token（模型费另计）`
+  if (!rule || rule.enabled === false) return 'Agent 免费（模型费另计）'
+  const quota = Number(rule.modelFreeRunsPerDay || 0) > 0 ? `；模型费每日前 ${Number(rule.modelFreeRunsPerDay)} 次免费，超出后收费` : ''
+  if (rule.billingMode === 'free') return `Agent 免费（模型费另计${quota}）`
+  return `Agent 按 token 计费：输入 ${fmtCredit(rule.inputCreditPerMillion)} / 输出 ${fmtCredit(rule.outputCreditPerMillion)} cr/百万 token（模型费另计${quota}）`
 }
 
 function fmtCredit(value: any) {
@@ -32,7 +34,7 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null)
   const [scriptForm, setScriptForm] = useState({ name: '', description: '', language: 'bash', content: '', enabled: true, runPolicy: 'manual_only' })
   const [billingRule, setBillingRule] = useState<any | null>(null)
-  const [billingForm, setBillingForm] = useState({ billingMode: 'free', inputCreditPerMillion: 0, outputCreditPerMillion: 0, cacheWriteCreditPerMillion: 0, cacheReadCreditPerMillion: 0, minCreditsPerRun: 0, enabled: true })
+  const [billingForm, setBillingForm] = useState({ billingMode: 'free', inputCreditPerMillion: 0, outputCreditPerMillion: 0, cacheWriteCreditPerMillion: 0, cacheReadCreditPerMillion: 0, minCreditsPerRun: 0, modelFreeRunsPerDay: 0, modelOveragePolicy: 'charge', enabled: true })
 
   useEffect(() => {
     if (!agentId) { setDetail(null); return }
@@ -56,6 +58,8 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
           cacheWriteCreditPerMillion: Number(rule?.cacheWriteCreditPerMillion || 0),
           cacheReadCreditPerMillion: Number(rule?.cacheReadCreditPerMillion || 0),
           minCreditsPerRun: Number(rule?.minCreditsPerRun || 0),
+          modelFreeRunsPerDay: Number(rule?.modelFreeRunsPerDay || 0),
+          modelOveragePolicy: rule?.modelOveragePolicy || 'charge',
           enabled: rule?.enabled !== false,
         })
       } catch { setBillingRule(null) }
@@ -152,7 +156,7 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
   const saveBillingRule = async () => {
     if (!canEdit || !agent?.id) return
     const body = billingForm.billingMode === 'free'
-      ? { billingMode: 'free', inputCreditPerMillion: 0, outputCreditPerMillion: 0, cacheWriteCreditPerMillion: 0, cacheReadCreditPerMillion: 0, minCreditsPerRun: 0, enabled: true }
+      ? { ...billingForm, billingMode: 'free', inputCreditPerMillion: 0, outputCreditPerMillion: 0, cacheWriteCreditPerMillion: 0, cacheReadCreditPerMillion: 0, minCreditsPerRun: 0, enabled: true }
       : billingForm
     const result = await api.upsertAgentBillingRule(agent.id, body)
     setBillingRule(result.rule)
@@ -163,6 +167,8 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
       cacheWriteCreditPerMillion: Number(result.rule?.cacheWriteCreditPerMillion || 0),
       cacheReadCreditPerMillion: Number(result.rule?.cacheReadCreditPerMillion || 0),
       minCreditsPerRun: Number(result.rule?.minCreditsPerRun || 0),
+      modelFreeRunsPerDay: Number(result.rule?.modelFreeRunsPerDay || 0),
+      modelOveragePolicy: result.rule?.modelOveragePolicy || 'charge',
       enabled: result.rule?.enabled !== false,
     })
     feedback.success('Agent 计费规则已保存')
@@ -208,9 +214,14 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
 
     {canEdit && <>
     <section className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
-      <div className="flex items-center justify-between gap-2 mb-3"><div><h3 className="font-semibold text-gray-900">Agent 服务计费</h3><p className="text-xs text-gray-400 mt-1">Agent 按 token 计费；默认免费。若设置价格，使用方会同时支付 Agent 费给发布人、模型费给模型提供方。</p></div><span className={`text-xs rounded-full px-2 py-1 ${billingForm.billingMode === 'per_token' ? 'bg-amber-50 text-amber-600' : 'bg-green-50 text-green-600'}`}>{billingForm.billingMode === 'per_token' ? '按 token 收费' : '免费'}</span></div>
+      <div className="flex items-center justify-between gap-2 mb-3"><div><h3 className="font-semibold text-gray-900">Agent 服务计费</h3><p className="text-xs text-gray-400 mt-1">Agent 服务费和模型费免费额度可独立设置。免费额度内平台承担模型费，超出后按模型规则扣使用方 credit。</p></div><span className={`text-xs rounded-full px-2 py-1 ${billingForm.billingMode === 'per_token' ? 'bg-amber-50 text-amber-600' : 'bg-green-50 text-green-600'}`}>{billingForm.billingMode === 'per_token' ? '按 token 收费' : '服务免费'}</span></div>
       <div className="space-y-3">
-        <select value={billingForm.billingMode} onChange={(e) => setBillingForm({ ...billingForm, billingMode: e.target.value })} className="w-full rounded-lg border px-3 py-2 text-sm"><option value="free">免费</option><option value="per_token">按 token 计费</option></select>
+        <select value={billingForm.billingMode} onChange={(e) => setBillingForm({ ...billingForm, billingMode: e.target.value })} className="w-full rounded-lg border px-3 py-2 text-sm"><option value="free">Agent 服务免费</option><option value="per_token">Agent 服务按 token 计费</option></select>
+        <div className="grid gap-2 sm:grid-cols-2 rounded-xl border border-violet-100 bg-violet-50/40 p-3">
+          <label className="text-xs text-gray-500">模型费每日免费次数<input type="number" min="0" step="1" value={billingForm.modelFreeRunsPerDay} onChange={(e) => setBillingForm({ ...billingForm, modelFreeRunsPerDay: Math.max(0, Math.trunc(Number(e.target.value) || 0)) })} className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" /></label>
+          <label className="text-xs text-gray-500">超额策略<select value={billingForm.modelOveragePolicy} onChange={(e) => setBillingForm({ ...billingForm, modelOveragePolicy: e.target.value })} className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"><option value="charge">超额后收费</option><option value="block">超额后阻止（预留）</option></select></label>
+          <p className="text-xs text-violet-600 sm:col-span-2">免费次数只抵扣模型费，不影响 Agent 服务费；0 表示不提供模型费免费额度。</p>
+        </div>
         {billingForm.billingMode === 'per_token' && <div className="grid gap-2 sm:grid-cols-2">
           <label className="text-xs text-gray-500">输入 token / 百万<input type="number" step="0.0001" value={billingForm.inputCreditPerMillion} onChange={(e) => setBillingForm({ ...billingForm, inputCreditPerMillion: Number(e.target.value) })} className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" /></label>
           <label className="text-xs text-gray-500">输出 token / 百万<input type="number" step="0.0001" value={billingForm.outputCreditPerMillion} onChange={(e) => setBillingForm({ ...billingForm, outputCreditPerMillion: Number(e.target.value) })} className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" /></label>

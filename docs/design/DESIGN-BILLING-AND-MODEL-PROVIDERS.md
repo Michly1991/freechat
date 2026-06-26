@@ -73,9 +73,11 @@ Agent market/runtime pricing uses `agent_billing_rules`:
 missing rule or billing_mode='free' -> Agent fee 0
 billing_mode='per_token'            -> charge by token class prices
 min_credits_per_run                 -> optional minimum, applied only when token price produced a positive Agent charge
+model_free_runs_per_day             -> daily per-user free model-charge runs for this Agent/template; 0 means no quota
+model_overage_policy='charge'        -> over quota, charge normal model fee
 ```
 
-Default marketplace pricing bootstrap fills missing Agent rules as `free` and does not override owner-edited rules.
+Default marketplace pricing bootstrap fills missing Agent rules as `free` and does not override owner-edited rules. Platform built-in `小蜜` seeds `model_free_runs_per_day = 20` and `model_overage_policy = 'charge'`: each user gets 20 free model-charge replies per natural day, then normal model fees apply.
 
 ## Core Tables
 
@@ -97,6 +99,8 @@ agent_billing_rules (
   cache_write_credit_per_million INTEGER DEFAULT 0,
   cache_read_credit_per_million INTEGER DEFAULT 0,
   min_credits_per_run INTEGER DEFAULT 0,
+  model_free_runs_per_day INTEGER DEFAULT 0,
+  model_overage_policy TEXT DEFAULT 'charge', -- charge / block (block reserved)
   revenue_share_rate REAL DEFAULT 1,
   enabled INTEGER DEFAULT 1,
   created_at INTEGER NOT NULL,
@@ -104,7 +108,7 @@ agent_billing_rules (
 )
 ```
 
-Legacy columns like `token_multiplier`, `fixed_credits_per_run`, and `fixed_credits_per_purchase` may remain for compatibility, but active runtime Agent fee uses only `free/per_token` and token price columns.
+Legacy columns like `token_multiplier`, `fixed_credits_per_run`, and `fixed_credits_per_purchase` may remain for compatibility, but active runtime Agent fee uses only `free/per_token` and token price columns. `model_free_runs_per_day` is a model-fee quota, not Agent service pricing; it can be used by any Agent, including built-ins.
 
 ### `metered_usage_events`
 
@@ -130,14 +134,14 @@ Newly registered users receive an initial wallet top-up of `1000 credits` (`10,0
 ## Charge Formula
 
 ```text
-model_charge_micro = token class prices from model_billing_rules
+model_charge_micro = token class prices from model_billing_rules, unless Agent model_free_runs_per_day quota still has remaining runs for the payer today
 agent_charge_micro = token class prices from agent_billing_rules when billing_mode='per_token'; otherwise 0
 usage_total_micro  = model_charge_micro + agent_charge_micro
 
 total_tokens = input_tokens + output_tokens + cache_write_tokens + cache_read_tokens
 ```
 
-Charges are rounded up to the nearest microcredit.
+Charges are rounded up to the nearest microcredit. Free model-charge quota is counted by `(payer_user_id, agent_template_id, natural day)` using already settled usage events that did not create a `model_usage_charge` ledger entry; over-quota runs fall back to normal model pricing.
 
 ## Workgroup Share / Visitor Billing
 

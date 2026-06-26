@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid'
 import db from '../storage/db.js'
 import { nonNegativeCreditToMicro } from '../domains/billing/money.js'
 
-const NATIVE_ASSISTANT_FREE_RULE = { billingMode: 'free', input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }
+const NATIVE_ASSISTANT_FREE_RULE = { billingMode: 'free', input: 0, output: 0, cacheWrite: 0, cacheRead: 0, modelFreeRunsPerDay: 0 }
 
 function agentDefaultRule(_row: any) {
   return NATIVE_ASSISTANT_FREE_RULE
@@ -13,9 +13,9 @@ function upsertMissingAgentRule(agentId: string, rule: any) {
   if (exists) return
   const now = Date.now()
   db.prepare(`
-    INSERT INTO agent_billing_rules (id, agent_template_id, billing_mode, token_multiplier, fixed_credits_per_run, fixed_credits_per_purchase, input_credit_per_million, output_credit_per_million, cache_write_credit_per_million, cache_read_credit_per_million, revenue_share_rate, enabled, created_at, updated_at)
-    VALUES (?, ?, ?, 0, 0, 0, ?, ?, ?, ?, 1, 1, ?, ?)
-  `).run(`abr_${uuidv4()}`, agentId, rule.billingMode, nonNegativeCreditToMicro(rule.input), nonNegativeCreditToMicro(rule.output), nonNegativeCreditToMicro(rule.cacheWrite), nonNegativeCreditToMicro(rule.cacheRead), now, now)
+    INSERT INTO agent_billing_rules (id, agent_template_id, billing_mode, token_multiplier, fixed_credits_per_run, fixed_credits_per_purchase, input_credit_per_million, output_credit_per_million, cache_write_credit_per_million, cache_read_credit_per_million, min_credits_per_run, model_free_runs_per_day, model_overage_policy, revenue_share_rate, enabled, created_at, updated_at)
+    VALUES (?, ?, ?, 0, 0, 0, ?, ?, ?, ?, 0, ?, 'charge', 1, 1, ?, ?)
+  `).run(`abr_${uuidv4()}`, agentId, rule.billingMode, nonNegativeCreditToMicro(rule.input), nonNegativeCreditToMicro(rule.output), nonNegativeCreditToMicro(rule.cacheWrite), nonNegativeCreditToMicro(rule.cacheRead), Math.max(0, Math.trunc(Number(rule.modelFreeRunsPerDay || 0))), now, now)
 }
 
 function upsertMissingSceneRule(scene: any) {

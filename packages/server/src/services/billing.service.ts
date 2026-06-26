@@ -28,6 +28,8 @@ type TokenRule = {
   cache_read_credit_per_million?: number | null
   min_credits_per_run?: number | null
   provider_user_id?: string | null
+  model_free_runs_per_day?: number | null
+  model_overage_policy?: string | null
 }
 
 function chargeByTokens(usage: TokenUsage, rule: {
@@ -45,6 +47,26 @@ function chargeByTokens(usage: TokenUsage, rule: {
 }
 
 export class BillingService {
+  private dayStart(ts = Date.now()): number {
+    const date = new Date(ts)
+    date.setHours(0, 0, 0, 0)
+    return date.getTime()
+  }
+
+  private isWithinAgentModelFreeQuota(event: MeteredUsageEvent, agentRule?: TokenRule): boolean {
+    const freeRuns = Math.max(0, toInt(agentRule?.model_free_runs_per_day))
+    if (!freeRuns || agentRule?.model_overage_policy === 'block') return false
+    const used = db.prepare(`
+      SELECT COUNT(1) count
+      FROM metered_usage_events mue
+      LEFT JOIN billing_ledger_entries ble ON ble.usage_event_id = mue.id AND ble.entry_type = 'model_usage_charge' AND ble.direction = 'debit'
+      WHERE mue.payer_user_id = ? AND mue.agent_template_id = ? AND mue.created_at >= ?
+        AND mue.id != ? AND COALESCE(mue.status, '') IN ('charged', 'ignored')
+        AND ble.id IS NULL
+    `).get(event.payerUserId, event.agentTemplateId || event.agentId, this.dayStart(event.createdAt), event.id) as any
+    return Number(used?.count || 0) < freeRuns
+  }
+
   billRun(runId: string): BillingStatus {
     try {
       const event = usageRepository.createFromRun(runId)
@@ -151,19 +173,20 @@ export class BillingService {
     }
     const modelRule = this.resolveModelRule(event)
     const agentRule = event.agentTemplateId ? this.getAgentRule(event.agentTemplateId) : undefined
-    const modelCharge = modelRule ? Math.max(chargeByTokens(usage, modelRule), toInt(modelRule.min_credits_per_run)) : 0
+    const modelFreeQuota = this.isWithinAgentModelFreeQuota(event, agentRule)
+    const modelCharge = modelFreeQuota ? 0 : (modelRule ? Math.max(chargeByTokens(usage, modelRule), toInt(modelRule.min_credits_per_run)) : 0)
     const chargeAgent = !!agentRule && agentRule.billing_mode === 'per_token' && event.agentProviderUserId && event.agentProviderUserId !== event.payerUserId
     const agentRawCharge = chargeAgent ? chargeByTokens(usage, agentRule) : 0
     const agentCharge = chargeAgent && agentRawCharge > 0 ? Math.max(agentRawCharge, toInt(agentRule.min_credits_per_run)) : 0
     const totalCharge = modelCharge + agentCharge
     const hasAnyRule = !!modelRule || !!agentRule
-    const status: BillingStatus = totalCharge > 0 ? 'billed' : (hasAnyRule ? 'not_billable' : 'price_missing')
+    const status: BillingStatus = totalCharge > 0 ? 'billed' : (modelRule && modelFreeQuota ? 'not_billable' : (hasAnyRule ? 'not_billable' : 'price_missing'))
     return {
       modelCharge,
       agentCharge,
       totalCharge,
       status,
-      snapshot: JSON.stringify({ modelRule: modelRule || null, agentRule: agentRule || null }),
+      snapshot: JSON.stringify({ modelRule: modelRule || null, agentRule: agentRule || null, modelFreeQuotaApplied: !!modelRule && modelFreeQuota }),
     }
   }
 
