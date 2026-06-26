@@ -1,5 +1,5 @@
-import { spawn } from 'child_process'
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
+import { spawn, type ChildProcess } from 'child_process'
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { dirname, join, normalize } from 'path'
 import type { AgentCredential, ClientConfig, RemoteEvent } from '../config/types.js'
 import { workRoot } from '../config/store.js'
@@ -74,6 +74,29 @@ export type ClaudeRunResult = {
   usage: ClaudeUsage
 }
 
+const activeChildren = new Map<string, ChildProcess>()
+
+export function abortAgentRuns(agentId: string, reason = 'Agent restart requested') {
+  for (const [key, child] of activeChildren) {
+    if (!key.startsWith(`${agentId}:`)) continue
+    try { child.kill('SIGTERM') } catch {}
+    setTimeout(() => { if (!child.killed) { try { child.kill('SIGKILL') } catch {} } }, 2000).unref?.()
+  }
+}
+
+export function clearAgentSession(agent: AgentCredential, roomId?: string) {
+  const targets = roomId ? [join(workRoot(), agent.agentId, roomId)] : [join(workRoot(), agent.agentId)]
+  for (const target of targets) {
+    if (roomId) rmSync(join(target, '.freechat', 'claude-session.json'), { force: true })
+    else {
+      try {
+        const rooms = existsSync(target) ? readdirSync(target) : []
+        for (const room of rooms) rmSync(join(target, room, '.freechat', 'claude-session.json'), { force: true })
+      } catch {}
+    }
+  }
+}
+
 function num(value: any): number {
   const n = Number(value || 0)
   return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0
@@ -90,7 +113,7 @@ function mergeUsage(current: ClaudeUsage, raw: any, model?: string): ClaudeUsage
   return { model: model || next.model || current.model, inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens, totalTokens, raw: next }
 }
 
-export function runClaude(prompt: string, cwd: string): Promise<ClaudeRunResult> {
+export function runClaude(prompt: string, cwd: string, runKey?: string): Promise<ClaudeRunResult> {
   const sessionFile = join(cwd, '.freechat', 'claude-session.json')
   const sessionTtlMs = Math.max(30_000, Number(process.env.FREECHAT_AGENT_CLIENT_SESSION_TTL_MS || DEFAULT_SESSION_TTL_MS))
   let previousSessionId = ''
@@ -106,6 +129,7 @@ export function runClaude(prompt: string, cwd: string): Promise<ClaudeRunResult>
   if (process.env.FREECHAT_CLAUDE_MODEL) args.push('--model', process.env.FREECHAT_CLAUDE_MODEL)
   return new Promise((resolve, reject) => {
     const child = spawn('claude', args, { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    if (runKey) activeChildren.set(runKey, child)
     let out = '', err = '', lineBuffer = '', response = '', sessionId = previousSessionId
     let usage: ClaudeUsage = { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, totalTokens: 0 }
     const handleLine = (line: string) => {
@@ -135,6 +159,7 @@ export function runClaude(prompt: string, cwd: string): Promise<ClaudeRunResult>
     child.stderr.on('data', (d) => { err += d.toString(); process.stderr.write(d) })
     child.on('error', reject)
     child.on('close', (code) => {
+      if (runKey) activeChildren.delete(runKey)
       if (lineBuffer.trim()) handleLine(lineBuffer)
       if (sessionId) { try { writeFileSync(sessionFile, JSON.stringify({ sessionId, updatedAt: Date.now() }, null, 2)) } catch {} }
       if (code === 0) resolve({ response: (response || out).trim(), usage })
@@ -151,7 +176,7 @@ export async function executeEvent(cfg: ClientConfig, agent: AgentCredential, ev
     return undefined
   })
   writeRunContext(cfg, agent, event, cwd, spec, knowledge)
-  const result = await runClaude(event.payload.input || '', cwd)
+  const result = await runClaude(event.payload.input || '', cwd, `${agent.agentId}:${event.runId}`)
   const trimmed = result.response.trim()
   const responseMode = event.payload.responseMode || (event.type === 'agent.mentioned' ? 'final_to_chat' : 'tool_only')
   const shouldAutoSend = responseMode === 'final_to_chat' && trimmed && !/^\{\s*"success"\s*:/i.test(trimmed)

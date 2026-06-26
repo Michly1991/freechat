@@ -1,6 +1,6 @@
 import type { AgentCredential, RemoteEvent, RuntimeState } from '../config/types.js'
 import { connectEventWebSocket, heartbeat, pollEvents, runActivity, runComplete, runFail, streamEvents } from '../connector/api.js'
-import { executeEvent } from '../executor/claude.js'
+import { executeEvent, abortAgentRuns, clearAgentSession } from '../executor/claude.js'
 import { loadConfig, updateAgent, upsertAgent } from '../config/store.js'
 import { completeBindRequest, createPairingCode, failBindRequest, listBindRequests } from '../connector/server-admin.js'
 import { pairAgent } from '../connector/api.js'
@@ -24,11 +24,29 @@ function activeCount(agentId?: string) {
   return Object.values(runtimeState.activeRuns).filter((run) => !agentId || run.agentId === agentId).length
 }
 
+async function handleRestartEvent(agent: AgentCredential, event: RemoteEvent) {
+  const cfg = loadConfig()
+  const force = event.payload?.mode === 'force'
+  if (force) abortAgentRuns(agent.agentId, event.payload?.reason || 'Agent restart requested')
+  if (event.payload?.clearSession !== false) clearAgentSession(agent, event.roomId)
+  delete runtimeState.activeRuns[event.runId]
+  updateAgent(agent.agentId, { status: 'idle', lastSeenAt: Date.now(), lastError: undefined })
+  await runComplete(cfg, agent, event.runId, { output: 'Agent Client restarted', usage: { runtime: 'remote-control', usageSource: 'client_control', trustLevel: 'client_reported' } })
+  log(`Agent ${agent.agentId} ${force ? 'force ' : ''}restart completed for room ${event.roomId}`)
+}
+
 async function handleEvent(agent: AgentCredential, event: RemoteEvent) {
   if (seenEvents.has(event.id)) return
   seenEvents.add(event.id)
   if (seenEvents.size > 500) seenEvents.clear()
   const cfg = loadConfig()
+  if (event.type === 'agent.restart') {
+    runtimeState.activeRuns[event.runId] = { runId: event.runId, agentId: agent.agentId, startedAt: Date.now(), type: event.type }
+    try { await handleRestartEvent(agent, event) }
+    catch (err: any) { log(`Agent ${agent.agentId} restart failed: ${err?.message || err}`); try { await runFail(cfg, agent, event.runId, err) } catch {}; updateAgent(agent.agentId, { status: 'error', lastError: err?.message || String(err), lastSeenAt: Date.now() }) }
+    finally { delete runtimeState.activeRuns[event.runId] }
+    return
+  }
   runtimeState.activeRuns[event.runId] = { runId: event.runId, agentId: agent.agentId, startedAt: Date.now(), type: event.type }
   updateAgent(agent.agentId, { status: 'running', lastSeenAt: Date.now(), lastError: undefined })
   try {

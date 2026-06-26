@@ -35,6 +35,13 @@ type EnqueueContext = {
   metadata?: Record<string, any>
 }
 
+type ControlEventInput = {
+  roomId: string
+  agentId: string
+  type: string
+  payload: Record<string, any>
+}
+
 function compactCode(raw: string): string {
   return String(raw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
 }
@@ -231,6 +238,22 @@ export class RemoteAgentConnectorService {
     this.requeueStaleDeliveredEvents(auth.agentId)
     this.pushPendingEvents(auth.agentId)
     return { ok: true, now }
+  }
+
+  enqueueControlEvent(input: ControlEventInput) {
+    const now = Date.now()
+    const runId = `ctrl_${uuidv4()}`
+    const eventId = `raevt_${uuidv4()}`
+    db.prepare(`
+      INSERT INTO agent_runs (id, room_id, agent_id, status, input, actor_user_id, payer_user_id, run_source, runtime, started_at)
+      VALUES (?, ?, ?, 'running', ?, ?, ?, ?, 'remote-control', ?)
+    `).run(runId, input.roomId, input.agentId, JSON.stringify(input.payload || {}), input.payload?.actorUserId || null, input.payload?.actorUserId || null, input.type, now)
+    db.prepare(`
+      INSERT INTO remote_agent_events (id, run_id, room_id, agent_id, type, payload_json, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+    `).run(eventId, runId, input.roomId, input.agentId, input.type, JSON.stringify({ ...input.payload, runId, roomId: input.roomId, agentId: input.agentId }), now)
+    this.pushPendingEvents(input.agentId)
+    return { runId, eventId }
   }
 
   enqueueRun(roomId: string, agentId: string, input: string, context: EnqueueContext = {}) {

@@ -47,12 +47,12 @@ export class AgentRestartService {
     if (!row) throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found in room' }
 
     const activeRun = db.prepare('SELECT id FROM agent_runs WHERE room_id = ? AND agent_id = ? AND status = ? ORDER BY started_at DESC LIMIT 1').get(roomId, row.id, 'running') as any
+    const now = Date.now()
     const stoppedRuntime = mode === 'force'
       ? agentService.forceStopAgentRuntime(roomId, row.id, `Force restarted by ${userId}`)
       : undefined
     if (activeRun && mode !== 'force') throw { code: 'AGENT_RUNNING', message: 'Agent is still running; use force restart if it is stuck' }
 
-    const now = Date.now()
     const tx = db.transaction(() => {
       db.prepare("UPDATE remote_agent_events SET status = 'completed', completed_at = COALESCE(completed_at, ?) WHERE room_id = ? AND agent_id = ? AND status IN ('pending', 'delivered')").run(now, roomId, row.id)
       if (mode === 'force') {
@@ -71,6 +71,10 @@ export class AgentRestartService {
       }
     })
     tx()
+    const connectorSummaryBefore = remoteAgentConnectorService.getConnectorSummary(row.id)
+    const restartEvent = connectorSummaryBefore.clientConnectorStatus === 'online' || connectorSummaryBefore.clientConnectorStatus === 'working'
+      ? remoteAgentConnectorService.enqueueControlEvent({ roomId, agentId: row.id, type: 'agent.restart', payload: { mode, clearSession, actorUserId: userId, reason: `${mode} restart by ${userId}`, cancelledRunId: activeRun?.id || null } })
+      : null
 
     const pendingSubtasks = db.prepare(`
       SELECT ti.id, ti.title, ti.description, ti.status, t.id as task_id, t.title as task_title
@@ -82,7 +86,7 @@ export class AgentRestartService {
     `).all(roomId, row.id) as any[]
     const agent = await agentService.getAgent(row.id)
     const connectorSummary = remoteAgentConnectorService.getConnectorSummary(row.id)
-    return { agent: { ...agent, ...connectorSummary, onlineStatus: connectorSummary.clientConnectorStatus === 'working' ? 'working' : connectorSummary.clientConnectorStatus === 'online' ? 'online' : 'offline' }, previousStatus: row.status, restartedBy: userId, clearSession, mode, stoppedRuntime, cancelledRunId: activeRun?.id, pendingSubtasks }
+    return { agent: { ...agent, ...connectorSummary, onlineStatus: connectorSummary.clientConnectorStatus === 'working' ? 'working' : connectorSummary.clientConnectorStatus === 'online' ? 'online' : 'offline' }, previousStatus: row.status, restartedBy: userId, clearSession, mode, stoppedRuntime, restartEvent, cancelledRunId: activeRun?.id, pendingSubtasks }
   }
 }
 

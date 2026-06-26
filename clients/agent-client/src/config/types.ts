@@ -36,7 +36,7 @@ export type RemoteEvent = {
   roomId: string
   agentId: string
   type: string
-  payload: { input: string; taskId?: string; subtaskId?: string; runSource?: string; responseMode?: 'final_to_chat' | 'tool_only' | 'silent'; metadata?: Record<string, any> }
+  payload: { input?: string; mode?: 'soft' | 'force'; clearSession?: boolean; actorUserId?: string; reason?: string; taskId?: string; subtaskId?: string; runSource?: string; responseMode?: 'final_to_chat' | 'tool_only' | 'silent'; metadata?: Record<string, any> }
 }
 
 export type RuntimeState = {
