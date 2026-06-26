@@ -160,6 +160,7 @@ Agent 工作区根目录提供 `./freechat`：
 - 小蜜可使用 chat/task/file/tab/interaction/members 等默认工具，以及已有 `agent.*`、`agent.skill.*`、`agent.script.*` 能力。
 - Agent 列表语义拆分：用户问“我有哪些/我的 Agent/通讯录 Agent”时使用 `agent.my-list`，返回当前 actorUserId 可见/可用的 Agent；问“当前房间还能添加哪些 Agent”时使用 `agent.list-available`。
 - 工具鉴权仍以 actorUserId、房间成员权限、模板 owner/editor/admin 权限为准；小蜜的 owner 是系统账号只用于内置资产维护，不能成为用户操作授权主体。
+- `/api/agent-tools/:roomId` 对个人维度工具强制要求 user-scoped actorUserId token，例如 `agent.my-list`、`conversation.*`、`friends.*`、`dm.*`；没有 actorUserId 时直接拒绝，不回退到房间创建人、Agent owner 或系统账号。
 - 小蜜平台托管运行时的 inline tool 兜底只作为兼容层，执行前必须存在 actorUserId 且 actorUserId 必须是当前房间成员；具体工具再继续复用用户维度/房间维度权限，避免绕过 `/api/agent-tools/:roomId` 的授权链。
 - 危险级操作保持 blocked 或强确认策略，不因“小蜜”入口而放宽。
 

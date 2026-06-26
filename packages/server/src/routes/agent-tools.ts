@@ -28,6 +28,7 @@ import { notificationService } from '../services/notification.service.js'
 import { remoteAgentConnectorService } from '../services/remote-agent-connector.service.js'
 import { workgroupService } from '../services/workgroup.service.js'
 import { assertNoFakeHandoffText, assertProjectFilePathAllowed, broadcast, buildSubtaskWakePrompt, invokeAssignedAgent, resolveAgentAssignee, safeRelativePath, throwTabNotFound, validateTabIds } from './agent-tools.helpers.js'
+import { isPersonalTool } from './agent-tools-auth.js'
 export async function registerAgentToolRoutes(app: FastifyInstance) {
   app.post('/api/agent-tools/:roomId', async (request, reply) => {
     const { roomId } = request.params as any
@@ -46,13 +47,16 @@ export async function registerAgentToolRoutes(app: FastifyInstance) {
     if (!roomAgent) return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Agent is not in this room' } })
 
     const agent = await agentService.getAgent(verified.agentId)
-    const actorUserId = verified.actorUserId || (db.prepare('SELECT created_by FROM rooms WHERE id = ?').get(roomId) as any)?.created_by || agent.ownerId || agent.id
+    const body = request.body as any
+    const action = String(body.action || body.tool || '')
+    const actorUserId = verified.actorUserId || (!isPersonalTool(action) ? ((db.prepare('SELECT created_by FROM rooms WHERE id = ?').get(roomId) as any)?.created_by || agent.ownerId || agent.id) : undefined)
+    if (isPersonalTool(action) && !verified.actorUserId) {
+      return reply.code(403).send({ success: false, error: { code: 'ACTOR_REQUIRED', message: 'This tool requires a user-scoped actorUserId token' } })
+    }
     const assertActorCanEditRoom = () => {
       const member = db.prepare('SELECT role FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, actorUserId) as any
       if (!member || !['owner', 'editor'].includes(member.role)) throw { code: 'FORBIDDEN', message: 'Only project owner/editor can perform this operation' }
     }
-    const body = request.body as any
-    const action = body.action || body.tool
     const args = body.args || {}
     const filesDir = join(config.workspace.root, roomId, 'files')
     const activeRunId = roomAnalyticsService.findActiveRun(roomId, agent.id)
