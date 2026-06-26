@@ -19,6 +19,18 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const row = db.prepare('SELECT created_by FROM rooms WHERE id = ?').get(roomId) as any
     return !!row?.created_by && row.created_by === userId
   }
+  const canCommandRoomAgent = (roomId: string, userId: string) => {
+    const row = db.prepare('SELECT created_by, workgroup_id FROM rooms WHERE id = ?').get(roomId) as any
+    if (!row) return false
+    if (row.created_by === userId) return true
+    const member = db.prepare('SELECT role FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, userId) as any
+    if (member && ['owner', 'editor'].includes(member.role)) return true
+    if (row.workgroup_id) {
+      const wgMember = db.prepare('SELECT role FROM workgroup_members WHERE workgroup_id = ? AND user_id = ?').get(row.workgroup_id, userId) as any
+      if (wgMember && ['owner', 'admin'].includes(wgMember.role)) return true
+    }
+    return false
+  }
 
   // ===== User's own agents =====
 
@@ -449,8 +461,8 @@ export async function registerAgentRoutes(app: FastifyInstance) {
     const { roomId, agentId } = request.params as any
     const { clearSession = true, mode = 'soft' } = request.body as any || {}
 
-    if (!isRoomCreator(roomId, user.id)) {
-      return reply.code(403).send({ success: false, error: { code: 'CREATOR_ONLY_AGENT_COMMAND', message: '只有项目创建人可以重启/指挥 Agent；如产生模型费用，由项目创建人承担。' } })
+    if (!canCommandRoomAgent(roomId, user.id)) {
+      return reply.code(403).send({ success: false, error: { code: 'ROOM_AGENT_COMMAND_FORBIDDEN', message: '只有房间 owner/editor 或工作组 owner/admin 可以重启 Agent；如产生模型费用，由项目承担。' } })
     }
 
     const result = await agentRestartService.restart(roomId, agentId, user.id, { mode: mode === 'force' ? 'force' : 'soft', clearSession: clearSession !== false })
