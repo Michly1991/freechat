@@ -30,6 +30,11 @@ export function extractInlineToolCalls(text: string): ToolCall[] {
   return calls.slice(0, 5)
 }
 
+function assertActorInRoom(roomId: string, actorUserId: string) {
+  const row = db.prepare('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, actorUserId)
+  if (!row) throw new Error('Current user is not a member of this room')
+}
+
 function summarizeAgent(agent: any) {
   const parts = [agent.name]
   if (agent.description) parts.push(`：${agent.description}`)
@@ -54,10 +59,11 @@ function formatToolResult(action: string, result: any) {
 export async function executeInlineToolCalls(roomId: string, agentId: string, actorUserId: string | undefined, output: string) {
   const calls = extractInlineToolCalls(output)
   if (calls.length === 0) return null
+  if (!actorUserId) throw new Error('actorUserId is required for inline tool calls')
+  assertActorInRoom(roomId, actorUserId)
   const results = []
   for (const call of calls) {
     if (call.name === 'agent.my-list' || call.name === 'agent.my_list') {
-      if (!actorUserId) throw new Error('actorUserId is required for agent.my-list')
       const agents = await agentService.getUserAgents(actorUserId)
       results.push({ action: 'agent.my-list', success: true, data: { agents } })
       continue
