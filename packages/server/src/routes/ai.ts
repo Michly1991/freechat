@@ -1,9 +1,12 @@
 import { FastifyInstance } from 'fastify'
 import { aiConfigService } from '../services/ai-config.service.js'
+import { requireAdmin, routeAuthError } from './route-auth.js'
 
 export async function registerAIRoutes(app: FastifyInstance) {
   // Get AI config
   app.get('/api/ai/config', async (request, reply) => {
+    const user = (request as any).user
+    try { requireAdmin(user) } catch (err: any) { return routeAuthError(reply, err) }
     const config = aiConfigService.getConfig()
     // Don't expose full API keys, just mask them
     const maskedConfig = {
@@ -20,6 +23,8 @@ export async function registerAIRoutes(app: FastifyInstance) {
 
   // Update API key
   app.post('/api/ai/api-key', async (request, reply) => {
+    const user = (request as any).user
+    try { requireAdmin(user) } catch (err: any) { return routeAuthError(reply, err) }
     const { provider, apiKey } = request.body as any
     if (!provider || !apiKey) {
       return reply.code(400).send({
@@ -34,6 +39,8 @@ export async function registerAIRoutes(app: FastifyInstance) {
 
   // Set current provider
   app.post('/api/ai/provider', async (request, reply) => {
+    const user = (request as any).user
+    try { requireAdmin(user) } catch (err: any) { return routeAuthError(reply, err) }
     const { provider } = request.body as any
     if (!provider) {
       return reply.code(400).send({
@@ -48,6 +55,8 @@ export async function registerAIRoutes(app: FastifyInstance) {
 
   // Enable/disable provider
   app.patch('/api/ai/provider/:provider/enabled', async (request, reply) => {
+    const user = (request as any).user
+    try { requireAdmin(user) } catch (err: any) { return routeAuthError(reply, err) }
     const { provider } = request.params as any
     const { enabled } = request.body as any
 
@@ -64,6 +73,8 @@ export async function registerAIRoutes(app: FastifyInstance) {
 
   // Test connection
   app.post('/api/ai/test', async (request, reply) => {
+    const user = (request as any).user
+    try { requireAdmin(user) } catch (err: any) { return routeAuthError(reply, err) }
     const { provider, model } = request.body as any
     if (!provider) {
       return reply.code(400).send({
@@ -78,6 +89,8 @@ export async function registerAIRoutes(app: FastifyInstance) {
 
   // Call AI directly
   app.post('/api/ai/call', async (request, reply) => {
+    const user = (request as any).user
+    try { requireAdmin(user) } catch (err: any) { return routeAuthError(reply, err) }
     const { prompt, model, maxTokens, system } = request.body as any
     if (!prompt) {
       return reply.code(400).send({

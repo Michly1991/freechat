@@ -8,6 +8,7 @@ import { tabConfigService } from '../services/tab-config.service.js'
 import { tabFilesMapService } from '../services/tab-files-map.service.js'
 import { roomFileService } from '../services/room-file.service.js'
 import { broadcast } from './agent-tools.helpers.js'
+import { assertRoomMember } from './route-auth.js'
 
 async function authenticateAgentFileRequest(roomId: string, authorization?: string) {
   const auth = authorization || ''
@@ -19,11 +20,14 @@ async function authenticateAgentFileRequest(roomId: string, authorization?: stri
     if (remoteAuth) verified = { ok: true, agentId: remoteAuth.agentId, actorUserId: remoteAuth.ownerId }
   }
   if (!verified.ok || !verified.agentId) throw { status: 401, code: 'UNAUTHORIZED', message: 'Invalid agent file token' }
+  const actorUserId = verified.actorUserId || remoteAuth?.ownerId
+  if (!actorUserId) throw { status: 403, code: 'ACTOR_REQUIRED', message: 'Agent file operations require user-scoped actorUserId' }
+  assertRoomMember(roomId, actorUserId)
   const roomAgent = db.prepare('SELECT 1 FROM room_agents WHERE room_id = ? AND agent_id = ?').get(roomId, verified.agentId)
   if (!roomAgent) throw { status: 403, code: 'FORBIDDEN', message: 'Agent is not in this room' }
   const agent = await agentService.getAgent(verified.agentId)
   agentService.assertToolAllowed(agent, 'file.download')
-  return { agent, actorUserId: verified.actorUserId || remoteAuth?.ownerId || agent.ownerId }
+  return { agent, actorUserId }
 }
 
 function cleanFilename(input = 'upload.bin') {
