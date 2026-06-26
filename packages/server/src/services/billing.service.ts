@@ -191,7 +191,7 @@ export class BillingService {
   }
 
   private resolveModelRule(event: MeteredUsageEvent): TokenRule | undefined {
-    if (event.usageSource === 'client_reported' || event.modelSource === 'client_reported' || event.runtime === 'remote-claude-code') return undefined
+    if ((event.usageSource === 'client_reported' || event.modelSource === 'client_reported' || event.runtime === 'remote-claude-code') && event.runtime !== 'platform-hosted-client') return undefined
     if (event.modelProfileId && event.model) return this.getModelRule(event.modelProfileId, event.model)
     if (event.model) return this.findPlatformModelRule(event.model)
     return undefined

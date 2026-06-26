@@ -6,7 +6,6 @@ import { chmod, mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { config } from '../config.js'
 import { createAgentToolToken } from '../agent-tool-token.js'
-import { createBuiltInXiaomiRunner } from './built-in-xiaomi-runner.service.js'
 import { renderAgentCliCjs, renderAgentCliWrapper } from './agent-cli-template.js'
 import { renderAgentApiDoc, renderAgentGuide } from './agent-workspace-template.js'
 import type { AgentRunContext } from './agent-run-context.js'
@@ -861,7 +860,6 @@ export class AgentService {
 
   async enqueueAgentRun(roomId: string, agentId: string, message: string, options: { timeoutMs?: number; actorUserId?: string; onEvent?: (event: any) => void } & AgentRunContext = {}): Promise<{ response: string; silent: boolean }> {
     const agent = await this.getAgent(agentId)
-    if (agent.config?.builtInKey === XIAOMI_AGENT_BUILT_IN_KEY) return createBuiltInXiaomiRunner().run(roomId, agent, buildAgentRunInput(agent, message), options)
     remoteAgentConnectorService.enqueueRun(roomId, agentId, buildAgentRunInput(agent, message), options)
     return { response: '', silent: true }
   }

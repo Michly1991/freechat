@@ -193,7 +193,7 @@ Agent Client 不保存或判断“谁是当前接待”，只作为执行器：
 
 - 如果服务端/平台需要提供默认助手或官方 Agent，应由 admin 账号创建/拥有。
 - 普通官方 Agent 仍是 client deployment，通过 admin 登录的 Agent Client 接管执行，而不是服务端直接运行。
-- 例外：平台内置 `小蜜` 首版复用 `direct_agent` 私聊入口，但由后端内置 Runner 调用平台 AI 配置执行，以确保每个用户开箱可用；它仍必须通过 actorUserId 约束工具权限，不能绕过当前用户权限或强确认策略。
+- 平台内置 `小蜜` 也统一为 `deployment = client`：启动时由系统创建平台托管 Connector，并通过与普通 Agent 相同的 `remote_agent_events` 队列、`agent_runs` 状态和结算链路执行。平台托管运行时仍必须通过 actorUserId 约束工具权限，不能绕过当前用户权限或强确认策略。
 
 ## Handoff 工具强制规则
 

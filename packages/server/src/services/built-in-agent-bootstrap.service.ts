@@ -7,6 +7,7 @@ import { agentPackageService } from './agent-package.service.js'
 import { agentCapabilityService } from './agent-capability.service.js'
 import { rowToAgent, type AgentRow } from './agent-mapper.js'
 import { XIAOMI_AGENT_BUILT_IN_KEY } from './built-in-agent-constants.js'
+import { remoteAgentConnectorService } from './remote-agent-connector.service.js'
 
 const XIAOMI_SYSTEM_PROMPT = `你是 FreeChat 平台内置助手「小蜜」，定位是每个用户的客户端级 AI 助手。
 
@@ -82,7 +83,7 @@ export class BuiltInAgentBootstrapService {
     if (existing?.id) {
       db.prepare(`
         UPDATE agents
-        SET owner_id = ?, name = ?, role_type = 'assistant', deployment = 'server', description = ?, specialties = ?, config = ?, status = 'active', is_template = 1, updated_at = ?
+        SET owner_id = ?, name = ?, role_type = 'assistant', deployment = 'client', description = ?, specialties = ?, config = ?, status = 'active', is_template = 1, updated_at = ?
         WHERE id = ?
       `).run(
         SYSTEM_ADMIN_USER_ID,
@@ -95,7 +96,8 @@ export class BuiltInAgentBootstrapService {
       )
       ensureCoreSkill(existing.id)
       this.ensureXiaomiBillingRule(existing.id, now)
-      void agentPackageService.ensureAgentPackage(rowToAgent({ ...existing, owner_id: SYSTEM_ADMIN_USER_ID, name: '小蜜', role_type: 'assistant', deployment: 'server', description: 'FreeChat 平台内置助手，帮助每个用户操作 Agent、Skill、项目协作和平台能力。', specialties: JSON.stringify(['FreeChat 使用助手', 'Agent 管理', 'Skill/Script 协助', '项目协作', '权限确认']), config: JSON.stringify(config), status: 'active', is_template: 1, updated_at: now })).catch((err) => console.error('[built-in-agent] ensure xiaomi package failed', err))
+      remoteAgentConnectorService.ensurePlatformHostedConnector(existing.id, SYSTEM_ADMIN_USER_ID)
+      void agentPackageService.ensureAgentPackage(rowToAgent({ ...existing, owner_id: SYSTEM_ADMIN_USER_ID, name: '小蜜', role_type: 'assistant', deployment: 'client', description: 'FreeChat 平台内置助手，帮助每个用户操作 Agent、Skill、项目协作和平台能力。', specialties: JSON.stringify(['FreeChat 使用助手', 'Agent 管理', 'Skill/Script 协助', '项目协作', '权限确认']), config: JSON.stringify(config), status: 'active', is_template: 1, updated_at: now })).catch((err) => console.error('[built-in-agent] ensure xiaomi package failed', err))
       return existing.id
     }
 
@@ -104,7 +106,7 @@ export class BuiltInAgentBootstrapService {
     const apiKeyHash = bcrypt.hashSync(apiKey, 10)
     db.prepare(`
       INSERT INTO agents (id, owner_id, name, role_type, deployment, description, specialties, config, api_key_hash, status, is_template, template_version, created_at, updated_at)
-      VALUES (?, ?, ?, 'assistant', 'server', ?, ?, ?, ?, 'active', 1, 1, ?, ?)
+      VALUES (?, ?, ?, 'assistant', 'client', ?, ?, ?, ?, 'active', 1, 1, ?, ?)
     `).run(
       id,
       SYSTEM_ADMIN_USER_ID,
@@ -119,6 +121,7 @@ export class BuiltInAgentBootstrapService {
     const row = db.prepare(`SELECT a.*, COALESCE(u.nickname, u.username) owner_name FROM agents a LEFT JOIN users u ON u.id = a.owner_id WHERE a.id = ?`).get(id) as AgentRow
     ensureCoreSkill(id)
     this.ensureXiaomiBillingRule(id, now)
+    remoteAgentConnectorService.ensurePlatformHostedConnector(id, SYSTEM_ADMIN_USER_ID)
     void agentPackageService.ensureAgentPackage(rowToAgent(row)).catch((err) => console.error('[built-in-agent] ensure xiaomi package failed', err))
     return id
   }

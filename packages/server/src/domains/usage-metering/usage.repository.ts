@@ -70,7 +70,7 @@ export class UsageRepository {
     const currentProvider = currentProviderKey ? aiConfig.providers?.[currentProviderKey] : null
     const platformProfileId = currentProviderKey ? `mp_platform_${currentProviderKey}` : null
     const platformProfile = platformProfileId && !binding ? db.prepare('SELECT owner_id model_provider_user_id, visibility, base_url, default_model FROM model_profiles WHERE id = ? AND enabled = 1').get(platformProfileId) as any : null
-    const clientReported = run.runtime === 'remote-claude-code' || run.usage_source === 'client_reported'
+    const clientReported = (run.runtime === 'remote-claude-code' || run.usage_source === 'client_reported') && run.runtime !== 'platform-hosted-client'
     const profileId = clientReported ? null : (binding?.model_profile_id || platformProfileId || null)
     const model = run.model || (clientReported ? null : (binding?.model || binding?.default_model || platformProfile?.default_model || currentProvider?.defaultModel || null))
     const id = `mue_${uuidv4()}`

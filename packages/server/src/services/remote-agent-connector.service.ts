@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid'
 import db from '../storage/db.js'
 import { config } from '../config.js'
 import { billingService } from './billing.service.js'
+import { platformHostedAgentRuntimeService } from './platform-hosted-agent-runtime.service.js'
 
 const ACCESS_EXPIRES_IN = '7d'
 const PAIRING_TTL_MS = 10 * 60 * 1000
@@ -64,6 +65,27 @@ export class RemoteAgentConnectorService {
     return { id, code, expiresAt: now + PAIRING_TTL_MS }
   }
 
+
+  ensurePlatformHostedConnector(agentId: string, ownerId: string) {
+    const now = Date.now()
+    const existing = db.prepare("SELECT id FROM agent_connectors WHERE agent_id = ? AND instance_id = ? AND status != 'revoked' ORDER BY created_at ASC LIMIT 1").get(agentId, 'platform-hosted') as any
+    if (existing?.id) {
+      db.prepare("UPDATE agent_connectors SET status = 'online', last_seen_at = ?, capabilities_json = ? WHERE id = ?").run(now, JSON.stringify({ platformHosted: true }), existing.id)
+      const token = db.prepare("SELECT id FROM agent_connector_tokens WHERE connector_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1").get(existing.id) as any
+      if (token?.id) return { connectorId: existing.id, tokenId: token.id }
+      const tokenId = `actok_${uuidv4()}`
+      const rawToken = `fcconn_${crypto.randomBytes(36).toString('base64url')}`
+      db.prepare("INSERT INTO agent_connector_tokens (id, connector_id, token_hash, token_prefix, status, last_used_at, created_at) VALUES (?, ?, ?, ?, 'active', ?, ?)").run(tokenId, existing.id, bcrypt.hashSync(rawToken, 10), tokenPrefix(rawToken), now, now)
+      return { connectorId: existing.id, tokenId }
+    }
+    const connectorId = `aconn_${uuidv4()}`
+    const tokenId = `actok_${uuidv4()}`
+    const rawToken = `fcconn_${crypto.randomBytes(36).toString('base64url')}`
+    db.prepare("INSERT INTO agent_connectors (id, agent_id, owner_id, instance_id, name, status, client_version, capabilities_json, last_seen_at, created_at) VALUES (?, ?, ?, 'platform-hosted', 'FreeChat 平台托管客户端', 'online', 'platform-hosted', ?, ?, ?)")
+      .run(connectorId, agentId, ownerId, JSON.stringify({ platformHosted: true }), now, now)
+    db.prepare("INSERT INTO agent_connector_tokens (id, connector_id, token_hash, token_prefix, status, last_used_at, created_at) VALUES (?, ?, ?, ?, 'active', ?, ?)").run(tokenId, connectorId, bcrypt.hashSync(rawToken, 10), tokenPrefix(rawToken), now, now)
+    return { connectorId, tokenId }
+  }
 
   getConnectorSummary(agentId: string) {
     const rows = db.prepare(`
@@ -240,9 +262,14 @@ export class RemoteAgentConnectorService {
     db.prepare(`
       INSERT INTO remote_agent_events (id, run_id, room_id, agent_id, type, payload_json, status, created_at)
       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
-    `).run(eventId, runId, roomId, agentId, eventType, JSON.stringify({ runId, roomId, agentId, input, taskId: context.taskId, subtaskId: context.subtaskId, runSource: context.runSource || eventType, responseMode: context.responseMode, metadata: context.metadata }), now)
+    `).run(eventId, runId, roomId, agentId, eventType, JSON.stringify({ runId, roomId, agentId, input, actorUserId: context.actorUserId, taskId: context.taskId, subtaskId: context.subtaskId, runSource: context.runSource || eventType, responseMode: context.responseMode, metadata: context.metadata }), now)
     db.prepare("UPDATE agents SET status = 'working', updated_at = ? WHERE id = ?").run(now, agentId)
     this.pushPendingEvents(agentId)
+    if (platformHostedAgentRuntimeService.canHandle(agentId)) {
+      const connector = db.prepare("SELECT id FROM agent_connectors WHERE agent_id = ? AND instance_id = ? AND status != 'revoked' ORDER BY created_at ASC LIMIT 1").get(agentId, 'platform-hosted') as any
+      const token = connector ? db.prepare("SELECT id FROM agent_connector_tokens WHERE connector_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1").get(connector.id) as any : null
+      if (connector?.id && token?.id) void platformHostedAgentRuntimeService.processPending({ connectorId: connector.id, agentId, ownerId: agent.owner_id, tokenId: token.id }, this.complete.bind(this), this.fail.bind(this)).catch((err) => console.error('[platform-hosted-agent] process failed', err))
+    }
     return { runId, eventId }
   }
 
@@ -318,12 +345,12 @@ export class RemoteAgentConnectorService {
     const totalTokens = Number(usage.totalTokens || usage.total_tokens || (inputTokens + outputTokens + cacheCreationInputTokens + cacheReadInputTokens) || 0)
     db.prepare(`
       UPDATE agent_runs
-      SET status = 'succeeded', output = ?, error = NULL, runtime = 'remote-claude-code', model = ?, duration_ms = ?,
+      SET status = 'succeeded', output = ?, error = NULL, runtime = ?, model = ?, duration_ms = ?,
         input_tokens = ?, output_tokens = ?, cache_creation_input_tokens = ?, cache_read_input_tokens = ?, total_tokens = ?,
-        usage_source = 'client_reported', usage_trust_level = 'provider_reported', usage_reported_by_connector_id = ?, usage_reported_at = ?, raw_usage_json = ?,
+        usage_source = ?, usage_trust_level = ?, usage_reported_by_connector_id = ?, usage_reported_at = ?, raw_usage_json = ?,
         finished_at = ?
       WHERE id = ?
-    `).run(payload.output || payload.summary || '', usage.model || null, durationMs, inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens, totalTokens, auth.connectorId, now, JSON.stringify(usage || {}), now, runId)
+    `).run(payload.output || payload.summary || '', usage.runtime || (usage.usageSource === 'server_metered' ? 'platform-hosted-client' : 'remote-claude-code'), usage.model || null, durationMs, inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens, totalTokens, usage.usageSource || usage.usage_source || 'client_reported', usage.trustLevel || usage.usage_trust_level || 'provider_reported', auth.connectorId, now, JSON.stringify(usage || {}), now, runId)
     db.prepare("UPDATE remote_agent_events SET status = 'completed', completed_at = ? WHERE run_id = ?").run(now, runId)
     db.prepare("UPDATE agent_connectors SET status = 'online', last_seen_at = ? WHERE id = ?").run(now, auth.connectorId)
     db.prepare("UPDATE agents SET status = 'active', updated_at = ? WHERE id = ?").run(now, auth.agentId)
