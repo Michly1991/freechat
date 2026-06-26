@@ -103,6 +103,7 @@ function usage() {
     '  ./freechat profiles update-json <memberId> <localJsonPath>',
     '  ./freechat users get <userId>',
     '  ./freechat users search <query>',
+    '  ./freechat agent my-list',
     '  ./freechat agent room-list',
     '  ./freechat agent list-available',
     '  ./freechat agent add <agentNameOrId>',
@@ -532,6 +533,8 @@ if (domain === 'tool' && cmd === 'list') {
   const query = rest.join(' ').trim();
   if (!query) die('query is required');
   call('users.search', { query });
+} else if (domain === 'agent' && cmd === 'my-list') {
+  call('agent.my-list');
 } else if (domain === 'agent' && cmd === 'room-list') {
   call('agent.room-list');
 } else if (domain === 'agent' && cmd === 'list-available') {

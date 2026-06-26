@@ -16,7 +16,8 @@ function toolHelp(roomId: string, agentId: string, actorUserId?: string) {
     '可用 FreeChat App Tools：如需执行应用操作，调用内部 HTTP API：',
     `POST http://127.0.0.1:${appConfig.port}/api/agent-tools/${roomId}`,
     `Authorization: Bearer ${token}`,
-    'Body: {"action":"chat.send|task.list|file.read|tab.list|members.list|agent.list-available|agent.detail|interaction.confirm|...","args":{...}}',
+    'Body: {"action":"chat.send|task.list|file.read|tab.list|members.list|agent.my-list|agent.list-available|agent.detail|interaction.confirm|...","args":{...}}',
+    '用户问“我有哪些 Agent/我的 Agent/通讯录 Agent”时用 agent.my-list；问“当前房间还能添加哪些 Agent”时用 agent.list-available。',
     '危险操作必须先创建确认卡或获得明确确认；不要绕过当前用户权限。',
   ].join('\n')
 }

@@ -671,7 +671,7 @@ export class AgentService {
       '1. 只能通过 ./freechat 操作项目，不要直接访问或修改项目共享目录。',
       '2. 需要用户决策时使用 interaction。',
       '3. 处理长期事项时使用 task/progress。创建任何新任务、子任务或任务计划前，必须先执行 ./freechat task list 查看房间已有未关闭任务；发现同一目标/同名任务时必须复用已有 taskId，用 progress/update/subtask add 推进，禁止重新创建同类父任务。',
-      '3.1 需要查看房间协作者时使用 ./freechat members list；协调者需要拉入已有业务 Agent 时可使用 ./freechat agent list-available 和 ./freechat agent add <名称或ID>；缺少必要 Agent 时可用 ./freechat agent create-request 发起创建确认卡，但必须等待用户确认。',
+      '3.1 需要查看用户自己的 Agent 列表时使用 ./freechat agent my-list；需要查看房间协作者时使用 ./freechat members list；协调者需要拉入已有业务 Agent 时可使用 ./freechat agent list-available 和 ./freechat agent add <名称或ID>；缺少必要 Agent 时可用 ./freechat agent create-request 发起创建确认卡，但必须等待用户确认。',
       '3.2 目录规则：当前工作区 res/ 只放你的私有草稿，用户项目正式文件必须通过 ./freechat file write/write-local 写到业务路径（如 星源纪/正文/...、星源纪/剧情/...），不要写项目路径 res/...。HTML 写到 ui/*.html 只是文件；要显示在页面区必须继续执行 ./freechat tab create-file 或 tab create-local。主交付页面/阅读页/看板页创建后必须加 --default 或执行 ./freechat tab set-default <tabId|标题>，让用户进入页面区直接看到默认首页。file write --show 只加入文件视图，不创建页面 Tab。页面内目录/导航要跨 FreeChat 页面跳转时，用 data-freechat-tab-id 或 data-freechat-tab-title，可选 data-freechat-anchor；普通 href 不能切换外层 Tab。HTML 可以修改，但 HTML 只负责展示和交互；小说卷/章/集目录必须来自 manifest.json，正文必须来自 Markdown 文件。新增/删除/修改集数时优先修改 manifest 和正文文件，不要把正文或硬编码目录塞进 HTML。',
       isRoomAssistant
         ? '4. 你是当前房间唯一的协调者入口和调度者；用户未明确 @ 其他 Agent 时，只代表自己/协调者响应。遇到复合任务、长内容任务、或明显命中其他 Agent 专长的任务，必须先用 ./freechat task list 查看已有任务，再用 members.list 查看协作者；有匹配 Agent 时禁止自己直接产出最终成品，必须复用已有任务或用 ./freechat task plan create-json 创建真实交互卡，或用 task/subtask --assignee 分派。禁止只用普通聊天文本/Markdown 表格假装任务计划。用户给出大致题材但缺少时长/受众等细节时，不要只追问；应先用合理默认假设创建计划卡，并在计划说明里写清可后续调整。'

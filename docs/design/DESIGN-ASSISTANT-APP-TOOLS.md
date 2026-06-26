@@ -130,7 +130,8 @@ Agent 工作区根目录提供 `./freechat`：
 | 成员档案 | 更新档案 | `PUT /rooms/:id/profiles/:memberId` | `profiles.update` | `profiles update-json` | sensitive_write | done |
 | 用户 | 查用户 | `GET /users/:userId` | `users.get` | `users get` | read | done |
 | 用户 | 搜索用户 | `GET /users/search` | `users.search` | `users search` | read | done |
-| Agent | 可添加 Agent | `GET /agents`/service | `agent.list-available` | `agent list-available` | read | done |
+| Agent | 我的 Agent 列表 | `GET /api/agents`/service | `agent.my-list` | `agent my-list` | read | done |
+| Agent | 当前房间可添加 Agent | service | `agent.list-available` | `agent list-available` | read | done |
 | Agent | 房间 Agent 列表 | `GET /rooms/:id/agents` | `agent.room-list` | `agent room-list` | read | done |
 | Agent | 添加/移除/重启 | `/rooms/:id/agents` | `agent.add/remove/restart` | `agent add/remove/restart` | sensitive_write | done |
 | Agent | 查看详情 | `GET /agents/:id/detail` | `agent.detail` | `agent detail` | read | done |
@@ -157,6 +158,7 @@ Agent 工作区根目录提供 `./freechat`：
 - 首版小蜜使用平台托管 Connector 执行：小蜜本身仍是 `deployment = client`，请求进入 `remote_agent_events`，由平台托管运行时消费并完成 `agent_runs`。
 - 平台托管运行时会把当前用户写入 App Tool token 的 actorUserId，用于保持工具鉴权主体不变。
 - 小蜜可使用 chat/task/file/tab/interaction/members 等默认工具，以及已有 `agent.*`、`agent.skill.*`、`agent.script.*` 能力。
+- Agent 列表语义拆分：用户问“我有哪些/我的 Agent/通讯录 Agent”时使用 `agent.my-list`，返回当前 actorUserId 可见/可用的 Agent；问“当前房间还能添加哪些 Agent”时使用 `agent.list-available`。
 - 工具鉴权仍以 actorUserId、房间成员权限、模板 owner/editor/admin 权限为准；小蜜的 owner 是系统账号只用于内置资产维护，不能成为用户操作授权主体。
 - 危险级操作保持 blocked 或强确认策略，不因“小蜜”入口而放宽。
 

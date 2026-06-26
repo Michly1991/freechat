@@ -26,7 +26,7 @@ const TOOL_NAMES = [
   'tab-config.list', 'tab-config.add-file', 'tab-config.remove-file',
   'tab.list', 'tab.get', 'tab.search', 'tab.create', 'tab.create-from-file', 'tab.update', 'tab.patch', 'tab.delete', 'tab.reorder', 'tab.set-default', 'tab.open', 'tab.action',
   'members.list', 'members.add', 'profiles.list', 'profiles.update', 'users.get', 'users.search',
-  'agent.list-available', 'agent.room-list', 'agent.create-request', 'agent.add', 'agent.remove', 'agent.restart',
+  'agent.my-list', 'agent.list-available', 'agent.room-list', 'agent.create-request', 'agent.add', 'agent.remove', 'agent.restart',
   'agent.detail', 'agent.update', 'agent.skill.list', 'agent.skill.create', 'agent.skill.update', 'agent.skill.delete',
   'agent.script.list', 'agent.script.create', 'agent.script.update', 'agent.script.delete',
   'scene.list', 'scene.create', 'scene.update',
@@ -103,6 +103,11 @@ export async function handleAppUiTool(ctx: AppUiToolContext): Promise<{ handled:
       const interaction = interactionService.cancel(roomId, args.id || args.interactionId, agentId)
       broadcast(roomId, 'interaction.updated', { interaction })
       return { handled: true, response: { success: true, data: { interaction } } }
+    }
+    case 'agent.my-list':
+    case 'agent.my_list': {
+      const agents = await agentService.getUserAgents(actorUserId)
+      return { handled: true, response: { success: true, data: { agents } } }
     }
     case 'agent.room-list':
     case 'agent.room_list': {

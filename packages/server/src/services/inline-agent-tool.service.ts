@@ -32,6 +32,11 @@ function summarizeAgent(agent: any) {
 }
 
 function formatToolResult(action: string, result: any) {
+  if (action === 'agent.my-list') {
+    const agents = result?.data?.agents || result?.agents || []
+    if (!agents.length) return '你当前还没有可用的 Agent。'
+    return `你当前可用/可见的 Agent 有：\n${agents.map((agent: any, i: number) => `${i + 1}. ${summarizeAgent(agent)}`).join('\n')}`
+  }
   if (action === 'agent.list-available') {
     const agents = result?.data?.agents || result?.agents || []
     if (!agents.length) return '没查到你当前可用的 Agent。'
@@ -45,6 +50,12 @@ export async function executeInlineToolCalls(roomId: string, agentId: string, ac
   if (calls.length === 0) return null
   const results = []
   for (const call of calls) {
+    if (call.name === 'agent.my-list' || call.name === 'agent.my_list') {
+      if (!actorUserId) throw new Error('actorUserId is required for agent.my-list')
+      const agents = await agentService.getUserAgents(actorUserId)
+      results.push({ action: 'agent.my-list', success: true, data: { agents } })
+      continue
+    }
     if (call.name === 'agent.list-available') {
       await agentService.assertRoomAssistant(roomId, agentId)
       const agents = await agentService.getAvailableAgentsForRoom(roomId, agentId)
