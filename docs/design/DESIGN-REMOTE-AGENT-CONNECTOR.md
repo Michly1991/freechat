@@ -117,7 +117,14 @@ type RemoteAgentEvent = {
 7. 客户端调用 complete 或 fail。
 8. FreeChat 更新 run、Agent 状态、连接器状态，并触发账单。
 
-重要：`complete.output` 是运行摘要/审计记录，不会自动作为聊天消息发送。用户可见回复必须由 Agent 显式调用 `chat.send`，避免 stdout 和工具调用造成双回复。
+重要：远程 Agent Client 的 `complete.output` 只允许更新本 run，服务端用 connector auth 校验 `run.agent_id = auth.agentId`，不能完成/失败其他 Agent 的 run。对于 `agent.mentioned` / `handoff` 这类需要最终聊天回复的 run，服务端会把非 `tool_only/silent` 的 output 落成当前房间中的 Agent 消息；这只发生在该 Agent 已被授权拉取到的 run 上。
+
+Remote connector 权限边界：
+
+- `/api/remote-agents/events` 和 SSE 只返回当前 connector 绑定 Agent 的事件；即使传 `agentIds`，服务端也只允许 `auth.agentId`。
+- `/api/remote-agents/runs/:runId/activity|complete|fail` 必须满足 `agent_runs.agent_id = auth.agentId`。
+- `/api/remote-agents/knowledge` 只返回 `auth.agentId` 的知识库。
+- Connector 是 Agent 执行凭证，不是用户身份；需要操作用户/房间数据时必须走 Agent Tool token 的 actorUserId 授权链。
 
 ## 计费
 
@@ -271,7 +278,7 @@ wss://<server>/api/remote-agents/events/ws?token=<connector credential>
 GET /api/managed-agent-rooms?limit=50
 ```
 
-该接口返回当前用户拥有且已被 connector 接管的 Agent 所在房间、托管 Agent 列表和最近消息，用于 Agent Client 的“托管房间”只读视图。服务端会过滤内部 runtime init 日志，客户端也要防御性隐藏 `{"type":"system","subtype":"init"}` 这类运行时消息。
+该接口返回当前用户拥有且已被 connector 接管的 Agent 所在房间、托管 Agent 列表和 connector 状态，用于 Agent Client 的“托管房间”管理视图。Agent owner 只是 Agent 拥有者，不等于房间成员；因此该接口不返回房间消息内容。若用户同时是房间成员，需要读取消息必须走 `/api/rooms/:roomId/messages`，由房间成员权限单独鉴权。
 
 当 connector 注册或用户把 Agent 加入房间时，服务端会按 `owner_id + name + role_type` 查找已接管版本并迁移/优先使用它，避免房间挂到同名但没有 connector 的副本，导致 `@Agent` 事件一直 pending 无人消费。
 
