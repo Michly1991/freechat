@@ -48,6 +48,7 @@ import { marketPricingBootstrapService } from './services/market-pricing-bootstr
 import { billingAggregationSchedulerService } from './services/billing-aggregation-scheduler.service.js'
 import { agentService } from './services/agent.service.js'
 import { systemAdminService } from './services/system-admin.service.js'
+import { builtInAgentBootstrapService } from './services/built-in-agent-bootstrap.service.js'
 
 async function buildApp() {
   const app = Fastify({
@@ -84,6 +85,7 @@ async function buildApp() {
   systemAdminService.ensureSystemAdmin()
   platformModelBootstrapService.ensurePlatformUserAndModels()
   marketPricingBootstrapService.ensureDefaultMarketPricing()
+  builtInAgentBootstrapService.ensureXiaomiAgent()
   void agentService.ensurePackageWorkspaces()
   agentService.recoverStaleRuns()
   void agentService.recoverInterruptedTaskRuns()
@@ -140,7 +142,6 @@ async function buildApp() {
   await registerKnowledgeRoutes(app)
   await registerWorkgroupRoutes(app)
   await registerAgentToolRoutes(app)
-  await registerAuditLogRoutes(app)
   await registerAuditLogRoutes(app)
 
   // Error handler

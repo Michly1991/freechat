@@ -172,6 +172,10 @@ export default function HomePage() {
     try { const data = await api.openDirectAgentRoom(agentId); navigate(`/room/${data.room.id}`) } catch (err: any) { feedback.error(err.message || '操作失败') }
   }
 
+  const openXiaomi = async () => {
+    try { const data = await api.openXiaomiRoom(); navigate(`/room/${data.room.id}`) } catch (err: any) { feedback.error(err.message || '打开小蜜失败') }
+  }
+
   const resetAgentEditor = () => {
     setEditingAgentId(null)
     setShowCreateAgent(false)
@@ -339,14 +343,15 @@ export default function HomePage() {
   }
   const openQuickJoin = () => { setShowQuickActions(false); setShowJoin(true) }
   const openQuickCreate = () => { setShowQuickActions(false); setShowCreate(true) }
+  const openQuickXiaomi = () => { setShowQuickActions(false); openXiaomi() }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <HomeHeader user={user} showQuickActions={showQuickActions} showNotifications={showNotifications} notifications={notifications} notificationUnreadCount={notificationUnreadCount} browserNotificationsEnabled={browserNotificationsEnabled} setShowQuickActions={setShowQuickActions} setShowNotifications={setShowNotifications} setBrowserNotificationsEnabled={setBrowserNotificationsEnabled} onShowJoin={openQuickJoin} onShowCreate={openQuickCreate} onShowAddFriend={openQuickAddFriend} onSettings={() => setActiveHomeTab('settings')} onLogout={handleLogout} onMarkAllNotificationsRead={markAllNotificationsRead} onOpenNotification={openNotification} />
+      <HomeHeader user={user} showQuickActions={showQuickActions} showNotifications={showNotifications} notifications={notifications} notificationUnreadCount={notificationUnreadCount} browserNotificationsEnabled={browserNotificationsEnabled} setShowQuickActions={setShowQuickActions} setShowNotifications={setShowNotifications} setBrowserNotificationsEnabled={setBrowserNotificationsEnabled} onShowJoin={openQuickJoin} onShowCreate={openQuickCreate} onShowAddFriend={openQuickAddFriend} onOpenXiaomi={openQuickXiaomi} onSettings={() => setActiveHomeTab('settings')} onLogout={handleLogout} onMarkAllNotificationsRead={markAllNotificationsRead} onOpenNotification={openNotification} />
       <main className="max-w-5xl mx-auto px-0 sm:px-4 py-0 sm:py-8 pb-20 sm:pb-8">
         <DesktopTabs activeHomeTab={activeHomeTab} setActiveHomeTab={setActiveHomeTab} />
         {activeHomeTab === 'messages' && (
-          <MessagesSection conversations={conversations} deletingId={deletingId} openSwipeId={openSwipeId} setOpenSwipeId={setOpenSwipeId} loadConversations={loadConversations} getConversationActions={getConversationActions} toggleConversationPref={toggleConversationPref} deleteConversation={deleteConversation} navigateTo={navigate} />
+          <MessagesSection conversations={conversations} deletingId={deletingId} openSwipeId={openSwipeId} setOpenSwipeId={setOpenSwipeId} loadConversations={loadConversations} getConversationActions={getConversationActions} toggleConversationPref={toggleConversationPref} deleteConversation={deleteConversation} navigateTo={navigate} onOpenXiaomi={openXiaomi} />
         )}
         {activeHomeTab === 'contacts' && (
           <ContactsSection contactKind={contactKind} setContactKind={setContactKind} searchQ={searchQ} setSearchQ={setSearchQ} searchResults={searchResults} friends={friends} agents={agents} scenes={scenes} workgroups={workgroups} reloadWorkgroups={loadWorkgroups} reloadScenes={loadScenes} reloadAgents={loadAgents} friendRequests={friendRequests} showCreateAgent={showCreateAgent} editingAgentId={editingAgentId} agentForm={agentForm} setAgentForm={setAgentForm} openCreateAgent={openCreateAgent} resetAgentEditor={resetAgentEditor} searchUsers={searchUsers} sendFriendRequest={sendFriendRequest} acceptFriendRequest={acceptFriendRequest} rejectFriendRequest={rejectFriendRequest} openDm={openDm} openAgentChat={openAgentChat} toggleAgentTool={toggleAgentTool} createAgentFromContacts={createAgentFromContacts} openEditAgent={openEditAgent} deleteAgentFromContacts={deleteAgentFromContacts} />

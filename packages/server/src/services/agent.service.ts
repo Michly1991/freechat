@@ -6,6 +6,7 @@ import { chmod, mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { config } from '../config.js'
 import { createAgentToolToken } from '../agent-tool-token.js'
+import { createBuiltInXiaomiRunner } from './built-in-xiaomi-runner.service.js'
 import { renderAgentCliCjs, renderAgentCliWrapper } from './agent-cli-template.js'
 import { renderAgentApiDoc, renderAgentGuide } from './agent-workspace-template.js'
 import type { AgentRunContext } from './agent-run-context.js'
@@ -20,6 +21,7 @@ import { tabFilesMapService } from './tab-files-map.service.js'
 import { agentGrowthService } from './agent-growth.service.js'
 import { agentPackageService } from './agent-package.service.js'
 import { remoteAgentConnectorService } from './remote-agent-connector.service.js'
+import { XIAOMI_AGENT_BUILT_IN_KEY } from './built-in-agent-constants.js'
 
 export interface AgentConfig {
   name: string
@@ -59,6 +61,21 @@ function sanitizeRoomModelConfig(value: any): RoomAgentModelConfig | null {
     if (Number.isFinite(n)) out.temperature = n
   }
   return Object.keys(out).length > 0 ? out : null
+}
+
+function buildAgentRunInput(agent: Agent, message: string): string {
+  const details = [
+    `- 名称: ${agent.name}`,
+    `- ID: ${agent.id}`,
+    `- 类型: ${agent.roleType}`,
+    agent.description ? `- 描述: ${agent.description}` : '',
+    agent.specialties?.length ? `- 专长: ${agent.specialties.join('、')}` : '',
+  ].filter(Boolean).join('\n')
+  return [
+    `## 当前 Agent 身份\n${details}`,
+    agent.config?.systemPrompt ? `## Agent System Prompt\n${agent.config.systemPrompt}` : '',
+    `## 本次输入\n${message}`,
+  ].filter(Boolean).join('\n\n')
 }
 
 export class AgentService {
@@ -156,11 +173,16 @@ export class AgentService {
         AND (config IS NULL OR config NOT LIKE '%"defaultRoomAssistant":true%')
         AND (
           agents.owner_id = ?
+          OR config LIKE '%"builtInKey":"xiaomi_assistant"%'
           OR COALESCE(agents.market_listed, 0) = 1
           OR EXISTS (SELECT 1 FROM market_follows mf WHERE mf.user_id = ? AND mf.target_type = 'agent' AND mf.target_id = agents.id)
         )
       ORDER BY
-        CASE WHEN config LIKE '%"builtInKey":"default_assistant"%' THEN 0 ELSE 1 END ASC,
+        CASE
+          WHEN config LIKE '%"builtInKey":"default_assistant"%' THEN 0
+          WHEN config LIKE '%"builtInKey":"xiaomi_assistant"%' THEN 1
+          ELSE 2
+        END ASC,
         created_at DESC
     `).all(ownerId, ownerId) as AgentRow[]
     return rows.map(r => rowToAgent(r))
@@ -183,7 +205,11 @@ export class AgentService {
             AND (existing.id = a.id OR existing.source_template_id = a.id)
         )
       ORDER BY
-        CASE WHEN a.config LIKE '%"builtInKey":"default_assistant"%' THEN 0 ELSE 1 END ASC,
+        CASE
+          WHEN a.config LIKE '%"builtInKey":"default_assistant"%' THEN 0
+          WHEN a.config LIKE '%"builtInKey":"xiaomi_assistant"%' THEN 1
+          ELSE 2
+        END ASC,
         a.created_at DESC
     `).all(roomId) as AgentRow[]
     return rows.map(r => rowToAgent(r))
@@ -400,11 +426,13 @@ export class AgentService {
     const managedEquivalent = this.getManagedEquivalentAgent(agent)
     if (managedEquivalent) agent = managedEquivalent
     let targetAgentId = agent.id
-    if (agent.isTemplate && !this.isManagedClientAgent(agent.id)) {
+    if (agent.isTemplate && !this.isManagedClientAgent(agent.id) && agent.config?.builtInKey !== XIAOMI_AGENT_BUILT_IN_KEY) {
       agent = await this.cloneAgentTemplate(agent.id, addedBy, { roomId })
       targetAgentId = agent.id
     }
-    const hasAssistant = this.roomHasAssistant(roomId)
+    const roomRowForRole = db.prepare('SELECT room_kind, direct_target_type, direct_target_id FROM rooms WHERE id = ?').get(roomId) as any
+    const isXiaomiDirectRoom = agent.config?.builtInKey === XIAOMI_AGENT_BUILT_IN_KEY && roomRowForRole?.room_kind === 'direct_agent' && roomRowForRole?.direct_target_type === 'agent' && roomRowForRole?.direct_target_id === targetAgentId
+    const hasAssistant = isXiaomiDirectRoom ? false : this.roomHasAssistant(roomId)
     const requestedRole = options.roomRole || (!hasAssistant ? 'assistant' : 'specialist')
     const roomRole = this.isBuiltInDefaultAssistant(agent) && hasAssistant ? 'specialist' : requestedRole
     const autoEnabled = roomRole === 'assistant' ? true : options.autoEnabled === true
@@ -462,6 +490,7 @@ export class AgentService {
     if (!row || row.status === 'inactive') return false
     if (row.owner_id === userId) return true
     if (String(row.config || '').includes('"builtInKey":"default_assistant"')) return true
+    if (String(row.config || '').includes(`"builtInKey":"${XIAOMI_AGENT_BUILT_IN_KEY}"`)) return true
     if (!row.is_template || String(row.config || '').includes('"defaultRoomAssistant":true')) return false
     return !!db.prepare('SELECT 1 FROM market_follows WHERE user_id = ? AND target_type = ? AND target_id = ?').get(userId, 'agent', agentId)
   }
@@ -831,8 +860,9 @@ export class AgentService {
   }
 
   async enqueueAgentRun(roomId: string, agentId: string, message: string, options: { timeoutMs?: number; actorUserId?: string; onEvent?: (event: any) => void } & AgentRunContext = {}): Promise<{ response: string; silent: boolean }> {
-    await this.getAgent(agentId)
-    remoteAgentConnectorService.enqueueRun(roomId, agentId, message, options)
+    const agent = await this.getAgent(agentId)
+    if (agent.config?.builtInKey === XIAOMI_AGENT_BUILT_IN_KEY) return createBuiltInXiaomiRunner().run(roomId, agent, buildAgentRunInput(agent, message), options)
+    remoteAgentConnectorService.enqueueRun(roomId, agentId, buildAgentRunInput(agent, message), options)
     return { response: '', silent: true }
   }
 

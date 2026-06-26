@@ -3,6 +3,7 @@ import db from '../storage/db.js'
 import { roomService } from '../services/room.service.js'
 import { agentService } from '../services/agent.service.js'
 import { areFriends } from './friends.js'
+import { builtInAgentBootstrapService } from '../services/built-in-agent-bootstrap.service.js'
 
 function directKeyForUsers(userId: string, targetUserId: string) {
   return `user:${[userId, targetUserId].sort().join(':')}`
@@ -48,6 +49,35 @@ export async function registerDirectRoomRoutes(app: FastifyInstance) {
       directTargetId: String(userId),
     })
     return reply.send({ success: true, data: { room } })
+  })
+
+  app.post('/api/rooms/direct/xiaomi', async (request, reply) => {
+    const user = (request as any).user
+    const agentId = builtInAgentBootstrapService.getXiaomiAgentId()
+    const agent = await agentService.getAgent(agentId)
+    const directKey = directKeyForAgent(user.id, agentId)
+    const existing = await getExistingRoomByDirectKey(directKey, user.id)
+    if (existing) {
+      await agentService.addAgentToRoom(existing.id, agentId, user.id, { roomRole: 'assistant', autoEnabled: true })
+      await agentService.refreshRoomAgentContext(existing.id).catch(() => {})
+      return reply.send({ success: true, data: { room: await roomService.getRoom(existing.id), agent } })
+    }
+
+    const room = await roomService.createRoom(agent.name, '和小蜜的 AI 私聊。小蜜可以帮你操作 FreeChat、管理 Agent/Skill，并协助项目协作。', user.id, [], [], {
+      skipDefaultAssistant: true,
+      roomKind: 'direct_agent',
+      directKey,
+      directTargetType: 'agent',
+      directTargetId: agentId,
+    })
+    try {
+      await agentService.addAgentToRoom(room.id, agentId, user.id, { roomRole: 'assistant', autoEnabled: true })
+      await agentService.refreshRoomAgentContext(room.id).catch(() => {})
+      return reply.send({ success: true, data: { room: await roomService.getRoom(room.id), agent } })
+    } catch (err) {
+      await roomService.deleteRoom(room.id, user.id).catch(() => {})
+      throw err
+    }
   })
 
   app.post('/api/rooms/direct/agent', async (request, reply) => {

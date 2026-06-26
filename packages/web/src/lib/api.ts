@@ -102,6 +102,7 @@ export const api = {
   addWorkgroupMember: (id: string, userId: string) => request<any>(`/workgroups/${id}/members`, { method: 'POST', body: JSON.stringify({ userId }) }),
   openDirectUserRoom: (userId: string) => request<{ room: any }>('/rooms/direct/user', { method: 'POST', body: JSON.stringify({ userId }) }),
   openDirectAgentRoom: (agentId: string) => request<{ room: any }>('/rooms/direct/agent', { method: 'POST', body: JSON.stringify({ agentId }) }),
+  openXiaomiRoom: () => request<{ room: any; agent: any }>('/rooms/direct/xiaomi', { method: 'POST' }),
   getRoom: (id: string) => request<{ room: any; members: any[] }>(`/rooms/${id}`),
   getRoomMessages: (id: string, limit = 100, before?: string) => request<{ messages: any[]; hasMore?: boolean }>(`/rooms/${id}/messages?limit=${limit}${before ? `&before=${encodeURIComponent(before)}` : ''}`),
   getRoomTasks: (id: string, status?: string) => request<{ tasks: any[] }>(`/rooms/${id}/tasks${status ? `?status=${encodeURIComponent(status)}` : ''}`),

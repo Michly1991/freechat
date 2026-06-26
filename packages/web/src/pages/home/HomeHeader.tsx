@@ -1,4 +1,4 @@
-import { Bell, Plus, Wallet } from 'lucide-react'
+import { Bell, Plus, Sparkles, Wallet } from 'lucide-react'
 import { NotificationPanel } from '../../features/notifications/NotificationPanel'
 import { useEffect, useState } from 'react'
 import { api } from '../../lib/api'
@@ -17,6 +17,7 @@ export function HomeHeader({
   onShowJoin,
   onShowCreate,
   onShowAddFriend,
+  onOpenXiaomi,
   onSettings,
   onLogout,
   onMarkAllNotificationsRead,
@@ -58,6 +59,9 @@ export function HomeHeader({
           {showQuickActions && (
             <>
               <div className="hidden sm:block absolute right-0 top-11 w-40 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden z-20">
+                <button onClick={() => runQuickAction(onOpenXiaomi)} className="w-full text-left px-4 py-3 text-sm text-violet-700 hover:bg-violet-50">
+                  <span className="inline-flex items-center gap-1.5"><Sparkles className="h-3.5 w-3.5" />找小蜜</span>
+                </button>
                 <button onClick={() => runQuickAction(onShowAddFriend)} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50">
                   添加好友
                 </button>
@@ -72,7 +76,8 @@ export function HomeHeader({
                 <div className="fc-sheet-pop absolute inset-x-0 bottom-0 rounded-t-3xl bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-2xl" onClick={(event) => event.stopPropagation()}>
                   <p className="px-1 pb-3 text-sm font-semibold text-gray-800">快捷操作</p>
                   <div className="overflow-hidden rounded-2xl border border-gray-100">
-                    <button onClick={() => runQuickAction(onShowAddFriend)} className="fc-pressable flex min-h-12 w-full items-center px-4 text-left text-base text-gray-700 hover:bg-gray-50">添加好友</button>
+                    <button onClick={() => runQuickAction(onOpenXiaomi)} className="fc-pressable flex min-h-12 w-full items-center gap-2 px-4 text-left text-base text-violet-700 hover:bg-violet-50"><Sparkles className="h-4 w-4" />找小蜜</button>
+                    <button onClick={() => runQuickAction(onShowAddFriend)} className="fc-pressable flex min-h-12 w-full items-center border-t border-gray-100 px-4 text-left text-base text-gray-700 hover:bg-gray-50">添加好友</button>
                     <button onClick={() => runQuickAction(onShowJoin)} className="fc-pressable flex min-h-12 w-full items-center border-t border-gray-100 px-4 text-left text-base text-gray-700 hover:bg-gray-50">加入群聊</button>
                     <button onClick={() => runQuickAction(onShowCreate)} className="fc-pressable flex min-h-12 w-full items-center border-t border-gray-100 px-4 text-left text-base text-gray-700 hover:bg-gray-50">新建群聊</button>
                   </div>

@@ -1,4 +1,4 @@
-import { AtSign, BellOff, Bot, MessageSquarePlus, Pin, UserRound, Users } from 'lucide-react'
+import { AtSign, BellOff, Bot, MessageSquarePlus, Pin, Sparkles, UserRound, Users } from 'lucide-react'
 import { SwipeActionItem } from '../../components/SwipeActionItem'
 import type { MessagesSectionProps } from './types'
 
@@ -13,17 +13,25 @@ export function MessagesSection({
   deleteConversation,
   navigateTo,
   onNewChat,
-}: MessagesSectionProps & { onNewChat?: () => void }) {
+  onOpenXiaomi,
+}: MessagesSectionProps & { onNewChat?: () => void; onOpenXiaomi?: () => void }) {
   return (
     <section className="bg-white sm:rounded-xl sm:border border-gray-200 overflow-hidden mb-4 sm:mb-6">
       <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-gray-100 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-gray-800">消息</h2>
-        <button onClick={loadConversations} className="text-xs text-gray-400 hover:text-gray-600">刷新</button>
+        <div>
+          <h2 className="text-lg font-semibold text-gray-800">消息</h2>
+          <p className="mt-0.5 text-xs text-gray-400">找小蜜可快速管理 Agent、Skill 和项目协作。</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {onOpenXiaomi && <button onClick={onOpenXiaomi} className="fc-pressable inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-violet-500 to-blue-500 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:from-violet-600 hover:to-blue-600"><Sparkles className="h-3.5 w-3.5" />找小蜜</button>}
+          <button onClick={loadConversations} className="text-xs text-gray-400 hover:text-gray-600">刷新</button>
+        </div>
       </div>
       {conversations.length === 0 ? (
         <div className="p-8 text-center space-y-4">
           <MessageSquarePlus className="w-12 h-12 mx-auto text-gray-300" />
           <p className="text-gray-400">暂无会话，去通讯录找好友/AI 聊天，或创建一个群聊</p>
+          {onOpenXiaomi && <button onClick={onOpenXiaomi} className="px-4 py-2 bg-gradient-to-r from-violet-500 to-blue-500 text-white rounded-lg text-sm hover:from-violet-600 hover:to-blue-600">找小蜜聊聊</button>}
           {onNewChat && <button onClick={onNewChat} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">开始聊天</button>}
         </div>
       ) : (

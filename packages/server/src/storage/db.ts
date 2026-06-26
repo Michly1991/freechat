@@ -67,7 +67,6 @@ export function initDatabase() {
   `)
   const userCols = db.prepare('PRAGMA table_info(users)').all() as any[]
   if (!userCols.some((col) => col.name === 'identity_type')) db.exec("ALTER TABLE users ADD COLUMN identity_type TEXT DEFAULT 'human'")
-
   // Rooms table
   db.exec(`
     CREATE TABLE IF NOT EXISTS rooms (
@@ -731,9 +730,7 @@ export function initDatabase() {
   `)
 
   const prefCols = db.prepare('PRAGMA table_info(conversation_prefs)').all() as any[]
-  if (!prefCols.some((col) => col.name === 'hidden')) {
-    db.exec('ALTER TABLE conversation_prefs ADD COLUMN hidden INTEGER DEFAULT 0')
-  }
+  if (!prefCols.some((col) => col.name === 'hidden')) db.exec('ALTER TABLE conversation_prefs ADD COLUMN hidden INTEGER DEFAULT 0')
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS room_invites (

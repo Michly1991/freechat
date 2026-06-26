@@ -32,9 +32,10 @@ export async function registerAgentRoutes(app: FastifyInstance) {
         const isOwner = agent.ownerId === user.id
         const isFollowing = marketEngagementService.isFollowing(user.id, 'agent', agent.id)
         const isBuiltInDefault = agent.builtInKey === 'default_assistant'
+        const isBuiltInXiaomi = agent.builtInKey === 'xiaomi_assistant'
         const connectorSummary = remoteAgentConnectorService.getConnectorSummary(agent.id)
         const bindSummary = agentClientBindRequestService.summary(agent.id)
-        return { ...agent, ...connectorSummary, ...bindSummary, canEdit, canDelete: canEdit && agent.canDelete !== false, isOwner, isFollowing, canUse: isOwner || isFollowing || isBuiltInDefault || canEdit || user.role === 'admin' }
+        return { ...agent, ...connectorSummary, ...bindSummary, canEdit, canDelete: canEdit && agent.canDelete !== false, isOwner, isFollowing, canUse: isOwner || isFollowing || isBuiltInDefault || isBuiltInXiaomi || canEdit || user.role === 'admin' }
       }))
       return reply.send({ success: true, data: { agents: enriched } })
     } catch (err: any) {

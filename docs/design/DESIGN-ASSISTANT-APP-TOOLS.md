@@ -146,6 +146,19 @@ Agent 工作区根目录提供 `./freechat`：
 | AI 配置 | 修改 key/provider | `/ai/api-key`, `/ai/provider` | 暂不开放 | dangerous | blocked |
 | 用户设置 | 修改资料/密码/头像 | `/user/*` | 暂不开放 | dangerous | blocked |
 
+
+
+## 小蜜入口与 App Tools 边界
+
+平台内置 `小蜜` 复用现有 Assistant App Tools，不新增一套越权 API：
+
+- 前端入口调用 `POST /api/rooms/direct/xiaomi` 打开/创建 `direct_agent` 私聊房间。
+- 后端在打开既有房间时也会重新确保小蜜已加入 `room_agents` 且为 assistant，兼容历史房间和异常恢复。
+- 首版小蜜由后端内置 Runner 调用平台 AI 配置；Runner 会把当前用户写入 App Tool token 的 actorUserId，用于保持工具鉴权主体不变。
+- 小蜜可使用 chat/task/file/tab/interaction/members 等默认工具，以及已有 `agent.*`、`agent.skill.*`、`agent.script.*` 能力。
+- 工具鉴权仍以 actorUserId、房间成员权限、模板 owner/editor/admin 权限为准；小蜜的 owner 是系统账号只用于内置资产维护，不能成为用户操作授权主体。
+- 危险级操作保持 blocked 或强确认策略，不因“小蜜”入口而放宽。
+
 ## 自测设计
 
 CLI 提供：

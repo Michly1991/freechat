@@ -20,6 +20,7 @@ export type HeaderProps = {
   onShowJoin: () => void
   onShowCreate: () => void
   onShowAddFriend: () => void
+  onOpenXiaomi: () => void
   onSettings: () => void
   onLogout: () => void
   onMarkAllNotificationsRead: () => void
@@ -43,6 +44,7 @@ export type MessagesSectionProps = {
   toggleConversationPref: (conv: any, key: 'pinned' | 'muted' | 'hidden', e?: MouseEvent) => void
   deleteConversation: (conv: any, e?: MouseEvent) => void
   navigateTo: (path: string) => void
+  onOpenXiaomi?: () => void
 }
 
 export type ContactsSectionProps = {
