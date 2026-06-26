@@ -4,6 +4,7 @@ import { messageService } from './message.service.js'
 import { createAgentToolToken } from '../agent-tool-token.js'
 import { config as appConfig } from '../config.js'
 import type { ConnectorAuth } from './remote-agent-connector.service.js'
+import { executeInlineToolCalls } from './inline-agent-tool.service.js'
 
 function trimPrompt(input: string) {
   return String(input || '').slice(-12000)
@@ -52,6 +53,8 @@ export class PlatformHostedAgentRuntimeService {
       let output = ''
       try {
         output = await aiConfigService.callAI(prompt, { system, maxTokens: cfg.model?.maxTokens || 1600, model: cfg.model?.model })
+        const toolSummary = await executeInlineToolCalls(event.roomId, auth.agentId, event.payload?.actorUserId || event.payload?.metadata?.actorUserId, output)
+        if (toolSummary) output = toolSummary
       } catch (err: any) {
         output = fallbackReply()
       }
