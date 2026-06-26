@@ -6,6 +6,8 @@ import db from '../storage/db.js'
 import { config } from '../config.js'
 import { billingService } from './billing.service.js'
 import { platformHostedAgentRuntimeService } from './platform-hosted-agent-runtime.service.js'
+import { messageService } from './message.service.js'
+import { getGateway } from '../ws/gateway.js'
 
 const ACCESS_EXPIRES_IN = '7d'
 const PAIRING_TTL_MS = 10 * 60 * 1000
@@ -378,6 +380,11 @@ export class RemoteAgentConnectorService {
     db.prepare("UPDATE agent_connectors SET status = 'online', last_seen_at = ? WHERE id = ?").run(now, auth.connectorId)
     db.prepare("UPDATE agents SET status = 'active', updated_at = ? WHERE id = ?").run(now, auth.agentId)
     this.settleRemoteRun(runId)
+    if ((run.run_source === 'agent.mentioned' || run.run_source === 'handoff') && payload.output && payload.responseMode !== 'tool_only' && payload.responseMode !== 'silent') {
+      void messageService.createMessage(run.room_id, run.agent_id, (db.prepare('SELECT name FROM agents WHERE id = ?').get(run.agent_id) as any)?.name || 'Agent', 'ai', String(payload.output))
+        .then((message) => getGateway()?.broadcast(run.room_id, { msgId: message.id, roomId: run.room_id, type: 'broadcast', action: 'chat.message', payload: message, timestamp: Date.now() }))
+        .catch((err) => console.error('[remote-agent] create completion message failed', err))
+    }
     return { ok: true }
   }
 

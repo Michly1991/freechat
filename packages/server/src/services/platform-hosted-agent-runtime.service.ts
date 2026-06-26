@@ -55,7 +55,7 @@ export class PlatformHostedAgentRuntimeService {
       } catch (err: any) {
         output = fallbackReply()
       }
-      complete(auth, event.runId, { output, usage: { model: cfg.model?.model || undefined, usageSource: 'server_metered', trustLevel: 'trusted' } })
+      complete(auth, event.runId, { output, responseMode: event.payload?.responseMode, usage: { model: cfg.model?.model || undefined, usageSource: 'server_metered', trustLevel: 'trusted' } })
     } catch (err: any) {
       fail(auth, event.runId, err?.message || String(err))
     }
