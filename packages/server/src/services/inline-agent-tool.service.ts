@@ -16,6 +16,12 @@ export function extractInlineToolCalls(text: string): ToolCall[] {
       for (const item of parsed) if (item?.name) calls.push({ name: String(item.name), args: item.args || {} })
     } else if (parsed?.name) calls.push({ name: String(parsed.name), args: parsed.args || {} })
   }
+  const toolCallRe = /<toolcall>([\s\S]*?)<\/toolcall>/g
+  for (const match of text.matchAll(toolCallRe)) {
+    const parsed = tryParseJson(match[1].trim())
+    if (parsed?.name) calls.push({ name: String(parsed.name), args: parsed.args || parsed.params || {} })
+    else if (parsed?.action || parsed?.tool) calls.push({ name: String(parsed.action || parsed.tool), args: parsed.args || parsed.params || {} })
+  }
   const codeRe = /```(?:json)?\s*([\s\S]*?)```/g
   for (const match of text.matchAll(codeRe)) {
     const parsed = tryParseJson(match[1].trim())
