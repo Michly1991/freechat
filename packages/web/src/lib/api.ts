@@ -388,7 +388,12 @@ export const api = {
 
   // Users
   getUser: (userId: string) => request<any>(`/users/${userId}`),
-  searchUsers: (q: string) => request<{ users: any[] }>(`/users/search?q=${encodeURIComponent(q)}`),
+  searchUsers: (q: string, options?: { limit?: number; pageToken?: string }) => {
+    const params = new URLSearchParams({ q })
+    if (options?.limit) params.set('limit', String(options.limit))
+    if (options?.pageToken) params.set('pageToken', options.pageToken)
+    return request<{ users: any[]; hasMore?: boolean; nextPageToken?: string | null }>(`/users/search?${params.toString()}`)
+  },
 
   // Audit Logs
   getAuditLogs: (params?: { userId?: string; action?: string; targetType?: string; targetId?: string; limit?: number; offset?: number }) => {

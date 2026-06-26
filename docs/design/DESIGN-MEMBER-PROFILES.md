@@ -197,9 +197,11 @@ Response: {
 }
 
 // 搜索用户（用于邀请、@提及）
-GET /api/users/search?q=张三
+GET /api/users/search?q=张三&limit=20&pageToken=0
 Response: {
-  users: [{ id, username, nickname, avatar }]
+  users: [{ id, username, nickname, avatar }],
+  hasMore: boolean,
+  nextPageToken: string | null
 }
 ```
 

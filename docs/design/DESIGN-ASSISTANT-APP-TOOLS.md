@@ -129,7 +129,7 @@ Agent 工作区根目录提供 `./freechat`：
 | 成员档案 | 查看档案 | `GET /rooms/:id/profiles` | `profiles.list` | `profiles list` | read | done |
 | 成员档案 | 更新档案 | `PUT /rooms/:id/profiles/:memberId` | `profiles.update` | `profiles update-json` | sensitive_write | done |
 | 用户 | 查用户 | `GET /users/:userId` | `users.get` | `users get` | read | done |
-| 用户 | 搜索用户 | `GET /users/search` | `users.search` | `users search` | read | done |
+| 用户 | 搜索用户 | `GET /users/search?q=&limit=&pageToken=` | `users.search` | `users search` | read | done，公开检索、分页 |
 | Agent | 我的 Agent 列表 | `GET /api/agents`/service | `agent.my-list` | `agent my-list` | read | done |
 | Agent | 当前房间可添加 Agent | service | `agent.list-available` | `agent list-available` | read | done |
 | Agent | 房间 Agent 列表 | `GET /rooms/:id/agents` | `agent.room-list` | `agent room-list` | read | done |

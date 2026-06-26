@@ -113,10 +113,10 @@ dm_messages (
 ### 4.1 搜索用户
 
 ```http
-GET /api/users/search?q=xxx
+GET /api/users/search?q=xxx&limit=20&pageToken=0
 ```
 
-返回用户资料包含 `identityType: 'human' | 'agent'`，用于区分真人账号和 Agent 账号；同时返回 friendStatus：
+这是公开用户检索能力，不要求与目标用户是好友/同房间；服务端按 `limit` 分页返回，`limit` 最大 50，`pageToken` 为偏移游标。
 
 ```ts
 'none' | 'pending_sent' | 'pending_received' | 'friends' | 'self'

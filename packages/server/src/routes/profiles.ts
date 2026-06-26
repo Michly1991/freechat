@@ -155,7 +155,7 @@ export async function registerProfileRoutes(app: FastifyInstance) {
   // GET /api/users/search?q=xxx - search users
   app.get('/api/users/search', async (request, reply) => {
     const user = (request as any).user
-    const { q } = request.query as any
+    const { q, limit = '20', pageToken } = request.query as any
 
     if (!q || q.length < 1) {
       return reply.code(400).send({
@@ -165,15 +165,19 @@ export async function registerProfileRoutes(app: FastifyInstance) {
     }
 
     try {
+      const pageSize = Math.max(1, Math.min(Number(limit) || 20, 50))
+      const offset = Math.max(0, Number(pageToken || 0) || 0)
       const rows = db.prepare(`
         SELECT id, username, nickname, avatar, role, identity_type, created_at
         FROM users
         WHERE username LIKE ? OR nickname LIKE ?
         ORDER BY username ASC
-        LIMIT 20
-      `).all(`%${q}%`, `%${q}%`) as any[]
+        LIMIT ? OFFSET ?
+      `).all(`%${q}%`, `%${q}%`, pageSize + 1, offset) as any[]
 
-      const users = rows.map(row => ({
+      const hasMore = rows.length > pageSize
+      const pageRows = hasMore ? rows.slice(0, pageSize) : rows
+      const users = pageRows.map(row => ({
         id: row.id,
         username: row.username,
         nickname: row.nickname,
@@ -184,7 +188,7 @@ export async function registerProfileRoutes(app: FastifyInstance) {
         friendStatus: getFriendStatus(user.id, row.id),
       }))
 
-      return reply.send({ success: true, data: { users } })
+      return reply.send({ success: true, data: { users, hasMore, nextPageToken: hasMore ? String(offset + pageSize) : null } })
     } catch (err: any) {
       throw err
     }
