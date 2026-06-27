@@ -32,6 +32,11 @@ try {
   })
   await agentService.addAgentToRoom('room', created.agent.id, 'owner', { roomRole: 'assistant', autoEnabled: true })
 
+  const detailOutput = '<toolcall>{"name":"agent.detail","args":{}}</toolcall>'
+  const detailSummary = await executeInlineToolCalls('room', created.agent.id, 'owner', detailOutput)
+  assert.match(detailSummary || '', /Agent：小蜜/)
+  assert.doesNotMatch(detailSummary || '', /apiKey|api_key|hash|password/i)
+
   const output = '<toolcall>{"name":"agent.create","args":{"name":"金牌律师","description":"文件处理","specialties":["文件处理"],"roleType":"specialist"}}</toolcall>'
   const summary = await executeInlineToolCalls('room', created.agent.id, 'owner', output)
 

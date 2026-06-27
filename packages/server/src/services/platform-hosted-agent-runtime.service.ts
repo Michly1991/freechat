@@ -52,7 +52,7 @@ export class PlatformHostedAgentRuntimeService {
       const system = [
         cfg.systemPrompt || '',
         toolHelp(event.roomId, auth.agentId, event.payload?.actorUserId || event.payload?.metadata?.actorUserId),
-        '如果需要调用 App Tool，请输出 <toolcall>{"name":"工具名","args":{...}}</toolcall>。创建 Agent 必须使用 agent.create 或 agent.create_request，系统会生成确认卡；不要只用 JSON 说明接口失败。',
+        '如果需要调用 App Tool，请输出 <toolcall>{"name":"工具名","args":{...}}</toolcall>。创建 Agent 必须使用 agent.create 或 agent.create_request，系统会生成确认卡；查询 Agent 详情可用 agent.detail；不要只用 JSON 说明接口失败。',
       ].filter(Boolean).join('\n\n')
       const prompt = [context ? `最近对话：\n${context}` : '', `本次请求：\n${trimPrompt(event.payload?.input || '')}`].filter(Boolean).join('\n\n')
       let output = ''

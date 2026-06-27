@@ -1,7 +1,8 @@
 import db from '../storage/db.js'
 import { agentService } from './agent.service.js'
 import { interactionService } from './interaction.service.js'
-import { broadcast } from '../routes/agent-tools.helpers.js'
+import { broadcast, assertActorCanUseAgentInRoom } from '../routes/agent-tools.helpers.js'
+import { agentCapabilityService } from './agent-capability.service.js'
 
 type ToolCall = { name: string; args: any }
 
@@ -37,6 +38,27 @@ function assertActorInRoom(roomId: string, actorUserId: string) {
   if (!row) throw new Error('Current user is not a member of this room')
 }
 
+function sanitizeAgentForInline(agent: any) {
+  if (!agent) return null
+  return {
+    id: agent.id,
+    name: agent.name,
+    roleType: agent.roleType,
+    deployment: agent.deployment,
+    description: agent.description,
+    specialties: agent.specialties || [],
+    status: agent.status,
+    onlineStatus: agent.onlineStatus,
+    roomRole: agent.roomRole,
+    autoEnabled: agent.autoEnabled,
+    ownerName: agent.ownerName,
+    isTemplate: agent.isTemplate,
+    sourceTemplateId: agent.sourceTemplateId,
+    marketListed: agent.marketListed,
+    model: agent.roomModelConfig || agent.defaultModelConfig || undefined,
+  }
+}
+
 function summarizeAgent(agent: any) {
   const parts = [agent.name]
   if (agent.description) parts.push(`：${agent.description}`)
@@ -58,6 +80,20 @@ function formatToolResult(action: string, result: any) {
   if (action === 'agent.create_request' || action === 'agent.create-request' || action === 'agent.create') {
     const interaction = result?.data?.interaction || result?.interaction
     return `已创建确认卡：${interaction?.title || '确认创建 Agent'}。请在房间中点击确认后，系统会创建并加入该 Agent。`
+  }
+  if (action === 'agent.detail') {
+    const agent = result?.data?.agent || result?.agent
+    const skills = result?.data?.skills || []
+    const scripts = result?.data?.scripts || []
+    if (!agent) return '没有查到该 Agent。'
+    return [
+      `Agent：${agent.name}`,
+      agent.description ? `职责：${agent.description}` : '',
+      Array.isArray(agent.specialties) && agent.specialties.length ? `专长：${agent.specialties.join('、')}` : '',
+      `类型：${agent.roleType || 'unknown'}，状态：${agent.onlineStatus || agent.status || 'unknown'}`,
+      agent.ownerName ? `所有者：${agent.ownerName}` : '',
+      `技能数：${skills.length}，脚本数：${scripts.length}`,
+    ].filter(Boolean).join('\n')
   }
   return JSON.stringify(result?.data ?? result, null, 2).slice(0, 3000)
 }
@@ -132,6 +168,15 @@ export async function executeInlineToolCalls(roomId: string, agentId: string, ac
     }
     if (['agent.create', 'agent.create_request', 'agent.create-request'].includes(call.name)) {
       results.push(await createAgentCreateRequest(roomId, agentId, actorUserId, call.args || {}))
+      continue
+    }
+    if (['agent.detail', 'agent.info'].includes(call.name)) {
+      const target = call.args?.agent || call.args?.agentId || call.args?.id || agentId
+      await assertActorCanUseAgentInRoom(roomId, target, actorUserId)
+      const targetAgent = await agentService.getAgent(target)
+      const skills = agentCapabilityService.listSkills(targetAgent.id)
+      const scripts = agentCapabilityService.listScripts(targetAgent.id)
+      results.push({ action: 'agent.detail', success: true, data: { agent: sanitizeAgentForInline(targetAgent), skills, scripts } })
       continue
     }
     results.push({ action: call.name, success: false, error: `Inline tool ${call.name} is not supported yet` })
