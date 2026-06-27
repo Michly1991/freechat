@@ -50,6 +50,18 @@ function formatFullMessageTime(value?: number) {
   return value ? new Date(value).toLocaleString() : ''
 }
 
+function formatFileSize(size: number) {
+  if (!Number.isFinite(size) || size <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let value = size
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`
+}
+
 interface RoomChatPanelProps {
   roomId?: string
   messages: Message[]
@@ -221,7 +233,7 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
           {filteredFiles.length > 0 && <><div className="px-3 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">文件</div>{filteredFiles.map((f) => <div key={f.path} className="px-3 py-2.5 min-h-11 hover:bg-blue-50 cursor-pointer text-sm flex items-center gap-2" onClick={() => insertMention(f, 'file')}><FileText className="w-5 h-5 text-gray-400" /><span className="flex-1 truncate">{f.name}</span><span className="text-xs text-gray-400 truncate max-w-[45%]">{f.path}</span></div>)}</>}
         </div>}
         {sendError && !wsNoticeDismissed && <div className="mb-2 flex items-center justify-between gap-2 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700"><span>{sendError.replace('正在重连...', '实时同步暂不可用，但消息可正常发送')}</span><button type="button" onClick={() => setWsNoticeDismissed(true)} className="text-amber-500 hover:text-amber-700" title="关闭"><X className="w-4 h-4" /></button></div>}
-        {pendingAttachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{pendingAttachments.map((file, index) => <span key={`${file.name}-${index}`} className="inline-flex max-w-full items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs text-blue-700"><Paperclip className="h-3 w-3" /><span className="truncate max-w-[180px]">{file.name}</span><button type="button" onClick={() => onRemoveAttachment?.(index)} className="text-blue-400 hover:text-blue-700"><X className="h-3 w-3" /></button></span>)}</div>}
+        {pendingAttachments.length > 0 && <div className="mb-3 rounded-2xl border border-blue-100 bg-blue-50/80 p-2.5 shadow-sm"><div className="mb-2 flex items-center gap-2 text-xs font-medium text-blue-700"><Paperclip className="h-4 w-4" /><span>已选择 {pendingAttachments.length} 个文件，点击发送上传</span></div><div className="space-y-2">{pendingAttachments.map((file, index) => <div key={`${file.name}-${file.size}-${index}`} className="flex min-h-11 items-center gap-2 rounded-xl border border-blue-100 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm"><FileText className="h-5 w-5 shrink-0 text-blue-500" /><div className="min-w-0 flex-1"><div className="truncate font-medium text-gray-800" title={file.name}>{file.name}</div><div className="text-xs text-gray-400">{formatFileSize(file.size)}</div></div><button type="button" onClick={() => onRemoveAttachment?.(index)} className="fc-pressable rounded-full p-1 text-gray-400 hover:bg-red-50 hover:text-red-500" aria-label={`移除 ${file.name}`}><X className="h-4 w-4" /></button></div>)}</div></div>}
         <div className="flex gap-2 items-center rounded-2xl bg-gray-50 border border-gray-200 p-1.5 shadow-inner focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-300 transition-all">
           <button type="button" onClick={() => attachmentInputRef.current?.click()} className="fc-pressable fc-mobile-touch inline-flex min-w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl px-2.5 py-2 text-gray-500 hover:bg-white hover:text-blue-600" title="上传图片/文件" aria-label="上传图片/文件"><Paperclip className="h-5 w-5" /></button><input ref={attachmentInputRef} type="file" multiple className="fixed left-0 top-0 h-px w-px opacity-0" tabIndex={-1} aria-hidden="true" onChange={handleAttachmentChange} />
           <textarea ref={inputRef} value={input} onChange={handleInputChange} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) sendMessage(e) }} rows={1} placeholder="输入消息，@成员..." className="min-w-0 flex-1 max-h-32 resize-none bg-transparent px-3 py-2.5 text-base sm:text-sm border-0 rounded-xl focus:ring-0 focus:outline-none overflow-y-auto leading-6" />
