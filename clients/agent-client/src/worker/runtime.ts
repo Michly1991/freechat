@@ -1,8 +1,8 @@
-import type { AgentCredential, RemoteEvent, RuntimeState } from '../config/types.js'
+import type { AgentCredential, ClientConfig, RemoteEvent, RuntimeState } from '../config/types.js'
 import { connectEventWebSocket, heartbeat, pollEvents, runActivity, runComplete, runFail, streamEvents } from '../connector/api.js'
 import { executeEvent, abortAgentRuns, clearAgentSession } from '../executor/claude.js'
-import { loadConfig, updateAgent, upsertAgent } from '../config/store.js'
-import { completeBindRequest, createPairingCode, failBindRequest, listBindRequests } from '../connector/server-admin.js'
+import { loadConfig, saveConfig, updateAgent, upsertAgent } from '../config/store.js'
+import { completeBindRequest, createPairingCode, failBindRequest, listBindRequests, loginServer } from '../connector/server-admin.js'
 import { pairAgent } from '../connector/api.js'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -100,11 +100,35 @@ function reconcileStreams(enabledAgents: AgentCredential[]) {
   }
 }
 
+async function refreshServerAuthToken(cfg: ClientConfig) {
+  if (!cfg.serverUsername || !cfg.serverPassword) return null
+  try {
+    const result = await loginServer(cfg.serverUrl, cfg.serverUsername, cfg.serverPassword)
+    const token = result.token || result.accessToken || result.jwt || result?.user?.token
+    if (!token) return null
+    saveConfig({ ...loadConfig(), serverAuthToken: token, serverUser: result.user || null })
+    log('FreeChat Server login refreshed for Agent Client bind checks')
+    return token
+  } catch (err: any) {
+    log(`FreeChat Server login refresh failed: ${err?.message || err}`)
+    return null
+  }
+}
+
 async function claimPendingBindRequests() {
-  const cfg = loadConfig()
-  if (!cfg.serverAuthToken) return
+  let cfg = loadConfig()
+  if (!cfg.serverAuthToken && !(await refreshServerAuthToken(cfg))) return
+  cfg = loadConfig()
   let requests: any[] = []
-  try { requests = await listBindRequests(cfg) } catch (err: any) { log(`Bind request check failed: ${err?.message || err}`); return }
+  try { requests = await listBindRequests(cfg) } catch (err: any) {
+    const message = err?.message || String(err)
+    if (/登录已过期|Unauthorized|401|token/i.test(message) && await refreshServerAuthToken(cfg)) {
+      requests = await listBindRequests(loadConfig()).catch((retryErr: any) => { log(`Bind request check failed: ${retryErr?.message || retryErr}`); return [] })
+    } else {
+      log(`Bind request check failed: ${message}`)
+    }
+    if (!requests.length) return
+  }
   for (const request of requests) {
     if (loadConfig().agents.some((agent) => agent.agentId === request.agentId)) continue
     try {

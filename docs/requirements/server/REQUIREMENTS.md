@@ -46,6 +46,8 @@
 - `members.add`、`agent.add`、`room.create-invite` 等工具动作必须按 actor 在房间中的权限校验。
 - Agent 读取其他 Agent detail、skill、script、knowledge 前必须验证可访问性。
 - Agent Client 不是知识库主存储；知识库由 FreeChat Server 统一维护，Agent Client 运行前同步本地 `.freechat/knowledge/`。
+- Agent Client 长驻 worker 连接远端运行接口时，必须优先使用本地保存的原始 connector token，而不是短期 access JWT，避免已绑定 Agent 因 JWT 过期反复无法 heartbeat/poll/complete。
+- `final_to_chat` 模式不能让客户端和服务端重复写最终消息；服务端完成运行时要对同 run 期间已经由 Agent 发送的相同内容做去重，客户端也不能把工具执行前的中间进展当最终回复自动发送。
 - 工作组分享入口房间允许当前接待 Agent 使用 `room.handoff` 转接给同工作组内启用的 Agent；当目标 Agent 尚未在入口房间时，服务端先加入/clone 到当前房间，再用实际 room agent id 执行 handoff。
 
 ## 计费与免费额度

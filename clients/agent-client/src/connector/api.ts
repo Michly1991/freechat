@@ -46,6 +46,14 @@ export async function pairAgent(cfg: ClientConfig, pairingCode: string, name?: s
   } as AgentCredential
 }
 
+function authToken(agent: AgentCredential) {
+  // Connector JWTs are short-lived; the raw connector token is stored locally and
+  // authenticated server-side against the active connector token hash. Prefer it
+  // for long-running Agent Client services so existing bindings keep working
+  // after the access JWT expires.
+  return agent.connectorToken || agent.accessToken
+}
+
 export async function heartbeat(cfg: ClientConfig, agent: AgentCredential) {
   return request(cfg.serverUrl, '/api/remote-agents/heartbeat', {
     method: 'POST',
@@ -59,11 +67,11 @@ export async function heartbeat(cfg: ClientConfig, agent: AgentCredential) {
         agentCount: cfg.agents.length,
       },
     }),
-  }, agent.accessToken)
+  }, authToken(agent))
 }
 
 export async function pollEvents(cfg: ClientConfig, agent: AgentCredential): Promise<RemoteEvent[]> {
-  const data = await request<{ events: RemoteEvent[] }>(cfg.serverUrl, '/api/remote-agents/events?limit=5', {}, agent.accessToken)
+  const data = await request<{ events: RemoteEvent[] }>(cfg.serverUrl, '/api/remote-agents/events?limit=5', {}, authToken(agent))
   return data.events || []
 }
 
@@ -100,44 +108,44 @@ const RUNTIME_SPEC_TTL_MS = 10 * 60 * 1000
 
 export async function getRuntimeSpec(cfg: ClientConfig, agent: AgentCredential): Promise<RuntimeSpec> {
   if (runtimeSpecCache && Date.now() - runtimeSpecCache.fetchedAt < RUNTIME_SPEC_TTL_MS) return runtimeSpecCache.spec
-  const spec = await request<RuntimeSpec>(cfg.serverUrl, '/api/remote-agents/runtime-spec', {}, agent.accessToken)
+  const spec = await request<RuntimeSpec>(cfg.serverUrl, '/api/remote-agents/runtime-spec', {}, authToken(agent))
   runtimeSpecCache = { spec, fetchedAt: Date.now() }
   return spec
 }
 
 export async function getAgentKnowledge(cfg: ClientConfig, agent: AgentCredential): Promise<AgentKnowledgePayload> {
-  return request<AgentKnowledgePayload>(cfg.serverUrl, '/api/remote-agents/knowledge', {}, agent.accessToken)
+  return request<AgentKnowledgePayload>(cfg.serverUrl, '/api/remote-agents/knowledge', {}, authToken(agent))
 }
 
 export function agentTool(cfg: ClientConfig, agent: AgentCredential, roomId: string, action: string, args: any) {
   return request(cfg.serverUrl, `/api/agent-tools/${encodeURIComponent(roomId)}`, {
     method: 'POST',
     body: JSON.stringify({ action, args }),
-  }, agent.accessToken)
+  }, authToken(agent))
 }
 
 export function runActivity(cfg: ClientConfig, agent: AgentCredential, runId: string, text: string) {
   return request(cfg.serverUrl, `/api/remote-agents/runs/${encodeURIComponent(runId)}/activity`, {
     method: 'POST', body: JSON.stringify({ text }),
-  }, agent.accessToken)
+  }, authToken(agent))
 }
 
 export function runComplete(cfg: ClientConfig, agent: AgentCredential, runId: string, payload: any) {
   return request(cfg.serverUrl, `/api/remote-agents/runs/${encodeURIComponent(runId)}/complete`, {
     method: 'POST', body: JSON.stringify(payload),
-  }, agent.accessToken)
+  }, authToken(agent))
 }
 
 export function runFail(cfg: ClientConfig, agent: AgentCredential, runId: string, error: any) {
   return request(cfg.serverUrl, `/api/remote-agents/runs/${encodeURIComponent(runId)}/fail`, {
     method: 'POST', body: JSON.stringify({ error: error?.message || String(error) }),
-  }, agent.accessToken)
+  }, authToken(agent))
 }
 
 
 export async function streamEvents(cfg: ClientConfig, agent: AgentCredential, onEvent: (event: RemoteEvent) => void, signal: AbortSignal) {
   const res = await fetch(`${cfg.serverUrl}/api/remote-agents/events/stream`, {
-    headers: { authorization: `Bearer ${agent.accessToken}` },
+    headers: { authorization: `Bearer ${authToken(agent)}` },
     signal,
   })
   if (!res.ok || !res.body) throw new Error(`SSE failed: HTTP ${res.status}`)
@@ -177,7 +185,7 @@ export function connectEventWebSocket(
   const WS = (globalThis as any).WebSocket
   if (!WS) throw new Error('WebSocket is not available in this Node runtime')
   const url = new URL(websocketUrl(cfg.serverUrl))
-  url.searchParams.set('token', agent.accessToken)
+  url.searchParams.set('token', authToken(agent))
   const ws = new WS(url.toString())
   ws.onmessage = (message: any) => {
     const data = JSON.parse(String(message.data || '{}'))

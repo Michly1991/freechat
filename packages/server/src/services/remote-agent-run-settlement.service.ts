@@ -33,7 +33,12 @@ export function completeRemoteRun(auth: ConnectorAuth, runId: string, payload: a
   db.prepare("UPDATE agents SET status = 'active', updated_at = ? WHERE id = ?").run(now, auth.agentId)
   billingService.billRun(runId)
   if ((run.run_source === 'agent.mentioned' || run.run_source === 'handoff') && payload.output && payload.responseMode !== 'tool_only' && payload.responseMode !== 'silent') {
-    void messageService.createMessage(run.room_id, run.agent_id, (db.prepare('SELECT name FROM agents WHERE id = ?').get(run.agent_id) as any)?.name || 'Agent', 'ai', String(payload.output))
+    const existingMessage = db.prepare(`
+      SELECT 1 FROM messages
+      WHERE room_id = ? AND actor_id = ? AND actor_role = 'ai' AND kind = 'text' AND content = ? AND created_at >= ?
+      LIMIT 1
+    `).get(run.room_id, run.agent_id, String(payload.output), Number(run.started_at || 0)) as any
+    if (!existingMessage) void messageService.createMessage(run.room_id, run.agent_id, (db.prepare('SELECT name FROM agents WHERE id = ?').get(run.agent_id) as any)?.name || 'Agent', 'ai', String(payload.output))
       .then((message) => getGateway()?.broadcast(run.room_id, { msgId: message.id, roomId: run.room_id, type: 'broadcast', action: 'chat.message', payload: message, timestamp: Date.now() }))
       .catch((err) => console.error('[remote-agent] create completion message failed', err))
   }

@@ -223,6 +223,24 @@ export async function runClaude(prompt: string, cwd: string, runKeyOrOptions?: s
   }
 }
 
+function isLikelyIntermediateProgress(text: string): boolean {
+  const content = String(text || '').trim()
+  if (!content) return false
+  return /(?:让我|我先|我需要先|接下来|现在我|稍等|请稍等|我来|我会|正在|我将)(?:先)?(?:查看|查询|了解|检查|分析|执行|调用|处理|确认)/.test(content)
+    || /(?:让我|我先).{0,20}(?:执行|查询|查看|了解)/.test(content)
+}
+
+function hasToolUse(response: string): boolean {
+  return /^\s*\{\s*"success"\s*:/i.test(String(response || ''))
+}
+
+function shouldAutoSendFinal(responseMode: string, event: RemoteEvent, trimmed: string) {
+  if (responseMode !== 'final_to_chat' || !trimmed || hasToolUse(trimmed)) return false
+  const toolCapableSources = new Set(['handoff', 'task', 'subtask', 'task_plan', 'auto', 'agent.mentioned'])
+  if (!toolCapableSources.has(String(event.payload.runSource || event.type))) return true
+  return !isLikelyIntermediateProgress(trimmed)
+}
+
 export async function executeEvent(cfg: ClientConfig, agent: AgentCredential, event: RemoteEvent) {
   const cwd = workspaceFor(agent, event)
   const spec = await getRuntimeSpec(cfg, agent)
@@ -231,13 +249,15 @@ export async function executeEvent(cfg: ClientConfig, agent: AgentCredential, ev
     return undefined
   })
   writeRunContext(cfg, agent, event, cwd, spec, knowledge)
-  const result = await runClaude(event.payload.input || '', cwd, `${agent.agentId}:${event.runId}`)
+  const responseMode = event.payload.responseMode || (event.type === 'agent.mentioned' ? 'final_to_chat' : 'tool_only')
+  const mustUseTool = responseMode === 'final_to_chat'
+    ? '本次为最终回复模式：如果你调用了 ./freechat chat send 或 ./freechat room handoff 等会产生用户可见消息/转接的工具，工具成功后最终 stdout 只输出一个简短结果摘要，不要重复输出已经通过工具发送的完整内容。'
+    : '本次为工具模式：请优先使用 ./freechat 工具完成动作，stdout 只输出简短摘要。'
+  const result = await runClaude([event.payload.input || '', mustUseTool].filter(Boolean).join('\n\n'), cwd, `${agent.agentId}:${event.runId}`)
   if (result.recoveredFromContextOverflow) {
     await runActivity(cfg, agent, event.runId, 'Claude context exceeded; cleared saved session and retried without --resume').catch(() => undefined)
   }
   const trimmed = result.response.trim()
-  const responseMode = event.payload.responseMode || (event.type === 'agent.mentioned' ? 'final_to_chat' : 'tool_only')
-  const shouldAutoSend = responseMode === 'final_to_chat' && trimmed && !/^\{\s*"success"\s*:/i.test(trimmed)
-  if (shouldAutoSend) await agentTool(cfg, agent, event.roomId, 'chat.send', { content: trimmed })
+  if (shouldAutoSendFinal(responseMode, event, trimmed)) await agentTool(cfg, agent, event.roomId, 'chat.send', { content: trimmed })
   return result
 }

@@ -23,3 +23,9 @@
 - Agent 知识库由 FreeChat Server 统一维护。
 - 支持上传/新建、编辑、修改、删除、重建索引等基础操作。
 - Agent Client 不是知识库主存储，只在运行前从 Server 同步到本地 `.freechat/knowledge/` 供 Agent 按需读取。
+
+## Agent Client 运行回复要求
+
+- 普通最终回复可以由 Agent Client 自动发送；但如果 Agent 已调用 `./freechat chat send` 或 `./freechat room handoff` 等会产生用户可见消息/转接的工具，最终 stdout 只能是简短摘要，不能重复完整回复。
+- `final_to_chat` 运行中，“我先查询/正在执行/让我看看”等中间进展不应被当成最终回复自动发送。
+- 长驻 Agent Client 应使用原始 connector token 调用远端 heartbeat/events/runtime/complete/fail/tool 接口；短期 access JWT 只作为便捷访问令牌，不能成为长期绑定失效的单点。
