@@ -86,6 +86,14 @@ Agent 写项目文件与文件 Tab 可见性分离：
 
 如果只写文件但不加入 Tab 配置，文件存在于项目目录，但前端文件 Tab 不显示。
 
+## 前端上传联动（2026-06-27）
+
+房间主面板向 `RoomFilesPanel` 传入的是 `uploadLocalFile` / `createFolder` / `deleteFile` 等房间 action。文件面板必须兼容这些 action 名称，不能只监听旧的 `onUpload` / `onNewFolder` / `onDelete` props，否则按钮看似可点但不会触发真实上传/创建。
+
+文件 input 每次处理完选中文件后应清空 value，避免用户连续选择同一个文件时浏览器不触发 `change`。
+
+删除文件时必须向 action 传 `file.path`，不是整个 `FileNode` 对象。
+
 ## 移动端
 
 文件 Tab 在移动端默认显示文件列表；打开文件后切换到编辑界面，并提供“← 文件列表”返回按钮。

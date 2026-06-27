@@ -18,8 +18,10 @@ export function createRoomFileActions(deps: any) {
     try { await api.saveFile(roomId, currentFile.path, currentFile.content); setFileDirty(false); feedback.success('文件已保存'); loadFiles() }
     catch (err: any) { feedback.error(err?.message || '保存文件失败'); addClientLog('error', 'ui', 'save file failed', { path: currentFile.path, message: err?.message }) }
   }
-  const deleteFile = async (path: string) => {
+  const deleteFile = async (pathOrFile: string | FileNode) => {
     if (!roomId) return
+    const path = typeof pathOrFile === 'string' ? pathOrFile : pathOrFile?.path
+    if (!path) return feedback.error('文件路径缺失')
     const ok = await feedback.confirm({ title: '删除文件？', message: `确定删除 ${path} 吗？`, confirmText: '删除', danger: true })
     if (!ok) return
     try { await api.deleteFile(roomId, path); feedback.success('文件已删除'); loadFiles(); if (currentFile?.path === path) { setCurrentFile(null); setFileDirty(false) } }

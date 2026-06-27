@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, type ChangeEvent } from 'react'
 import { FileText, Folder, Image, Film, Music, Archive, Search, Upload, FolderPlus, Download, Trash2, ChevronRight, ChevronDown } from 'lucide-react'
 
 interface FileNode {
@@ -8,7 +8,7 @@ interface FileNode {
   size?: number
   createdAt?: number
   updatedAt?: number
-  parentId?: string
+  path?: string
   children?: FileNode[]
   expanded?: boolean
 }
@@ -24,9 +24,9 @@ interface RoomFilesPanelProps {
   onUpload?: (file: File, folder?: string) => void
   onDownload?: (file: FileNode) => void
   onDelete?: (file: FileNode) => void
-  deleteFile?: (file: FileNode) => void
-  createFile?: (name: string, folder?: string) => void
-  createFolder?: (name: string) => void
+  deleteFile?: (path: string) => void
+  createFile?: (name?: string, folder?: string) => void
+  createFolder?: (name?: string) => void
   uploadLocalFile?: (file: File, folder?: string) => void
   onNewFolder?: (name: string) => void
   uploading?: boolean
@@ -58,7 +58,7 @@ const formatFileDate = (ts?: number): string => {
 }
 
 export function RoomFilesPanel(props: RoomFilesPanelProps) {
-  const { files, onUpload, onDownload, onDelete, onNewFolder, uploading, deleteFile, uploadLocalFile } = props
+  const { files, onUpload, onDownload, onDelete, onNewFolder, uploading, deleteFile, uploadLocalFile, createFolder, openFile } = props
   const [search, setSearch] = useState('')
   const [newFolderName, setNewFolderName] = useState('')
   const [showNewFolder, setShowNewFolder] = useState(false)
@@ -78,6 +78,18 @@ export function RoomFilesPanel(props: RoomFilesPanelProps) {
     f.name.toLowerCase().includes(search.toLowerCase())
   )
 
+  const uploadHandler = onUpload || uploadLocalFile
+  const createFolderHandler = onNewFolder || createFolder
+  const handleDelete = (file: FileNode) => {
+    if (onDelete) return onDelete(file)
+    if (deleteFile) return deleteFile(file.path || file.name)
+  }
+  const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const selected = event.target.files ? Array.from(event.target.files) : []
+    selected.forEach((file) => uploadHandler?.(file))
+    event.target.value = ''
+  }
+
   const renderFileRow = (file: FileNode, depth = 0) => {
     const isDirectory = file.type === 'directory' || !file.type
     const hasChildren = isDirectory && file.children && file.children.length > 0
@@ -90,8 +102,11 @@ export function RoomFilesPanel(props: RoomFilesPanelProps) {
     return (
       <div key={uniqueKey}>
         <div
-          onClick={() => isDirectory && hasChildren && toggleExpand(uniqueKey)}
-          className={`flex items-center gap-3 px-3 py-3 hover:bg-gray-50 border-b border-gray-100 transition active:bg-gray-100 ${isDirectory && hasChildren ? 'cursor-pointer' : ''}`}
+          onClick={() => {
+            if (isDirectory && hasChildren) toggleExpand(uniqueKey)
+            else if (!isDirectory) openFile?.(file)
+          }}
+          className={`flex items-center gap-3 px-3 py-3 hover:bg-gray-50 border-b border-gray-100 transition active:bg-gray-100 ${isDirectory && hasChildren ? 'cursor-pointer' : !isDirectory && openFile ? 'cursor-pointer' : ''}`}
           style={{ paddingLeft: `${12 + depth * 16}px` }}
         >
           {isDirectory && hasChildren && (
@@ -112,7 +127,7 @@ export function RoomFilesPanel(props: RoomFilesPanelProps) {
               </button>
             )}
             {(onDelete || deleteFile || props.onDelete) && (
-              <button onClick={(e) => { e.stopPropagation(); (onDelete || deleteFile || props.onDelete)?.(file) }} className="p-2 rounded-lg hover:bg-red-50 text-gray-500 hover:text-red-600" title="删除">
+              <button onClick={(e) => { e.stopPropagation(); handleDelete(file) }} className="p-2 rounded-lg hover:bg-red-50 text-gray-500 hover:text-red-600" title="删除">
                 <Trash2 className="w-4 h-4" />
               </button>
             )}
@@ -132,10 +147,10 @@ export function RoomFilesPanel(props: RoomFilesPanelProps) {
             <button onClick={() => setShowNewFolder(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 text-sm">
               <FolderPlus className="w-4 h-4" />新建文件夹
             </button>
-            <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 text-sm">
+            <button onClick={() => fileInputRef.current?.click()} disabled={!uploadHandler} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
               <Upload className="w-4 h-4" />上传
             </button>
-            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(e) => { if (e.target.files) Array.from(e.target.files).forEach((f) => onUpload?.(f)) }} />
+            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileInputChange} />
           </div>
         </div>
 
@@ -156,10 +171,10 @@ export function RoomFilesPanel(props: RoomFilesPanelProps) {
               onChange={(e) => setNewFolderName(e.target.value)}
               placeholder="文件夹名称"
               className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none"
-              onKeyDown={(e) => e.key === 'Enter' && (onNewFolder?.(newFolderName), setShowNewFolder(false), setNewFolderName(''))}
+              onKeyDown={(e) => e.key === 'Enter' && (createFolderHandler?.(newFolderName), setShowNewFolder(false), setNewFolderName(''))}
               autoFocus
             />
-            <button onClick={() => { onNewFolder?.(newFolderName); setShowNewFolder(false); setNewFolderName('') }} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm hover:bg-blue-700">
+            <button onClick={() => { createFolderHandler?.(newFolderName); setShowNewFolder(false); setNewFolderName('') }} className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm hover:bg-blue-700">
               创建
             </button>
             <button onClick={() => { setShowNewFolder(false); setNewFolderName('') }} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-xl text-sm hover:bg-gray-200">
