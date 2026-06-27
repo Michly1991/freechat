@@ -44,6 +44,7 @@
 
 - Agent Tool 不能绕过人类 actor 权限。
 - `members.add`、`agent.add`、`room.create-invite` 等工具动作必须按 actor 在房间中的权限校验。
+- 小蜜/平台托管运行时的 inline `agent.create` 只能兼容为创建确认卡，不能绕过确认直接创建；确认后的物化流程必须按确认用户/房间 owner 归属创建并加入房间。
 - Agent 读取其他 Agent detail、skill、script、knowledge 前必须验证可访问性。
 - Agent Client 不是知识库主存储；知识库由 FreeChat Server 统一维护，Agent Client 运行前同步本地 `.freechat/knowledge/`。
 - Agent Client 长驻 worker 连接远端运行接口时，必须优先使用本地保存的原始 connector token，而不是短期 access JWT，避免已绑定 Agent 因 JWT 过期反复无法 heartbeat/poll/complete。
@@ -73,3 +74,9 @@
   - pure calculation module。
   - schema installer 按领域拆分。
 - 权限密集路径要配 smoke/regression test。
+
+## 文件与消息附件
+
+- `POST /api/rooms/:roomId/messages/with-files` 必须至少校验房间成员身份，文件落到当前房间 `message-files/<messageId>/`，并写入 `room_files`，通过消息 `payload.attachments` 返回 `file:<id>` 引用。
+- 附件消息必须保留普通消息语义：服务端要解析 multipart 中的 `content`、`mentions`、`reply_to`，创建消息后 side effects 使用相同 mentions，确保 @ Agent、通知、自动助理逻辑一致。
+- 附件文件和项目文件下载/读取都必须限定当前房间，禁止跨房间引用或路径逃逸。

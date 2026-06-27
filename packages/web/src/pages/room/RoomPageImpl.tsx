@@ -226,7 +226,7 @@ export function RoomPageImpl() {
     const mentions = buildMentionsForSend(content)
     if (pendingAttachments.length > 0) {
       try {
-        const res = await api.sendRoomMessageWithFiles(roomId, content, pendingAttachments)
+        const res = await api.sendRoomMessageWithFiles(roomId, content, pendingAttachments, { mentions })
         setMessages((prev) => { const next = mergeMessages(prev, [res.message]); writeCachedMessages(roomId, next); return next })
         setPendingAttachments([])
       } catch (err: any) {

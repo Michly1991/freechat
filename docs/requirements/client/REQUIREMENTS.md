@@ -38,6 +38,7 @@
 - 文件面板的上传按钮必须绑定实际上传 action；如果上层传入 `uploadLocalFile` 而不是 `onUpload`，组件也必须能正常上传。
 - 上传后要清空 file input value，允许连续选择同一个文件再次上传。
 - 删除/打开等操作应传递明确的 `path`，避免把整个 FileNode 当成路径导致 `[object Object]` 请求。
+- 房间聊天输入区自带附件上传必须提交 `content`、`mentions`、`reply_to` 和 `files`；有附件且 @ Agent 时，前端仍要把 mentions 放入 multipart，避免附件消息不能触发指定 Agent。
 - 客户端可做空路径/非法路径提示，但最终路径清洗、权限和写入仍由服务端校验。
 
 ## 前端架构拆分

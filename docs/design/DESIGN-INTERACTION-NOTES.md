@@ -410,6 +410,8 @@ Agent 运行超时分为普通聊天与任务执行两档：`AGENT_CHAT_TIMEOUT_
 
 文件 Tab 支持本地文件上传到当前房间项目文件区，标准接口为 `POST /api/rooms/:roomId/files/upload`（保留旧 `/upload` 兼容路径）。上传文件会加入文件 Tab 配置，前端支持按钮选择和拖拽上传。服务端对上传目录和文件路径执行安全归一化，禁止 `..` 逃逸。
 
+聊天输入区自带附件上传使用独立接口 `POST /api/rooms/:roomId/messages/with-files`，文件保存到 `message-files/<messageId>/` 并写入 `room_files`，消息 `payload.attachments`/`attachments` 返回 `file:<id>` 引用。该接口必须同时保留普通消息能力：`content`、`mentions` 和 `reply_to` 均可随 multipart 提交；有附件的消息如果 @ Agent，服务端仍要把 mentions 传入 side effects，确保明确 @ Agent 不会因走附件上传链路而失效。附件供 Agent 处理时使用 `./freechat file download file:<fileId>`，不得跨房间访问。
+
 聊天输入的 @ 弹窗增加“文件”分组。发送消息时，文件 mention 写入 `mentions`：`{ role: 'file', type: 'file', id, name, path }`。当人类消息触发助理或明确 @ Agent 时，服务端会读取被 @ 的当前房间文件：文本类文件内联最多 20000 字符，非文本文件只注入路径、大小和说明。Agent prompt 会明确标注“用户 @ 了以下项目文件”，要求按路径识别文件，必要时使用 `./freechat file read <path>` 获取完整内容。
 
 Agent CLI 同步新增 `./freechat file info <path>`，用于查看文件大小、类型和修改时间。

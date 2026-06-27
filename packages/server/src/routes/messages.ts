@@ -30,18 +30,31 @@ export async function registerMessageRoutes(app: FastifyInstance) {
       const parts = request.parts()
       const messageId = `msg_${uuidv4()}`
       let content = ''
+      let mentions: any[] | undefined
+      let replyTo: string | undefined
       const attachments: any[] = []
       for await (const part of parts) {
         if (part.type === 'file') attachments.push(await roomFileService.createMessageAttachment(roomId, messageId, part, user.id))
         else if (part.fieldname === 'content') content = String(part.value || '').trim()
+        else if (part.fieldname === 'mentions') {
+          try {
+            const parsed = JSON.parse(String(part.value || '[]'))
+            if (!Array.isArray(parsed)) throw new Error('mentions must be an array')
+            mentions = parsed
+          } catch (err: any) {
+            return reply.code(400).send({ success: false, error: { message: 'mentions 格式错误' } })
+          }
+        } else if (part.fieldname === 'reply_to') {
+          replyTo = String(part.value || '').trim() || undefined
+        }
       }
       if (!content && attachments.length === 0) return reply.code(400).send({ success: false, error: { message: '消息不能为空' } })
       const payload = attachments.length ? { attachments } : undefined
-      const msg = await messageService.createMessage(roomId, user.id, user.nickname || user.username, user.role === 'agent' ? 'ai' : 'human', content || '[附件]', undefined, undefined, 'text', payload, messageId)
+      const msg = await messageService.createMessage(roomId, user.id, user.nickname || user.username, user.role === 'agent' ? 'ai' : 'human', content || '[附件]', mentions, replyTo, 'text', payload, messageId)
       const gateway = getGateway()
       gateway?.broadcast(roomId, { msgId: msg.id, roomId, type: 'broadcast', action: 'chat.message', payload: msg, timestamp: Date.now() })
       const attachmentHint = attachments.length ? `\n\n本次消息附件：\n${attachments.map((file) => `- ref: ${file.ref}; fileId: ${file.id}; folderId: ${file.folderId}; path: ${file.relativePath}; name: ${file.name}; type: ${file.mimeType || 'unknown'}; size: ${file.size}`).join('\n')}\n请用 ./freechat file download file:<fileId> 下载后处理；不同房间文件不可见，禁止跨房间访问。` : ''
-      gateway?.handleUserMessageSideEffects(roomId, user, msg, `${content || '[附件]'}${attachmentHint}`, [])
+      gateway?.handleUserMessageSideEffects(roomId, user, msg, `${content || '[附件]'}${attachmentHint}`, mentions || [])
       return { success: true, data: { message: msg } }
     } catch (err: any) {
       return reply.code(err?.code === 'INVALID_PATH' ? 400 : 500).send({ success: false, error: { message: err.message || String(err) } })
