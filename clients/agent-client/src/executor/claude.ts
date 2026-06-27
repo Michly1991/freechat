@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, un
 import { dirname, join, normalize } from 'path'
 import type { AgentCredential, ClientConfig, RemoteEvent } from '../config/types.js'
 import { workRoot } from '../config/store.js'
-import { agentTool, getAgentKnowledge, getRuntimeSpec, type AgentKnowledgePayload, type RuntimeSpec } from '../connector/api.js'
+import { agentTool, getAgentKnowledge, getRuntimeSpec, runActivity, type AgentKnowledgePayload, type RuntimeSpec } from '../connector/api.js'
 
 export function workspaceFor(agent: AgentCredential, event: RemoteEvent) {
   const dir = agent.workdir || join(workRoot(), event.agentId, event.roomId)
@@ -72,6 +72,12 @@ export type ClaudeUsage = {
 export type ClaudeRunResult = {
   response: string
   usage: ClaudeUsage
+  recoveredFromContextOverflow?: boolean
+}
+
+export type RunClaudeOptions = {
+  runKey?: string
+  ignorePreviousSession?: boolean
 }
 
 const activeChildren = new Map<string, ChildProcess>()
@@ -113,12 +119,48 @@ function mergeUsage(current: ClaudeUsage, raw: any, model?: string): ClaudeUsage
   return { model: model || next.model || current.model, inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens, totalTokens, raw: next }
 }
 
-export function runClaude(prompt: string, cwd: string, runKey?: string): Promise<ClaudeRunResult> {
-  const sessionFile = join(cwd, '.freechat', 'claude-session.json')
+function sessionFileFor(cwd: string) {
+  return join(cwd, '.freechat', 'claude-session.json')
+}
+
+export function isContextOverflowError(error: unknown) {
+  const message = String((error as any)?.message || error || '').toLowerCase()
+  return [
+    'http 422',
+    'status 422',
+    '422',
+    'context length',
+    'context_length',
+    'context window',
+    'context too long',
+    'maximum context',
+    'max context',
+    'prompt is too long',
+    'prompt too long',
+    'input is too long',
+    'message is too long',
+    'request too large',
+    'too many tokens',
+    'token limit',
+    'exceeds the',
+  ].some((needle) => message.includes(needle))
+}
+
+function clearSessionFile(cwd: string) {
+  try { rmSync(sessionFileFor(cwd), { force: true }) } catch {}
+}
+
+function normalizeRunClaudeOptions(runKeyOrOptions?: string | RunClaudeOptions): RunClaudeOptions {
+  if (typeof runKeyOrOptions === 'string') return { runKey: runKeyOrOptions }
+  return runKeyOrOptions || {}
+}
+
+async function runClaudeOnce(prompt: string, cwd: string, options: RunClaudeOptions = {}): Promise<ClaudeRunResult> {
+  const sessionFile = sessionFileFor(cwd)
   const sessionTtlMs = Math.max(30_000, Number(process.env.FREECHAT_AGENT_CLIENT_SESSION_TTL_MS || DEFAULT_SESSION_TTL_MS))
   let previousSessionId = ''
   try {
-    if (existsSync(sessionFile)) {
+    if (!options.ignorePreviousSession && existsSync(sessionFile)) {
       const saved = JSON.parse(readFileSync(sessionFile, 'utf8'))
       if (Date.now() - Number(saved.updatedAt || 0) <= sessionTtlMs) previousSessionId = saved.sessionId || ''
       else unlinkSync(sessionFile)
@@ -129,7 +171,7 @@ export function runClaude(prompt: string, cwd: string, runKey?: string): Promise
   if (process.env.FREECHAT_CLAUDE_MODEL) args.push('--model', process.env.FREECHAT_CLAUDE_MODEL)
   return new Promise((resolve, reject) => {
     const child = spawn('claude', args, { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
-    if (runKey) activeChildren.set(runKey, child)
+    if (options.runKey) activeChildren.set(options.runKey, child)
     let out = '', err = '', lineBuffer = '', response = '', sessionId = previousSessionId
     let usage: ClaudeUsage = { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, totalTokens: 0 }
     const handleLine = (line: string) => {
@@ -159,13 +201,26 @@ export function runClaude(prompt: string, cwd: string, runKey?: string): Promise
     child.stderr.on('data', (d) => { err += d.toString(); process.stderr.write(d) })
     child.on('error', reject)
     child.on('close', (code) => {
-      if (runKey) activeChildren.delete(runKey)
+      if (options.runKey) activeChildren.delete(options.runKey)
       if (lineBuffer.trim()) handleLine(lineBuffer)
       if (sessionId) { try { writeFileSync(sessionFile, JSON.stringify({ sessionId, updatedAt: Date.now() }, null, 2)) } catch {} }
       if (code === 0) resolve({ response: (response || out).trim(), usage })
       else reject(new Error(err || `claude exited ${code}`))
     })
   })
+}
+
+export async function runClaude(prompt: string, cwd: string, runKeyOrOptions?: string | RunClaudeOptions): Promise<ClaudeRunResult> {
+  const options = normalizeRunClaudeOptions(runKeyOrOptions)
+  try {
+    return await runClaudeOnce(prompt, cwd, options)
+  } catch (error) {
+    if (options.ignorePreviousSession || !isContextOverflowError(error)) throw error
+    clearSessionFile(cwd)
+    console.warn('[agent-client] Claude context exceeded; cleared saved session and retrying without --resume')
+    const result = await runClaudeOnce(prompt, cwd, { ...options, ignorePreviousSession: true })
+    return { ...result, recoveredFromContextOverflow: true }
+  }
 }
 
 export async function executeEvent(cfg: ClientConfig, agent: AgentCredential, event: RemoteEvent) {
@@ -177,6 +232,9 @@ export async function executeEvent(cfg: ClientConfig, agent: AgentCredential, ev
   })
   writeRunContext(cfg, agent, event, cwd, spec, knowledge)
   const result = await runClaude(event.payload.input || '', cwd, `${agent.agentId}:${event.runId}`)
+  if (result.recoveredFromContextOverflow) {
+    await runActivity(cfg, agent, event.runId, 'Claude context exceeded; cleared saved session and retried without --resume').catch(() => undefined)
+  }
   const trimmed = result.response.trim()
   const responseMode = event.payload.responseMode || (event.type === 'agent.mentioned' ? 'final_to_chat' : 'tool_only')
   const shouldAutoSend = responseMode === 'final_to_chat' && trimmed && !/^\{\s*"success"\s*:/i.test(trimmed)

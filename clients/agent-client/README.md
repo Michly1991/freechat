@@ -76,6 +76,22 @@ pnpm --filter @freechat/agent-client check:claude
 
 `check:client` 会检查控制台可访问、管理员登录、状态接口和环境检测接口。
 
+## Claude 会话上下文
+
+Agent Client 会为每个 Agent + Room 保存短期 Claude Code session，用于连续请求时复用本地上下文。默认 TTL 为 5 分钟，可通过环境变量调整：
+
+```bash
+FREECHAT_AGENT_CLIENT_SESSION_TTL_MS=300000
+```
+
+如果 Claude Code 返回 422、context length、prompt too long、token limit 等上下文超长错误，客户端会自动：
+
+1. 删除当前房间的 `.freechat/claude-session.json`。
+2. 不带 `--resume` 重新执行本次请求一次。
+3. 将恢复动作记录到 run activity。
+
+这里没有自动发送 `/compact` 指令，因为当前客户端使用 `claude -p` 非交互模式执行，清 session 后 fresh retry 更确定、更容易验证。
+
 ## SDK / 协议文档
 
 如果要自己实现 Agent Client 或接入第三方运行时，请看 [SDK.md](./SDK.md)。
