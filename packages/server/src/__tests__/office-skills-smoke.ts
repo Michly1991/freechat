@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import PDFDocument from 'pdfkit'
 
 const temp = mkdtempSync(join(tmpdir(), 'freechat-office-skills-'))
 process.env.DATABASE_PATH = join(temp, 'freechat.db')
@@ -16,6 +17,17 @@ const { executeInlineToolCalls } = await import('../services/inline-agent-tool.s
 const { executeAppAction } = await import('../app-actions/executor.js')
 
 const now = Date.now()
+
+async function makePdfBuffer(text: string): Promise<Buffer> {
+  const doc = new PDFDocument({ size: 'A4' })
+  const chunks: Buffer[] = []
+  doc.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)))
+  doc.fontSize(14).text(text)
+  doc.end()
+  await new Promise<void>((resolve) => doc.on('end', resolve))
+  return Buffer.concat(chunks)
+}
+
 try {
   initDatabase()
   db.prepare('INSERT INTO users (id, username, password_hash, nickname, role, identity_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
@@ -27,6 +39,14 @@ try {
   const created = await agentService.createAgent('owner', { name: '小蜜', roleType: 'assistant', deployment: 'server', description: 'assistant', specialties: [], config: { builtInKey: 'xiaomi_assistant' } as any })
   await agentService.addAgentToRoom('room', created.agent.id, 'owner', { roomRole: 'assistant', autoEnabled: true })
   const ctx = { roomId: 'room', agentId: created.agent.id, actorUserId: 'owner' }
+
+  const pdfAttachment = await roomFileService.createMessageAttachment('room', 'pdf-msg', {
+    filename: 'demo.pdf',
+    mimetype: 'application/pdf',
+    toBuffer: async () => makePdfBuffer('PDF contract amount 67890'),
+  }, 'owner')
+  const pdfRead = await executeAppAction(ctx, 'pdf.read', { ref: pdfAttachment.ref })
+  assert.match(pdfRead.response?.data.text, /PDF contract amount 67890/)
 
   const excelWrite = await executeAppAction(ctx, 'excel.write', { targetPath: 'outputs/demo.xlsx', rows: [['名称', '金额'], ['合同', 12345]] })
   assert.equal(excelWrite.response?.success, true)
