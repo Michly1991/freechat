@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Check, Copy, FileText, Image as ImageIcon, Paperclip, Send, X } from 'lucide-react'
+import { addClientLog } from '../../../lib/clientLog'
 import { VoicePlaybackButton } from '../../../features/voice/VoicePlaybackButton'
 import { VoiceConversationButton } from '../../../features/voice/VoiceConversationButton'
 import type { FileNode, Message } from '../../room-page-model'
@@ -137,9 +138,14 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
   }
 
   const handleAttachmentChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    onAddAttachments?.(event.currentTarget.files)
-    event.currentTarget.value = ''
+    const files = event.currentTarget.files
+    addClientLog('info', 'ui', 'chat attachment selected', { count: files?.length || 0, names: files ? Array.from(files).map((file) => file.name) : [] })
+    onAddAttachments?.(files)
   }
+
+  useEffect(() => {
+    if (pendingAttachments.length === 0 && attachmentInputRef.current) attachmentInputRef.current.value = ''
+  }, [pendingAttachments.length])
 
   return (
     <div className="h-full flex flex-col">
@@ -234,8 +240,12 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
         </div>}
         {sendError && !wsNoticeDismissed && <div className="mb-2 flex items-center justify-between gap-2 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700"><span>{sendError.replace('正在重连...', '实时同步暂不可用，但消息可正常发送')}</span><button type="button" onClick={() => setWsNoticeDismissed(true)} className="text-amber-500 hover:text-amber-700" title="关闭"><X className="w-4 h-4" /></button></div>}
         {pendingAttachments.length > 0 && <div className="mb-3 rounded-2xl border border-blue-100 bg-blue-50/80 p-2.5 shadow-sm"><div className="mb-2 flex items-center gap-2 text-xs font-medium text-blue-700"><Paperclip className="h-4 w-4" /><span>已选择 {pendingAttachments.length} 个文件，点击发送上传</span></div><div className="space-y-2">{pendingAttachments.map((file, index) => <div key={`${file.name}-${file.size}-${index}`} className="flex min-h-11 items-center gap-2 rounded-xl border border-blue-100 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm"><FileText className="h-5 w-5 shrink-0 text-blue-500" /><div className="min-w-0 flex-1"><div className="truncate font-medium text-gray-800" title={file.name}>{file.name}</div><div className="text-xs text-gray-400">{formatFileSize(file.size)}</div></div><button type="button" onClick={() => onRemoveAttachment?.(index)} className="fc-pressable rounded-full p-1 text-gray-400 hover:bg-red-50 hover:text-red-500" aria-label={`移除 ${file.name}`}><X className="h-4 w-4" /></button></div>)}</div></div>}
+        <div className="mb-2 rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+          <div className="mb-1.5 flex items-center gap-2 text-xs font-medium text-gray-600"><Paperclip className="h-4 w-4 text-blue-500" /><span>选择文件/图片发送给当前聊天</span></div>
+          <input ref={attachmentInputRef} type="file" multiple className="block w-full cursor-pointer rounded-xl border border-dashed border-blue-200 bg-blue-50/60 px-2 py-2 text-sm text-gray-600 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-blue-600 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white hover:bg-blue-50" title="选择文件" aria-label="选择文件" onChange={handleAttachmentChange} />
+        </div>
         <div className="flex gap-2 items-center rounded-2xl bg-gray-50 border border-gray-200 p-1.5 shadow-inner focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-300 transition-all">
-          <div className="relative inline-flex min-w-11 shrink-0 overflow-hidden rounded-xl"><button type="button" className="fc-pressable fc-mobile-touch inline-flex min-w-11 items-center justify-center gap-1 rounded-xl px-2.5 py-2 text-gray-500 hover:bg-white hover:text-blue-600" title="选择文件" aria-label="选择文件"><Paperclip className="h-5 w-5" /><span className="hidden sm:inline text-sm">文件</span></button><input ref={attachmentInputRef} type="file" multiple className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0" title="选择文件" aria-label="选择文件" onChange={handleAttachmentChange} /></div>
+
           <textarea ref={inputRef} value={input} onChange={handleInputChange} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) sendMessage(e) }} rows={1} placeholder="输入消息，@成员..." className="min-w-0 flex-1 max-h-32 resize-none bg-transparent px-3 py-2.5 text-base sm:text-sm border-0 rounded-xl focus:ring-0 focus:outline-none overflow-y-auto leading-6" />
           {voiceAvailable && onVoiceTranscript && onVoiceEnable && onVoiceDisable && <VoiceConversationButton roomId={roomId} enabled={voiceChatEnabled} busy={voiceBusy} status={voiceStatus} onEnable={onVoiceEnable} onDisable={onVoiceDisable} onTranscript={onVoiceTranscript} onRecordingChange={onVoiceRecordingChange} onBusyChange={onVoiceBusyChange} />}
           {!voiceChatEnabled && <button type="submit" disabled={!input.trim() && pendingAttachments.length === 0} className="fc-pressable fc-mobile-touch inline-flex min-w-11 items-center justify-center gap-1.5 bg-blue-600 text-white px-3 sm:px-4 py-2 rounded-xl hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed shadow-sm shadow-blue-500/20" title="发送"><Send className="h-5 w-5" /><span className="hidden sm:inline">发送</span></button>}
