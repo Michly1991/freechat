@@ -1,3 +1,5 @@
+import { readFile } from 'fs/promises'
+import { extname, join } from 'path'
 import db from '../storage/db.js'
 import { billingQueryRepository } from '../domains/billing/billing-query.repository.js'
 import { microToCredit } from '../domains/billing/money.js'
@@ -9,6 +11,9 @@ import { agentModelConfigService } from '../services/agent-model-config.service.
 import { modelProfileService } from '../services/model-profile.service.js'
 import { assertActorCanUseAgentInRoom } from '../routes/agent-tools.helpers.js'
 import { getAppAction, listAppActions } from './registry.js'
+import { roomFileService } from '../services/room-file.service.js'
+import { config } from '../config.js'
+import { assertRoomMember } from '../utils/room-authz.js'
 
 export interface AppActionContext {
   roomId: string
@@ -42,6 +47,42 @@ function rangeFromArgs(args: any) {
 
 function publicAccount(account: { balance: number; incomeBalance: number }) {
   return { balance: microToCredit(account.balance), incomeBalance: microToCredit(account.incomeBalance) }
+}
+
+const TEXT_FILE_EXTENSIONS = new Set(['.txt', '.md', '.markdown', '.json', '.csv', '.tsv', '.log', '.yaml', '.yml', '.xml', '.html', '.htm', '.css', '.js', '.ts', '.tsx', '.jsx'])
+
+function isTextRoomFile(path: string, mimeType?: string | null) {
+  const mime = String(mimeType || '').toLowerCase()
+  if (mime.startsWith('text/')) return true
+  if (/json|xml|yaml|csv|javascript|typescript/.test(mime)) return true
+  return TEXT_FILE_EXTENSIONS.has(extname(path).toLowerCase())
+}
+
+function roomFilePublic(row: any) {
+  return {
+    id: row.id,
+    ref: row.id ? `file:${row.id}` : undefined,
+    name: row.name,
+    path: row.relative_path,
+    mimeType: row.mime_type || undefined,
+    size: row.size || 0,
+    source: row.source,
+    messageId: row.message_id || undefined,
+    createdAt: row.created_at,
+  }
+}
+
+async function readRoomTextFile(roomId: string, refOrPath: string, args: any = {}) {
+  const row = roomFileService.resolveRef(roomId, refOrPath)
+  const rel = row.storage_path || row.relative_path
+  if (!isTextRoomFile(row.relative_path || rel, row.mime_type) && args.force !== true) {
+    throw { code: 'BINARY_FILE_REQUIRES_DOWNLOAD', message: '该文件不是可直接内联读取的文本文件，请使用 ./freechat file download file:<fileId> 下载到本地处理。' }
+  }
+  const offset = Math.max(0, Number(args.offset || 0) || 0)
+  const limit = Math.min(Math.max(1, Number(args.limit || args.maxBytes || 120_000) || 120_000), 500_000)
+  const fullPath = join(config.workspace.root, roomId, 'files', rel)
+  const content = await readFile(fullPath, 'utf8')
+  return { file: roomFilePublic(row), content: content.slice(offset, offset + limit), offset, limit, truncated: offset + limit < content.length, totalChars: content.length }
 }
 
 async function resolveAgentForActor(ctx: AppActionContext, raw?: any) {
@@ -176,6 +217,25 @@ export async function executeAppAction(ctx: AppActionContext, action: string, ar
     }
     case 'model.profile.list':
       return { handled: true, response: { success: true, data: { profiles: modelProfileService.listVisible(ctx.actorUserId, ctx.actorRole) } } }
+    case 'file.list': {
+      const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
+      assertRoomMember(scopeRoomId, ctx.actorUserId)
+      return { handled: true, response: { success: true, data: roomFileService.list(scopeRoomId) } }
+    }
+    case 'file.info': {
+      const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
+      assertRoomMember(scopeRoomId, ctx.actorUserId)
+      const ref = String(args.ref || args.fileId || args.path || '')
+      const row = roomFileService.resolveRef(scopeRoomId, ref)
+      return { handled: true, response: { success: true, data: { file: roomFilePublic(row), hint: row.id ? `文本文件可用 file.read 读取；复杂文件请用 ./freechat file download file:${row.id} 下载处理。` : undefined } } }
+    }
+    case 'file.read': {
+      const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
+      assertRoomMember(scopeRoomId, ctx.actorUserId)
+      const ref = String(args.ref || args.fileId || args.path || '')
+      if (!ref) throw { code: 'VALIDATION_ERROR', message: 'file ref/path is required' }
+      return { handled: true, response: { success: true, data: await readRoomTextFile(scopeRoomId, ref, args) } }
+    }
     default:
       return { handled: false }
   }

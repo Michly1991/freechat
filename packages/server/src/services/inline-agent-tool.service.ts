@@ -101,6 +101,24 @@ function formatToolResult(action: string, result: any) {
       `技能数：${skills.length}，脚本数：${scripts.length}`,
     ].filter(Boolean).join('\n')
   }
+  if (action === 'file.read') {
+    const data = result?.data || result
+    const file = data?.file
+    const header = file ? `文件：${file.name || file.path}（${file.ref || file.id || file.path}）` : '文件内容：'
+    const body = String(data?.content || '')
+    const tail = data?.truncated ? `\n\n[内容已截断，offset=${data.offset}，limit=${data.limit}，totalChars=${data.totalChars}]` : ''
+    return `${header}\n${body}${tail}`.slice(0, 12000)
+  }
+  if (action === 'file.list') {
+    const files = result?.data?.files || result?.files || []
+    if (!files.length) return '当前房间没有文件。'
+    return `当前房间文件：\n${files.slice(0, 30).map((file: any, i: number) => `${i + 1}. ${file.name || file.path || file.relative_path} (${file.ref || (file.id ? `file:${file.id}` : file.path || file.relative_path)})`).join('\n')}`
+  }
+  if (action === 'file.info') {
+    const file = result?.data?.file || result?.file
+    if (!file) return '没有查到该文件。'
+    return [`文件：${file.name || file.path}`, `引用：${file.ref || file.id || file.path}`, `路径：${file.path || ''}`, `类型：${file.mimeType || 'unknown'}`, `大小：${file.size || 0} bytes`, result?.data?.hint || ''].filter(Boolean).join('\n')
+  }
   return JSON.stringify(result?.data ?? result, null, 2).slice(0, 3000)
 }
 

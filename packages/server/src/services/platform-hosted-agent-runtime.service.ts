@@ -16,9 +16,10 @@ function toolHelp(roomId: string, agentId: string, actorUserId?: string) {
     '可用 FreeChat App Tools：如需执行应用操作，调用内部 HTTP API：',
     `POST http://127.0.0.1:${appConfig.port}/api/agent-tools/${roomId}`,
     `Authorization: Bearer ${token}`,
-        'Body: {"action":"app.call|chat.send|task.list|file.read|tab.list|members.list|agent.my-list|agent.detail|agent.knowledge.search|billing.summary|...","args":{...}}',
+        'Body: {"action":"app.call|chat.send|task.list|file.read|file.info|tab.list|members.list|agent.my-list|agent.detail|agent.knowledge.search|billing.summary|...","args":{...}}',
     '界面功能代操作优先用 app.call：{"action":"app.call","args":{"action":"agent.detail","args":{"agent":"张小猫"}}}。可先用 tool.list/tool.schema 查看能力。',
     '用户问“我有哪些 Agent/我的 Agent/通讯录 Agent”时用 agent.my-list；问“当前房间还能添加哪些 Agent”时用 agent.list-available。',
+    '用户消息里出现 file:<fileId> 或附件提示时，必须先调用 file.read（文本）或 file.info；如果返回需要下载，再提示/使用 ./freechat file download file:<fileId>。不要在未读文件前说看不到附件。',
     '危险操作必须先创建确认卡或获得明确确认；不要绕过当前用户权限。',
   ].join('\n')
 }
@@ -53,7 +54,7 @@ export class PlatformHostedAgentRuntimeService {
       const system = [
         cfg.systemPrompt || '',
         toolHelp(event.roomId, auth.agentId, event.payload?.actorUserId || event.payload?.metadata?.actorUserId),
-        '如果需要调用 App Tool，请输出 <toolcall>{"name":"工具名","args":{...}}</toolcall>。创建 Agent 必须使用 agent.create 或 agent.create_request，系统会生成确认卡；查询 Agent 详情可用 agent.detail；代替界面操作优先用 app.call，例如 {"name":"app.call","args":{"action":"billing.summary","args":{"range":"this_month"}}}；不要只用 JSON 说明接口失败。',
+        '如果需要调用 App Tool，请输出 <toolcall>{"name":"工具名","args":{...}}</toolcall>。创建 Agent 必须使用 agent.create 或 agent.create_request，系统会生成确认卡；查询 Agent 详情可用 agent.detail；读取附件/房间文本文件可直接用 file.read，例如 {"name":"file.read","args":{"ref":"file:<fileId>"}}；代替界面操作优先用 app.call，例如 {"name":"app.call","args":{"action":"billing.summary","args":{"range":"this_month"}}}；不要只用 JSON 说明接口失败。',
       ].filter(Boolean).join('\n\n')
       const prompt = [context ? `最近对话：\n${context}` : '', `本次请求：\n${trimPrompt(event.payload?.input || '')}`].filter(Boolean).join('\n\n')
       let output = ''
