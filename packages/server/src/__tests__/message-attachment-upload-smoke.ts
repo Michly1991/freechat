@@ -51,6 +51,21 @@ try {
   const fullPath = join(temp, 'workspace', 'room', 'files', stored.storage_path)
   assert.equal(readFileSync(fullPath, 'utf8'), 'demo content')
 
+  db.prepare('INSERT INTO rooms (id, name, created_by, created_at, updated_at, last_active_at, room_kind, direct_key, direct_target_type, direct_target_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('direct', '私聊', 'owner', now, now, now, 'direct_user', 'user:owner:friend', 'user', 'friend')
+  db.prepare('INSERT INTO room_members (room_id, user_id, role, type, joined_at) VALUES (?, ?, ?, ?, ?)')
+    .run('direct', 'owner', 'owner', 'human', now)
+  const directForm = new FormData()
+  directForm.append('content', '')
+  directForm.append('files', new File([Buffer.from('private attachment')], 'private.txt', { type: 'text/plain' }))
+  const directRes = await app.inject({ method: 'POST', url: '/api/rooms/direct/messages/with-files', headers: { authorization: `Bearer ${token}` }, body: directForm as any })
+  assert.equal(directRes.statusCode, 200, directRes.body)
+  const directMsg = directRes.json().data.message
+  assert.equal(directMsg.content, '[附件]')
+  assert.equal(directMsg.attachments.length, 1)
+  const directStored = roomFileService.resolveRef('direct', directMsg.attachments[0].ref)
+  assert.equal(readFileSync(join(temp, 'workspace', 'direct', 'files', directStored.storage_path), 'utf8'), 'private attachment')
+
   await app.close()
   console.log('message attachment upload smoke passed')
 } finally {
