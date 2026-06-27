@@ -1,15 +1,12 @@
 import crypto from 'crypto'
 import bcrypt from 'bcryptjs'
-import jwt from 'jsonwebtoken'
 import { v4 as uuidv4 } from 'uuid'
 import db from '../storage/db.js'
-import { config } from '../config.js'
 import { billingService } from './billing.service.js'
 import { platformHostedAgentRuntimeService } from './platform-hosted-agent-runtime.service.js'
-import { messageService } from './message.service.js'
-import { getGateway } from '../ws/gateway.js'
+import { ACCESS_EXPIRES_IN, authenticateConnectorCredential, signConnectorAccessToken } from './remote-agent-connector-auth.js'
+import { assertRemoteRunAuth, completeRemoteRun, failRemoteRun } from './remote-agent-run-settlement.service.js'
 
-const ACCESS_EXPIRES_IN = '7d'
 const PAIRING_TTL_MS = 10 * 60 * 1000
 const CONNECTOR_ONLINE_TTL_MS = 45 * 1000
 const DELIVERED_EVENT_REQUEUE_MS = 2 * 60 * 1000
@@ -26,7 +23,7 @@ type EventSubscriber = {
   send: (event: any) => void
 }
 
-type EnqueueContext = {
+export type EnqueueContext = {
   actorUserId?: string
   runSource?: string
   taskId?: string
@@ -37,23 +34,23 @@ type EnqueueContext = {
   metadata?: Record<string, any>
 }
 
-type ControlEventInput = {
+export type ControlEventInput = {
   roomId: string
   agentId: string
   type: string
   payload: Record<string, any>
 }
 
-function compactCode(raw: string): string {
+export function compactCode(raw: string): string {
   return String(raw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
 }
 
-function randomPairingCode(): string {
+export function randomPairingCode(): string {
   const raw = crypto.randomBytes(5).toString('hex').toUpperCase()
   return `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 10)}`
 }
 
-function tokenPrefix(token: string): string {
+export function tokenPrefix(token: string): string {
   return `${token.slice(0, 12)}…${token.slice(-6)}`
 }
 
@@ -199,7 +196,7 @@ export class RemoteAgentConnectorService {
     return {
       agentId: matched.agent_id,
       connectorId,
-      accessToken: this.signAccessToken({ connectorId, agentId: matched.agent_id, ownerId: matched.owner_id, tokenId }),
+      accessToken: signConnectorAccessToken({ connectorId, agentId: matched.agent_id, ownerId: matched.owner_id, tokenId }),
       connectorToken: rawToken,
       expiresIn: ACCESS_EXPIRES_IN,
     }
@@ -211,25 +208,7 @@ export class RemoteAgentConnectorService {
   }
 
   async authenticateCredential(token: string): Promise<ConnectorAuth | null> {
-    if (!token) return null
-    const jwtAuth = this.verifyAccessToken(token)
-    if (jwtAuth) return jwtAuth
-    if (!token.startsWith('fcconn_')) return null
-    const rows = db.prepare(`
-      SELECT t.*, c.agent_id, c.owner_id, c.status connector_status
-      FROM agent_connector_tokens t
-      INNER JOIN agent_connectors c ON c.id = t.connector_id
-      WHERE t.status = 'active' AND c.status != 'revoked'
-    `).all() as any[]
-    for (const row of rows) {
-      if (await bcrypt.compare(token, row.token_hash)) {
-        const now = Date.now()
-        db.prepare('UPDATE agent_connector_tokens SET last_used_at = ? WHERE id = ?').run(now, row.id)
-        db.prepare("UPDATE agent_connectors SET status = CASE WHEN status = 'working' THEN status ELSE 'online' END, last_seen_at = ? WHERE id = ?").run(now, row.connector_id)
-        return { connectorId: row.connector_id, agentId: row.agent_id, ownerId: row.owner_id, tokenId: row.id }
-      }
-    }
-    return null
+    return authenticateConnectorCredential(token)
   }
 
   heartbeat(auth: ConnectorAuth, metadata: any = {}) {
@@ -359,45 +338,11 @@ export class RemoteAgentConnectorService {
   }
 
   complete(auth: ConnectorAuth, runId: string, payload: any = {}) {
-    const run = this.assertRunAuth(auth, runId)
-    const now = Date.now()
-    const usage = payload.usage || {}
-    const durationMs = Math.max(0, now - Number(run.started_at || now))
-    const inputTokens = Number(usage.inputTokens || usage.input_tokens || usage.prompt_tokens || 0)
-    const outputTokens = Number(usage.outputTokens || usage.output_tokens || usage.completion_tokens || 0)
-    const cacheCreationInputTokens = Number(usage.cacheCreationInputTokens || usage.cache_creation_input_tokens || 0)
-    const cacheReadInputTokens = Number(usage.cacheReadInputTokens || usage.cache_read_input_tokens || 0)
-    const totalTokens = Number(usage.totalTokens || usage.total_tokens || (inputTokens + outputTokens + cacheCreationInputTokens + cacheReadInputTokens) || 0)
-    db.prepare(`
-      UPDATE agent_runs
-      SET status = 'succeeded', output = ?, error = NULL, runtime = ?, model = ?, duration_ms = ?,
-        input_tokens = ?, output_tokens = ?, cache_creation_input_tokens = ?, cache_read_input_tokens = ?, total_tokens = ?,
-        usage_source = ?, usage_trust_level = ?, usage_reported_by_connector_id = ?, usage_reported_at = ?, raw_usage_json = ?,
-        finished_at = ?
-      WHERE id = ?
-    `).run(payload.output || payload.summary || '', usage.runtime || (usage.usageSource === 'server_metered' ? 'platform-hosted-client' : 'remote-claude-code'), usage.model || null, durationMs, inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens, totalTokens, usage.usageSource || usage.usage_source || 'client_reported', usage.trustLevel || usage.usage_trust_level || 'provider_reported', auth.connectorId, now, JSON.stringify(usage || {}), now, runId)
-    db.prepare("UPDATE remote_agent_events SET status = 'completed', completed_at = ? WHERE run_id = ?").run(now, runId)
-    db.prepare("UPDATE agent_connectors SET status = 'online', last_seen_at = ? WHERE id = ?").run(now, auth.connectorId)
-    db.prepare("UPDATE agents SET status = 'active', updated_at = ? WHERE id = ?").run(now, auth.agentId)
-    this.settleRemoteRun(runId)
-    if ((run.run_source === 'agent.mentioned' || run.run_source === 'handoff') && payload.output && payload.responseMode !== 'tool_only' && payload.responseMode !== 'silent') {
-      void messageService.createMessage(run.room_id, run.agent_id, (db.prepare('SELECT name FROM agents WHERE id = ?').get(run.agent_id) as any)?.name || 'Agent', 'ai', String(payload.output))
-        .then((message) => getGateway()?.broadcast(run.room_id, { msgId: message.id, roomId: run.room_id, type: 'broadcast', action: 'chat.message', payload: message, timestamp: Date.now() }))
-        .catch((err) => console.error('[remote-agent] create completion message failed', err))
-    }
-    return { ok: true }
+    return completeRemoteRun(auth, runId, payload)
   }
 
   fail(auth: ConnectorAuth, runId: string, error: string) {
-    const run = this.assertRunAuth(auth, runId)
-    const now = Date.now()
-    const durationMs = Math.max(0, now - Number(run.started_at || now))
-    db.prepare("UPDATE agent_runs SET status = 'failed', error = ?, runtime = 'remote-claude-code', duration_ms = ?, finished_at = ? WHERE id = ?")
-      .run(error || 'Remote Agent failed', durationMs, now, runId)
-    db.prepare("UPDATE remote_agent_events SET status = 'completed', completed_at = ? WHERE run_id = ?").run(now, runId)
-    db.prepare("UPDATE agent_connectors SET status = 'online', last_seen_at = ? WHERE id = ?").run(now, auth.connectorId)
-    db.prepare("UPDATE agents SET status = 'error', updated_at = ? WHERE id = ?").run(now, auth.agentId)
-    return { ok: true }
+    return failRemoteRun(auth, runId, error)
   }
 
   private requeueStaleDeliveredEvents(agentId: string) {
@@ -415,29 +360,10 @@ export class RemoteAgentConnectorService {
     return []
   }
 
-  private signAccessToken(auth: ConnectorAuth) {
-    return jwt.sign({ ...auth, kind: 'agent_connector' }, config.jwtSecret, { expiresIn: ACCESS_EXPIRES_IN })
-  }
-
-  private verifyAccessToken(token: string): ConnectorAuth | null {
-    try {
-      const decoded = jwt.verify(token, config.jwtSecret) as any
-      if (decoded?.kind !== 'agent_connector') return null
-      const connector = db.prepare('SELECT status FROM agent_connectors WHERE id = ?').get(decoded.connectorId) as any
-      if (!connector || connector.status === 'revoked') return null
-      return { connectorId: decoded.connectorId, agentId: decoded.agentId, ownerId: decoded.ownerId, tokenId: decoded.tokenId }
-    } catch { return null }
-  }
-
   private assertRunAuth(auth: ConnectorAuth, runId: string) {
-    const run = db.prepare('SELECT * FROM agent_runs WHERE id = ? AND agent_id = ?').get(runId, auth.agentId) as any
-    if (!run) throw { code: 'RUN_NOT_FOUND', message: 'Run not found for this connector' }
-    return run
+    return assertRemoteRunAuth(auth, runId)
   }
 
-  private settleRemoteRun(runId: string) {
-    billingService.billRun(runId)
-  }
 }
 
 export const remoteAgentConnectorService = new RemoteAgentConnectorService()

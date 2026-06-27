@@ -16,8 +16,9 @@ import { createRoomAgentActions } from './room-agent-actions'
 import { createRoomFileActions, createRoomTabActions, createRoomTaskActions } from './room-actions'
 import { createRoomRuntimeActions } from './room-realtime'
 import { createMessagePaginationActions, INITIAL_MESSAGE_LIMIT } from './room-message-pagination'
-import { getAgentOnlineStatus, getMemberDisplayName } from './room-ui-utils'
+import { getAgentOnlineStatus } from './room-ui-utils'
 import { createRoomProfileController } from './room-profile-controller'
+import { createRoomMentionController } from './room-mention-controller'
 import { useStreamingVoicePlayback } from '../../features/voice/useStreamingVoicePlayback'
 import { mergeMessages, readCachedMessages, writeCachedMessages, type FileNode, type Message, type Panel, type Tab } from '../room-page-model'
 
@@ -219,27 +220,6 @@ export function RoomPageImpl() {
     onAgentStreamDelta: handleAgentStreamDelta,
     onAgentStreamCompleted: handleAgentStreamCompleted,
   })
-  const buildMentionsForSend = (content: string) => {
-    const mentions = [...selectedMentions]
-    members.forEach((m) => {
-      const id = m.id || m.userId
-      const name = getMemberDisplayName(m)
-      if (id && content.includes(`@${name}`) && !mentions.some((x) => x.id === id)) {
-        mentions.push({ id, name, role: 'human' })
-      }
-    })
-    roomAgents.forEach((a) => {
-      if (a.id && content.includes(`@${a.name}`) && !mentions.some((x) => x.id === a.id)) {
-        mentions.push({ id: a.id, name: a.name, role: 'ai' })
-      }
-    })
-    const addFiles = (nodes: FileNode[]) => nodes.forEach((node) => {
-      if (node.type === 'directory') addFiles(node.children || [])
-      else if (content.includes(`@${node.name}`) && !mentions.some((x) => (x.type === 'file' || x.role === 'file') && x.path === node.path)) mentions.push({ id: node.path, name: node.name, role: 'file', type: 'file', path: node.path })
-    })
-    addFiles(files)
-    return mentions.filter((m) => content.includes(`@${m.name}`))
-  }
   const sendTextMessage = async (rawContent: string) => {
     const content = rawContent.trim()
     if ((!content && pendingAttachments.length === 0) || !roomId) return false
@@ -300,20 +280,6 @@ export function RoomPageImpl() {
     interruptVoicePlayback()
     setVoiceStatus('idle')
   }
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value
-    setInput(val)
-    // Check for @mention
-    const cursorPos = e.target.selectionStart || 0
-    const beforeCursor = val.slice(0, cursorPos)
-    const atMatch = beforeCursor.match(/@([^@\s]*)$/)
-    if (atMatch) {
-      setShowMentionPopup(true)
-      setMentionFilter(atMatch[1].toLowerCase())
-    } else {
-      setShowMentionPopup(false)
-    }
-  }
   const visibleRoomAgents = (() => {
     const primaryAssistant = roomAgents.find((agent) => agent.roleType === 'assistant' && agent.roomRole === 'assistant' && agent.autoEnabled)
     if (!primaryAssistant) return roomAgents
@@ -323,31 +289,20 @@ export function RoomPageImpl() {
   const workingAgents = visibleRoomAgents.filter((agent) => getAgentOnlineStatus(agent) === 'working')
   const errorAgents = visibleRoomAgents.filter((agent) => getAgentOnlineStatus(agent) === 'error' || agent.status === 'error')
   const { getActorMember, getActorAgent, getActorAvatar, openMemberProfile, renderAssigneeBadge } = createRoomProfileController({ members, roomAgents: visibleRoomAgents, setSelectedProfile })
-  const filteredMembers = members.filter((m) => {
-    const id = m.id || m.userId
-    if (id === user?.id) return false
-    return getMemberDisplayName(m).toLowerCase().includes(mentionFilter)
+  const { filteredMembers, filteredAgents, filteredFiles, buildMentionsForSend, insertMention, handleInputChange } = createRoomMentionController({
+    user,
+    input,
+    inputRef,
+    members,
+    roomAgents: visibleRoomAgents,
+    files,
+    mentionFilter,
+    selectedMentions,
+    setInput,
+    setShowMentionPopup,
+    setMentionFilter,
+    setSelectedMentions,
   })
-  const filteredAgents = visibleRoomAgents.filter((a) =>
-    (a.name || '').toLowerCase().includes(mentionFilter)
-  )
-  const allFiles = (nodes: FileNode[]): FileNode[] => nodes.flatMap((node) => node.type === 'directory' ? allFiles(node.children || []) : [node])
-  const filteredFiles = allFiles(files).filter((f) => f.name.toLowerCase().includes(mentionFilter) || f.path.toLowerCase().includes(mentionFilter)).slice(0, 20)
-  const insertMention = (target: any, type: 'member' | 'agent' | 'file') => {
-    const name = type === 'member' ? getMemberDisplayName(target) : target.name
-    const cursorPos = inputRef.current?.selectionStart || input.length
-    const beforeCursor = input.slice(0, cursorPos)
-    const afterCursor = input.slice(cursorPos)
-    const atIdx = beforeCursor.lastIndexOf('@')
-    const newInput = beforeCursor.slice(0, atIdx) + `@${name} ` + afterCursor
-    setInput(newInput)
-    setSelectedMentions((prev) => {
-      const mention = type === 'file' ? { id: target.path, name, role: 'file', type: 'file', path: target.path } : { id: target.id || target.userId, name, role: type === 'agent' ? 'ai' as const : 'human' as const }
-      return prev.some((m) => m.id === mention.id && m.role === mention.role) ? prev : [...prev, mention]
-    })
-    setShowMentionPopup(false)
-    inputRef.current?.focus()
-  }
   const { openFile, saveFile, deleteFile, createFile, createFolder, uploadLocalFile, submitFileDialog } = createRoomFileActions({
     roomId, fileDirty, currentFile, setCurrentFile, setFileDirty, fileDialogType, fileDialogPath,
     setFileDialogType, setFileDialogPath, feedback, loadFiles,

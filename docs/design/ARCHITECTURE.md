@@ -47,6 +47,9 @@ FreeChat 后端以 Fastify route 作为协议边界，业务规则下沉到 serv
 - storage schema：按领域拆成 `*-schema.ts`，`db.ts` 只保留核心基线表与初始化编排；新增大表优先独立 schema 文件。
 - Agent Tool：采用薄路由 + 领域处理器链，避免在单个 route 文件维护大型 action switch。
 - HTTP routes：按资源域拆分注册文件。`routes/agents.ts` 只聚合 Agent CRUD/package/permission/capability/connector/room-agent/market 子路由；`routes/rooms.ts` 只聚合 room core/assistant/billing/task/member/invite/leave 子路由，避免权限密集逻辑混在一个文件中。
+- WebSocket：`gateway.ts` 保持连接池、广播和生命周期职责；具体 action 分发与 chat/room handler 逻辑放入 `gateway-message-handlers.ts`，降低实时链路控制器复杂度。
+- Storage schema：`storage/db.ts` 只负责数据库连接、migration baseline 和 schema installer 编排；核心表族拆到 `storage/schema/*`，新增表/字段优先按领域追加 installer。
+- Shared types：`packages/shared/src/index.ts` 只保留兼容 re-export；领域类型拆到 `shared/src/types/*`，避免全局单文件继续膨胀。
 - Agent runtime/workspace：CLI wrapper、CLI CJS 模板、workspace/context 文件生成分离；长模板允许单独资源文件承载，业务服务只做渲染装配。
 - Workgroup：基础成员/Agent/房间管理与入口分享/访客会话拆分，避免工作组服务继续膨胀。
 

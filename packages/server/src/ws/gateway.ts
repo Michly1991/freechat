@@ -3,23 +3,31 @@ import { Server } from 'http'
 import { v4 as uuidv4 } from 'uuid'
 import { verifyToken } from '../auth/jwt.js'
 import { messageService } from '../services/message.service.js'
-import { roomService } from '../services/room.service.js'
-import { agentStreamService } from '../services/agent-stream.service.js'
-import { notificationService } from '../services/notification.service.js'
 import db from '../storage/db.js'
 import { AgentInvocationHandler } from './agent-invocation.js'
 import type { ClientConnection, InvokeReason } from './gateway-types.js'
+import { assertCanJoinRoom, createGatewayActionHandlers, runUserMessageSideEffects, type GatewayActionHandler } from './gateway-message-handlers.js'
 
 export class WebSocketGateway {
   private wss: WebSocketServer
   private clients: Map<string, ClientConnection> = new Map()
   private roomClients: Map<string, Set<string>> = new Map() // roomId -> Set<clientId>
   private agentInvocation: AgentInvocationHandler
+  private actionHandlers: Record<string, GatewayActionHandler>
 
   constructor(server: Server) {
     this.agentInvocation = new AgentInvocationHandler((roomId, message, excludeClientId) => {
       this.broadcastToRoom(roomId, message, excludeClientId)
       if (message?.action === 'agent.status_update') this.sendToRoomMembers(roomId, message)
+    })
+    this.actionHandlers = createGatewayActionHandlers({
+      getClient: (clientId) => this.clients.get(clientId),
+      leaveRoom: (clientId, roomId) => this.leaveRoom(clientId, roomId),
+      joinRoom: (clientId, roomId) => this.joinRoom(clientId, roomId),
+      sendToClient: (clientId, message) => this.sendToClient(clientId, message),
+      broadcastToRoom: (roomId, message, excludeClientId) => this.broadcastToRoom(roomId, message, excludeClientId),
+      maybeAutoInvokeAssistant: (roomId, actorName, content, mentions, actorUserId) => this.maybeAutoInvokeAssistant(roomId, actorName, content, mentions, actorUserId),
+      invokeMentionedAgents: (roomId, content, mentions, reason, actorUserId) => this.invokeMentionedAgents(roomId, content, mentions, reason, actorUserId),
     })
     this.wss = new WebSocketServer({ noServer: true })
     server.on('upgrade', (req, socket, head) => {
@@ -107,54 +115,26 @@ export class WebSocketGateway {
     const client = this.clients.get(clientId)
     if (!client) return
 
-    const { action, payload, roomId } = message
+    const { action, roomId } = message
 
     try {
-      switch (action) {
-        case 'room.join':
-          await this.joinRoom(clientId, payload.room_id)
-          break
-        case 'room.leave':
-          if (client.currentRoomId) {
-            this.leaveRoom(clientId, client.currentRoomId)
-          }
-          break
-        case 'chat.send':
-          await this.handleChatSend(clientId, payload)
-          break
-        case 'chat.history':
-          await this.handleChatHistory(clientId, payload)
-          break
-        case 'chat.edit':
-          await this.handleChatEdit(clientId, payload)
-          break
-        case 'chat.delete':
-          await this.handleChatDelete(clientId, payload)
-          break
-        case 'chat.typing':
-          this.broadcastToRoom(client.currentRoomId!, {
-            msgId: uuidv4(),
-            roomId: client.currentRoomId!,
-            type: 'broadcast',
-            action: 'chat.typing_update',
-            payload: { userId: client.userId, username: client.nickname, typing: true },
-            timestamp: Date.now()
-          }, clientId)
-          break
-        default:
-          this.sendToClient(clientId, {
-            msgId: uuidv4(),
-            roomId: roomId || '',
-            type: 'api_response',
-            action: 'error',
-            payload: { error: `Unknown action: ${action}` },
-            timestamp: Date.now()
-          })
+      const handler = this.actionHandlers[action]
+      if (!handler) {
+        this.sendToClient(clientId, {
+          msgId: uuidv4(),
+          roomId: roomId || '',
+          type: 'api_response',
+          action: 'error',
+          payload: { error: `Unknown action: ${action}` },
+          timestamp: Date.now()
+        })
+        return
       }
+      await handler(clientId, message)
     } catch (err: any) {
       this.sendToClient(clientId, {
         msgId: uuidv4(),
-        roomId: roomId || '',
+        roomId: roomId || client.currentRoomId || '',
         type: 'api_response',
         action: 'error',
         payload: { code: err.code || 'INTERNAL_ERROR', message: err.message || 'Internal error' },
@@ -172,15 +152,15 @@ export class WebSocketGateway {
       this.leaveRoom(clientId, client.currentRoomId)
     }
 
-    // Check membership
-    const isMember = await roomService.isMember(roomId, client.userId)
-    if (!isMember) {
+    try {
+      await assertCanJoinRoom(roomId, client.userId)
+    } catch (err: any) {
       this.sendToClient(clientId, {
         msgId: uuidv4(),
         roomId,
         type: 'api_response',
         action: 'error',
-        payload: { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' },
+        payload: { code: err.code || 'NOT_ROOM_MEMBER', message: err.message || 'You are not a member of this room' },
         timestamp: Date.now()
       })
       return
@@ -239,108 +219,12 @@ export class WebSocketGateway {
     })
   }
 
-  private async handleChatSend(clientId: string, payload: any) {
-    const client = this.clients.get(clientId)
-    if (!client || !client.currentRoomId) return
-
-    const msg = await messageService.createMessage(
-      client.currentRoomId,
-      client.userId,
-      client.nickname,
-      client.role,
-      payload.content,
-      payload.mentions,
-      payload.reply_to
-    )
-
-    // Broadcast to all in room
-    this.broadcastToRoom(client.currentRoomId, {
-      msgId: msg.id,
-      roomId: client.currentRoomId,
-      type: 'broadcast',
-      action: 'chat.message',
-      payload: msg,
-      timestamp: Date.now()
-    })
-
-    notificationService.notifyMentions({
-      roomId: client.currentRoomId,
-      messageId: msg.id,
-      actorId: client.userId,
-      actorName: client.nickname,
-      content: payload.content,
-      mentions: payload.mentions,
-    })
-
-    const mentions = payload.mentions || []
-    const agentMentions = mentions.filter((m: any) => m?.role === 'ai' && m?.id)
-    if (client.role === 'human' && agentMentions.length > 0) {
-      void this.invokeMentionedAgents(client.currentRoomId, payload.content, mentions, 'mention', client.userId)
-    } else if (client.role === 'human') {
-      void this.maybeAutoInvokeAssistant(client.currentRoomId, client.nickname, payload.content, mentions, client.userId)
-    }
-  }
-
   private async maybeAutoInvokeAssistant(roomId: string, actorName: string, content: string, mentions: any[] = [], actorUserId?: string) {
     return this.agentInvocation.maybeAutoInvokeAssistant(roomId, actorName, content, mentions, actorUserId)
   }
 
   private async invokeMentionedAgents(roomId: string, content: string, mentions: any[], reason: InvokeReason = 'mention', actorUserId?: string) {
     return this.agentInvocation.invokeMentionedAgents(roomId, content, mentions, reason, actorUserId)
-  }
-
-  private async handleChatHistory(clientId: string, payload: any) {
-    const client = this.clients.get(clientId)
-    if (!client || !client.currentRoomId) return
-
-    const page = await messageService.getMessagesPage(
-      client.currentRoomId,
-      payload.limit || 100,
-      payload.before
-    )
-    const activeStreams = payload.before ? [] : agentStreamService.getActiveStreamMessages(client.currentRoomId)
-    const messages = [...page.messages, ...activeStreams].sort((a: any, b: any) => (a.createdAt || 0) - (b.createdAt || 0))
-
-    this.sendToClient(clientId, {
-      msgId: uuidv4(),
-      roomId: client.currentRoomId,
-      type: 'api_response',
-      action: 'chat.history_result',
-      payload: { messages, hasMore: page.hasMore, before: payload.before || null },
-      timestamp: Date.now()
-    })
-  }
-
-  private async handleChatEdit(clientId: string, payload: any) {
-    const client = this.clients.get(clientId)
-    if (!client || !client.currentRoomId) return
-
-    const msg = await messageService.updateMessageAsUser(payload.message_id, client.currentRoomId, { id: client.userId, role: client.userRole }, payload.content)
-
-    this.broadcastToRoom(client.currentRoomId, {
-      msgId: uuidv4(),
-      roomId: client.currentRoomId,
-      type: 'broadcast',
-      action: 'chat.edited',
-      payload: msg,
-      timestamp: Date.now()
-    })
-  }
-
-  private async handleChatDelete(clientId: string, payload: any) {
-    const client = this.clients.get(clientId)
-    if (!client || !client.currentRoomId) return
-
-    await messageService.deleteMessageAsUser(payload.message_id, client.currentRoomId, { id: client.userId, role: client.userRole })
-
-    this.broadcastToRoom(client.currentRoomId, {
-      msgId: uuidv4(),
-      roomId: client.currentRoomId,
-      type: 'broadcast',
-      action: 'chat.deleted',
-      payload: { message_id: payload.message_id },
-      timestamp: Date.now()
-    })
   }
 
   private sendOnlineMembers(clientId: string, roomId: string) {
@@ -439,13 +323,19 @@ export class WebSocketGateway {
   }
 
   handleUserMessageSideEffects(roomId: string, user: any, msg: any, content: string, mentions: any[] = []) {
-    notificationService.notifyMentions({ roomId, messageId: msg.id, actorId: user.id, actorName: user.nickname || user.username, content, mentions })
-    const agentMentions = mentions.filter((m: any) => m?.role === 'ai' && m?.id)
-    if ((user.role === 'user' || user.role === 'admin') && agentMentions.length > 0) {
-      void this.invokeMentionedAgents(roomId, content, mentions, 'mention', user.id)
-    } else if ((user.role === 'user' || user.role === 'admin')) {
-      void this.maybeAutoInvokeAssistant(roomId, user.nickname || user.username, content, mentions, user.id)
-    }
+    runUserMessageSideEffects(
+      {
+        maybeAutoInvokeAssistant: (targetRoomId, actorName, text, targetMentions, actorUserId) => this.maybeAutoInvokeAssistant(targetRoomId, actorName, text, targetMentions, actorUserId),
+        invokeMentionedAgents: (targetRoomId, text, targetMentions, reason, actorUserId) => this.invokeMentionedAgents(targetRoomId, text, targetMentions, reason, actorUserId),
+      },
+      roomId,
+      user.id,
+      user.nickname || user.username,
+      user.role,
+      msg.id,
+      content,
+      mentions,
+    )
   }
 
   invokeAgents(roomId: string, content: string, mentions: any[], reason: InvokeReason = 'mention', actorUserId?: string) {

@@ -8,6 +8,9 @@
 
 - `api-core.ts`：统一读取 auth token、设置 JSON/FormData header、记录 client log、解析错误响应。
 - `api.ts`：只保留业务 API 方法聚合，按 Auth/Rooms/Files/Tabs/Agents/Conversations 等注释分组。
+- 顶层路由使用 `React.lazy` + `Suspense` 按页面拆分 chunk，避免首页一次性加载 Room/Settings/Agent 配置等重页面。
+- Vite `manualChunks` 将 React、icons、state 等稳定依赖拆为独立 chunk，降低主 bundle 体积。
+- Room 页面将 @mention 过滤、插入和发送 mention 构造抽为 `room-mention-controller.ts`，页面组件保留组合和渲染职责。
 
 后续如果继续增长，可在保持 `api` 聚合导出的前提下，把 Rooms、Agents、Billing 等方法拆成 `api-*.ts`，最后由 `api.ts` 组合导出。权限判断仍以后端为准，前端 API 层不做安全边界。
 
