@@ -145,8 +145,12 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
   }
 
   useEffect(() => {
-    if (pendingAttachments.length === 0 && attachmentInputRef.current) attachmentInputRef.current.value = ''
-    if (pendingAttachments.length > 0) setShowAttachmentPanel(true)
+    if (pendingAttachments.length === 0) {
+      if (attachmentInputRef.current) attachmentInputRef.current.value = ''
+      setShowAttachmentPanel(false)
+      return
+    }
+    setShowAttachmentPanel(true)
   }, [pendingAttachments.length])
 
   return (
@@ -242,9 +246,9 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
           {filteredFiles.length > 0 && <><div className="px-3 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">文件</div>{filteredFiles.map((f) => <div key={f.path} className="px-3 py-2.5 min-h-11 hover:bg-blue-50 cursor-pointer text-sm flex items-center gap-2" onClick={() => insertMention(f, 'file')}><FileText className="w-5 h-5 text-gray-400" /><span className="flex-1 truncate">{f.name}</span><span className="text-xs text-gray-400 truncate max-w-[45%]">{f.path}</span></div>)}</>}
         </div>}
         {sendError && !wsNoticeDismissed && <div className="mb-2 flex items-center justify-between gap-2 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700"><span>{sendError.replace('正在重连...', '实时同步暂不可用，但消息可正常发送')}</span><button type="button" onClick={() => setWsNoticeDismissed(true)} className="text-amber-500 hover:text-amber-700" title="关闭"><X className="w-4 h-4" /></button></div>}
-        {showAttachmentPanel && <div className="mb-3 rounded-2xl border border-blue-100 bg-blue-50/80 p-2.5 shadow-sm">
+        {showAttachmentPanel && pendingAttachments.length > 0 && <div className="mb-3 rounded-2xl border border-blue-100 bg-blue-50/80 p-2.5 shadow-sm">
           <div className="mb-2 flex items-center justify-between gap-2 text-xs font-medium text-blue-700"><span>已选择 {pendingAttachments.length} 个附件</span><button type="button" onClick={() => setShowAttachmentPanel(false)} className="rounded-full p-1 text-blue-400 hover:bg-white hover:text-blue-700" aria-label="收起附件"><X className="h-4 w-4" /></button></div>
-          {pendingAttachments.length > 0 ? <div className="space-y-2">{pendingAttachments.map((file, index) => <div key={`${file.name}-${file.size}-${index}`} className="flex min-h-11 items-center gap-2 rounded-xl border border-blue-100 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm"><FileText className="h-5 w-5 shrink-0 text-blue-500" /><div className="min-w-0 flex-1"><div className="truncate font-medium text-gray-800" title={file.name}>{file.name}</div><div className="text-xs text-gray-400">{formatFileSize(file.size)}</div></div><button type="button" onClick={() => onRemoveAttachment?.(index)} className="fc-pressable rounded-full p-1 text-gray-400 hover:bg-red-50 hover:text-red-500" aria-label={`移除 ${file.name}`}><X className="h-4 w-4" /></button></div>)}</div> : <div className="rounded-xl bg-white px-3 py-2 text-xs text-gray-400">还没有选择附件</div>}
+          <div className="space-y-2">{pendingAttachments.map((file, index) => <div key={`${file.name}-${file.size}-${index}`} className="flex min-h-11 items-center gap-2 rounded-xl border border-blue-100 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm"><FileText className="h-5 w-5 shrink-0 text-blue-500" /><div className="min-w-0 flex-1"><div className="truncate font-medium text-gray-800" title={file.name}>{file.name}</div><div className="text-xs text-gray-400">{formatFileSize(file.size)}</div></div><button type="button" onClick={() => onRemoveAttachment?.(index)} className="fc-pressable rounded-full p-1 text-gray-400 hover:bg-red-50 hover:text-red-500" aria-label={`移除 ${file.name}`}><X className="h-4 w-4" /></button></div>)}</div>
         </div>}
         <div className="flex gap-2 items-center rounded-2xl bg-gray-50 border border-gray-200 p-1.5 shadow-inner focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-300 transition-all">
           <button type="button" onClick={() => attachmentInputRef.current?.click()} onContextMenu={(e) => { e.preventDefault(); setShowAttachmentPanel((value) => !value) }} className={`fc-pressable fc-mobile-touch relative inline-flex min-w-11 shrink-0 items-center justify-center rounded-xl px-2.5 py-2 transition-colors ${pendingAttachments.length > 0 ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-white hover:text-blue-600'}`} title="添加附件" aria-label="添加附件"><Paperclip className="h-5 w-5" />{pendingAttachments.length > 0 && <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-blue-600 px-1 text-[10px] leading-4 text-white">{pendingAttachments.length}</span>}</button>
