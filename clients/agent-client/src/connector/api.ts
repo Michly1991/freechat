@@ -119,9 +119,9 @@ export async function getAgentKnowledge(cfg: ClientConfig, agent: AgentCredentia
 }
 
 export function agentTool(cfg: ClientConfig, agent: AgentCredential, roomId: string, action: string, args: any) {
-  return request(cfg.serverUrl, `/api/agent-tools/${encodeURIComponent(roomId)}`, {
+  return request(cfg.serverUrl, '/api/remote-agents/app-call', {
     method: 'POST',
-    body: JSON.stringify({ action, args }),
+    body: JSON.stringify({ roomId, runId: (args && args.runId) || undefined, actorUserId: (args && args.actorUserId) || undefined, action, args }),
   }, authToken(agent))
 }
 

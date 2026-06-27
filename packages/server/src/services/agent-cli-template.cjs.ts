@@ -5,6 +5,8 @@ const path = require('path');
 const API_URL = __FREECHAT_API_URL__;
 const ROOM_ID = __FREECHAT_ROOM_ID__;
 const TOKEN = __FREECHAT_TOKEN__;
+let RUN_CONTEXT = {};
+try { RUN_CONTEXT = JSON.parse(fs.readFileSync(path.join(process.cwd(), '.freechat', 'run.json'), 'utf8')); } catch {}
 
 function usage() {
   console.log([
@@ -116,10 +118,10 @@ function parseNamedOptions(items) {
 }
 
 async function call(action, args = {}) {
-  const res = await fetch(API_URL + '/api/agent-tools/' + ROOM_ID, {
+  const res = await fetch(API_URL + '/api/remote-agents/app-call', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
-    body: JSON.stringify({ action, args })
+    body: JSON.stringify({ roomId: ROOM_ID, runId: RUN_CONTEXT.runId, actorUserId: RUN_CONTEXT.actorUserId, action, args })
   });
   const text = await res.text();
   let data;
@@ -132,10 +134,10 @@ async function call(action, args = {}) {
 }
 
 async function callValue(action, args = {}) {
-  const res = await fetch(API_URL + '/api/agent-tools/' + ROOM_ID, {
+  const res = await fetch(API_URL + '/api/remote-agents/app-call', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
-    body: JSON.stringify({ action, args })
+    body: JSON.stringify({ roomId: ROOM_ID, runId: RUN_CONTEXT.runId, actorUserId: RUN_CONTEXT.actorUserId, action, args })
   });
   const text = await res.text();
   let data;

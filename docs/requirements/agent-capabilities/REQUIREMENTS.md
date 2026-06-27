@@ -29,3 +29,4 @@
 - 普通最终回复可以由 Agent Client 自动发送；但如果 Agent 已调用 `./freechat chat send` 或 `./freechat room handoff` 等会产生用户可见消息/转接的工具，最终 stdout 只能是简短摘要，不能重复完整回复。
 - `final_to_chat` 运行中，“我先查询/正在执行/让我看看”等中间进展不应被当成最终回复自动发送。
 - 长驻 Agent Client 应使用原始 connector token 调用远端 heartbeat/events/runtime/complete/fail/tool 接口；短期 access JWT 只作为便捷访问令牌，不能成为长期绑定失效的单点。
+- 远程 Agent 可选择两种接入方式：使用服务端下发的 `./freechat` CLI，或直接调用 Remote Agent HTTP API。两者必须走同一套 `/api/remote-agents/app-call` 授权、审计和权限兜底。

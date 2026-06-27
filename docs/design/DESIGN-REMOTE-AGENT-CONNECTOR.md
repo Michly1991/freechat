@@ -291,3 +291,39 @@ GET /api/managed-agent-rooms?limit=50
 - Agent 被唤起时，Server 只创建 `agent_runs` 和 `remote_agent_events`，等待已绑定的 Agent Client 拉取并执行。
 - Claude Code、模型配置、本地工具和 Agent 知识库均由 Agent Client 所在机器维护。
 - 没有在线 Client 的 Agent 可以被加入房间，但运行事件会保持排队，直到 Client 绑定/上线后处理。
+
+### 跨服务器 Remote App Action HTTP 网关
+
+跨服务器 Agent 不能假设本机 CLI 能直接访问 FreeChat 进程或本地文件。`./freechat` 只是一层 HTTP wrapper，正式接入点是 Remote Agent HTTP API。
+
+新增统一网关：
+
+```http
+POST /api/remote-agents/app-call
+Authorization: Bearer <connector credential>
+Content-Type: application/json
+
+{
+  "roomId": "room_xxx",
+  "runId": "arun_xxx",
+  "action": "file.write",
+  "args": { "path": "docs/result.md", "content": "..." }
+}
+```
+
+能力发现：
+
+```http
+GET /api/remote-agents/actions?category=file
+GET /api/remote-agents/actions/:action
+```
+
+语义：
+
+- connector credential 只证明“这是该 Agent 的远程执行器”，不是用户身份。
+- `runId` 用于把本次工具调用归属到服务端已创建的 Agent run，并优先恢复该 run 的 `actor_user_id`。
+- 没有 `runId` 或 run 没有 actor 时，才退回 connector owner。
+- 房间级动作必须提供或能从 run 推导出 `roomId`，服务端仍校验该 Agent 在房间内、tool permission、actor 的房间/资源权限。
+- `POST /api/agent-tools/:roomId` 继续作为兼容入口；官方 Agent Client 和动态下发的 CLI 默认改用 `/api/remote-agents/app-call`。
+
+第三方 Agent 可以不下载 CLI，直接使用 HTTP 协议完成：拉事件、调用 app-call 写消息/任务/文件/知识库、最后 complete/fail。

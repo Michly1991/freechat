@@ -15,7 +15,7 @@ function materializeCliTemplate(template: string, cfg: ClientConfig, agent: Agen
   return template
     .replaceAll('__FREECHAT_API_URL__', cfg.serverUrl)
     .replaceAll('__FREECHAT_ROOM_ID__', event.roomId)
-    .replaceAll('__FREECHAT_TOKEN__', agent.accessToken)
+    .replaceAll('__FREECHAT_TOKEN__', agent.connectorToken || agent.accessToken)
 }
 
 function writeKnowledgeFiles(targetDir: string, knowledge?: AgentKnowledgePayload) {
@@ -37,10 +37,11 @@ export function writeRunContext(cfg: ClientConfig, agent: AgentCredential, event
   mkdirSync(freechatDir, { recursive: true })
   writeFileSync(join(freechatDir, 'run.json'), JSON.stringify({
     serverUrl: cfg.serverUrl,
-    token: agent.accessToken,
+    token: agent.connectorToken || agent.accessToken,
     roomId: event.roomId,
     agentId: event.agentId,
     runId: event.runId,
+    actorUserId: event.payload.actorUserId,
     runtimeSpecVersion: spec.version,
     runtimeSpecChecksum: spec.checksum,
   }, null, 2))

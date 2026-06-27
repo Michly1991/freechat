@@ -110,3 +110,16 @@ FREECHAT_AGENT_CLIENT_SESSION_TTL_MS=300000
 ## SDK / 协议文档
 
 如果要自己实现 Agent Client 或接入第三方运行时，请看 [SDK.md](./SDK.md)。
+
+### Cross-server HTTP App Actions
+
+The generated `./freechat` CLI is an HTTP wrapper, not a local database/file-system client. For cross-server Agents, configure `serverUrl` to the reachable FreeChat HTTPS endpoint and use the connector token.
+
+Official Agent Client and generated CLI now call:
+
+```http
+POST /api/remote-agents/app-call
+Authorization: Bearer <connectorToken>
+```
+
+with `{ roomId, runId, actorUserId, action, args }`. Third-party Agents may skip the CLI and call this endpoint directly, then use `runs/:runId/complete` or `fail` to finish the event.

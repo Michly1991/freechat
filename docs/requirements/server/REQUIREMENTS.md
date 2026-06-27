@@ -94,3 +94,5 @@
 - 小蜜与当前用户同权：小蜜代操作必须以 actorUserId 为唯一权限主体；用户在界面上有权限做的，小蜜可以代做；用户无权做的，小蜜也无权做。小蜜不能使用系统 owner、内置 Agent owner 或房间创建人作为越权主体。
 - 小蜜不应被小蜜私聊房间错误降权：用户级能力（通讯录 Agent、Agent 知识库、账单、模型配置等）按 actorUserId 判断；项目/房间级能力可传目标 roomId，服务端必须校验 actorUserId 是目标房间成员并具备相应角色。
 - 私聊房间不可原地扩容：`direct_user` / `direct_agent` 添加真人成员或 Agent 时，服务端必须新建 group 房间，保留原私聊不变；新房间记录 `source_room_id`。
+- 跨服务器 Agent 必须有正式 HTTP 接入，不得只依赖本机 CLI。`/api/remote-agents/app-call` 是远程 Agent 调用界面级/房间级 App Action 的统一网关；CLI 只是该 HTTP API 的包装器。
+- Remote connector 是 Agent 执行凭证，不是用户身份；服务端应通过 runId 恢复 actor_user_id，并继续执行 room/Agent/knowledge/billing/file/task 等服务端权限校验。

@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify'
 import { remoteAgentConnectorService } from '../services/remote-agent-connector.service.js'
 import { agentRuntimeSpecService } from '../services/agent-runtime-spec.service.js'
 import { agentKnowledgeService } from '../services/agent-knowledge.service.js'
+import { executeRemoteAppCall, remoteToolErrorStatus } from './remote-agent-app-call.js'
 
 async function requireConnector(request: any, reply: any) {
   const auth = await remoteAgentConnectorService.authenticateBearer(request.headers.authorization)
@@ -43,6 +44,37 @@ export async function registerRemoteAgentRoutes(app: FastifyInstance) {
     const auth = await requireConnector(request, reply)
     if (!auth) return
     return { success: true, data: agentRuntimeSpecService.getSpec() }
+  })
+
+  app.post('/api/remote-agents/app-call', async (request, reply) => {
+    const auth = await requireConnector(request, reply)
+    if (!auth) return
+    try {
+      return await executeRemoteAppCall(auth, request.body || {})
+    } catch (err: any) {
+      return reply.code(remoteToolErrorStatus(err)).send({ success: false, error: { code: err?.code || 'INTERNAL_ERROR', message: err?.message || String(err) } })
+    }
+  })
+
+  app.get('/api/remote-agents/actions', async (request, reply) => {
+    const auth = await requireConnector(request, reply)
+    if (!auth) return
+    try {
+      return await executeRemoteAppCall(auth, { action: 'tool.list', args: request.query || {} })
+    } catch (err: any) {
+      return reply.code(remoteToolErrorStatus(err)).send({ success: false, error: { code: err?.code || 'INTERNAL_ERROR', message: err?.message || String(err) } })
+    }
+  })
+
+  app.get('/api/remote-agents/actions/:action', async (request, reply) => {
+    const auth = await requireConnector(request, reply)
+    if (!auth) return
+    const { action } = request.params as any
+    try {
+      return await executeRemoteAppCall(auth, { action: 'tool.schema', args: { action } })
+    } catch (err: any) {
+      return reply.code(remoteToolErrorStatus(err)).send({ success: false, error: { code: err?.code || 'INTERNAL_ERROR', message: err?.message || String(err) } })
+    }
   })
 
   app.get('/api/remote-agents/knowledge', async (request, reply) => {
