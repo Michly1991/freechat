@@ -43,7 +43,7 @@ function IdentityBadge({ identityType, compact = false }: { identityType?: strin
   return <span className={`inline-flex shrink-0 rounded-full px-1.5 py-0.5 ${compact ? 'text-[10px]' : 'text-[11px]'} font-medium ${isAgent ? 'bg-violet-50 text-violet-600' : 'bg-gray-100 text-gray-500'}`}>{isAgent ? 'Agent' : '真人'}</span>
 }
 
-function AddContactMembers({ roomId, members, feedback, onMembersChanged, compact = false, canEditRoom = true }: any) {
+function AddContactMembers({ roomId, room, members, feedback, onMembersChanged, compact = false, canEditRoom = true }: any) {
   const [open, setOpen] = useState(false)
   const [friends, setFriends] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -58,9 +58,14 @@ function AddContactMembers({ roomId, members, feedback, onMembersChanged, compac
     if (!canEditRoom) { feedback?.warning?.('你没有权限添加成员'); return }
     if (!roomId) return
     try {
-      await api.addRoomMember(roomId, userId, 'editor')
-      feedback?.success?.('通讯录成员已添加到群聊')
-      onMembersChanged?.()
+      const result: any = await api.addRoomMember(roomId, userId, 'editor')
+      if (result?.createdRoom && result?.room?.id) {
+        feedback?.success?.('已新建群聊，原私聊保持不变')
+        onMembersChanged?.(result.room)
+      } else {
+        feedback?.success?.('通讯录成员已添加到群聊')
+        onMembersChanged?.()
+      }
       setFriends((items) => [...items])
     } catch (err: any) {
       feedback?.error?.(err?.message || '添加成员失败')
@@ -90,7 +95,7 @@ function AddContactMembers({ roomId, members, feedback, onMembersChanged, compac
   </div>
 }
 
-function AddAvailableAgents({ roomId, roomAgents, feedback, onMembersChanged, compact = false, canEditRoom = true }: any) {
+function AddAvailableAgents({ roomId, room, roomAgents, feedback, onMembersChanged, compact = false, canEditRoom = true }: any) {
   const [open, setOpen] = useState(false)
   const [agents, setAgents] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -105,9 +110,14 @@ function AddAvailableAgents({ roomId, roomAgents, feedback, onMembersChanged, co
     if (!canEditRoom) { feedback?.warning?.('你没有权限添加 Agent'); return }
     if (!roomId) return
     try {
-      await api.addRoomAgent(roomId, agent.id, { roomRole: asAssistant ? 'assistant' : 'specialist', autoEnabled: asAssistant })
-      feedback?.success?.('Agent 已添加到群聊')
-      onMembersChanged?.()
+      const result: any = await api.addRoomAgent(roomId, agent.id, { roomRole: asAssistant ? 'assistant' : 'specialist', autoEnabled: asAssistant })
+      if (result?.createdRoom && result?.room?.id) {
+        feedback?.success?.('已新建群聊，原私聊保持不变')
+        onMembersChanged?.(result.room)
+      } else {
+        feedback?.success?.('Agent 已添加到群聊')
+        onMembersChanged?.()
+      }
       const data = await api.getAgents()
       setAgents((data.agents || []).filter((item: any) => item.canUse))
     } catch (err: any) {
@@ -177,8 +187,8 @@ export function DesktopMembersPanel({ showMembers, setShowMembers, members, room
       <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center justify-between">房间成员<span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{members.length}</span></h3>
       {admins.length > 0 && <p className="mb-2 flex items-center gap-1.5 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700"><Crown className="w-3.5 h-3.5" />管理员：{admins.map(getMemberDisplayName).join('、')}</p>}
       {payer && <p className="mb-4 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">模型付费人 / 可指挥 Agent：{getMemberDisplayName(payer)}</p>}
-      <AddContactMembers roomId={roomId} members={members} feedback={feedback} onMembersChanged={onMembersChanged} canEditRoom={canEditRoom} />
-      <AddAvailableAgents roomId={roomId} roomAgents={roomAgents} feedback={feedback} onMembersChanged={onMembersChanged} canEditRoom={canEditRoom} />
+      <AddContactMembers roomId={roomId} room={room} members={members} feedback={feedback} onMembersChanged={onMembersChanged} canEditRoom={canEditRoom} />
+      <AddAvailableAgents roomId={roomId} room={room} roomAgents={roomAgents} feedback={feedback} onMembersChanged={onMembersChanged} canEditRoom={canEditRoom} />
       <div className="space-y-1">{orderedMembers.map((member: any) => <MemberListItem key={member.id || member.userId} member={member} room={room} openMemberProfile={openMemberProfile} />)}</div>
       {roomAgents.length > 0 && <><h3 className="text-sm font-semibold text-gray-700 mt-6 mb-4 flex items-center justify-between">AI Agents<span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{roomAgents.length}</span></h3><div className="space-y-1">{roomAgents.map((agent: any) => <AgentRow key={agent.id} agent={agent} room={room} openMemberProfile={openMemberProfile} restartAgent={canEditRoom ? restartAgent : undefined} openModelConfig={canEditRoom ? openModelConfig : undefined} removeAgent={canEditRoom ? removeAgent : undefined} handoffAgent={canEditRoom ? handoffAgent : undefined} />)}</div></>}
     </div>
@@ -206,8 +216,8 @@ export function MobileMembersDrawer({ showMobileMembers, setShowMobileMembers, m
       <div className="p-4 space-y-2">
         {admins.length > 0 && <p className="flex items-center gap-1.5 rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700"><Crown className="w-4 h-4" />管理员：{admins.map(getMemberDisplayName).join('、')}</p>}
         {payer && <p className="rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700">模型付费人 / 可指挥 Agent：{getMemberDisplayName(payer)}</p>}
-        <AddContactMembers roomId={roomId} members={members} feedback={feedback} onMembersChanged={onMembersChanged} compact canEditRoom={canEditRoom} />
-        <AddAvailableAgents roomId={roomId} roomAgents={roomAgents} feedback={feedback} onMembersChanged={onMembersChanged} compact canEditRoom={canEditRoom} />
+        <AddContactMembers roomId={roomId} room={room} members={members} feedback={feedback} onMembersChanged={onMembersChanged} compact canEditRoom={canEditRoom} />
+        <AddAvailableAgents roomId={roomId} room={room} roomAgents={roomAgents} feedback={feedback} onMembersChanged={onMembersChanged} compact canEditRoom={canEditRoom} />
         <h4 className="px-1 text-xs font-semibold text-gray-500 uppercase tracking-wide">在线成员</h4>
         {orderedMembers.map((member: any) => <MemberListItem key={member.id || member.userId} member={member} room={room} openMemberProfile={openMemberProfile} mobile />)}
         {roomAgents.length > 0 && <><h4 className="px-1 pt-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">AI Agents</h4>{roomAgents.map((agent: any) => <AgentRow key={agent.id} agent={agent} room={room} openMemberProfile={openMemberProfile} restartAgent={canEditRoom ? restartAgent : undefined} openModelConfig={canEditRoom ? openModelConfig : undefined} removeAgent={canEditRoom ? removeAgent : undefined} handoffAgent={canEditRoom ? handoffAgent : undefined} mobile />)}</>}

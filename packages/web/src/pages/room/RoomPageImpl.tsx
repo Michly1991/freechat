@@ -381,7 +381,7 @@ export function RoomPageImpl() {
           room={room}
           user={user}
           feedback={feedback}
-          onMembersChanged={loadRoom}
+          onMembersChanged={(createdRoom?: any) => createdRoom?.id ? navigate(`/rooms/${createdRoom.id}`) : loadRoom()}
         />
       </div>
       <MobileMembersDrawer
@@ -396,7 +396,7 @@ export function RoomPageImpl() {
         room={room}
         user={user}
         feedback={feedback}
-        onMembersChanged={loadRoom}
+        onMembersChanged={(createdRoom?: any) => createdRoom?.id ? navigate(`/rooms/${createdRoom.id}`) : loadRoom()}
       />
       <ProfileModal
         selectedProfile={selectedProfile}

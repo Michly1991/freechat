@@ -50,7 +50,7 @@ import { agentService } from './services/agent.service.js'
 import { systemAdminService } from './services/system-admin.service.js'
 import { builtInAgentBootstrapService } from './services/built-in-agent-bootstrap.service.js'
 
-async function buildApp() {
+export async function buildApp() {
   const app = Fastify({
     logger: {
       transport: {

@@ -44,6 +44,49 @@ app.post('/api/rooms/:roomId/agents', async (request, reply) => {
   }
 
   try {
+    const room = await roomService.getRoom(roomId) as any
+    const isDirectRoom = room.roomKind === 'direct_user' || room.roomKind === 'direct_agent'
+    if (isDirectRoom) {
+      if (!canCommandRoomAgent(roomId, user.id)) {
+        return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Only project owner/editor can add agents' } })
+      }
+      if (!await agentService.canUseAgent(agentId, user.id)) {
+        return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: '请先在市场关注/购买该 Agent，或选择自己创建的 Agent' } })
+      }
+      const members = await roomService.getRoomMembers(roomId)
+      const roomAgents = await agentService.getRoomAgents(roomId)
+      const target = await agentService.getAgent(agentId)
+      const name = `${room.name || '私聊'}、${target.name}`
+      const clone = await roomService.createRoom(name, `由私聊「${room.name}」添加 Agent 后新建的群聊；原私聊保持不变。`, user.id, members.map((m: any) => m.userId).filter((id: string) => id !== user.id), [], {
+        skipDefaultAssistant: true,
+        roomKind: 'group',
+        workgroupId: room.workgroupId,
+        sourceRoomId: roomId,
+        syncInitialMembersToWorkgroup: false,
+      } as any)
+      for (const existing of roomAgents) {
+        await agentService.addAgentToRoom(clone.id, existing.sourceTemplateId || existing.id, user.id, {
+          roomRole: existing.roomRole === 'assistant' ? 'assistant' : 'specialist',
+          autoEnabled: existing.autoEnabled === true,
+          priority: Number(existing.roomPriority || 0),
+        }).catch(async () => {
+          await agentService.addAgentToRoom(clone.id, existing.id, user.id, {
+            roomRole: existing.roomRole === 'assistant' ? 'assistant' : 'specialist',
+            autoEnabled: existing.autoEnabled === true,
+            priority: Number(existing.roomPriority || 0),
+          })
+        })
+      }
+      await agentService.addAgentToRoom(clone.id, agentId, user.id, {
+        roomRole: roomRole === 'assistant' ? 'assistant' : 'specialist',
+        autoEnabled: autoEnabled === true,
+        priority: Number(priority || roomAgents.length + 1),
+        confirmedPurchase: confirmedPurchase === true,
+      })
+      await agentService.refreshRoomAgentContext(clone.id).catch(() => {})
+      return reply.send({ success: true, data: { room: await roomService.getRoom(clone.id), agent: target, createdRoom: true, sourceRoom: room } })
+    }
+
     const canEdit = await agentService.canEditRoomAgents(roomId, user.id)
     if (!canEdit) {
       return reply.code(403).send({
