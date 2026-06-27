@@ -128,7 +128,7 @@ export class RoomFileService {
     return { folders, files: (files as any[]).map(rowToFile) }
   }
 
-  private upsertFileRecord(input: { roomId: string; folderId: string; name: string; rel: string; storagePath: string; mimeType?: string; size: number; source: string; sourceFileId?: string; messageId?: string; uploadedBy?: string }): RoomFileRecord {
+  upsertFileRecord(input: { roomId: string; folderId: string; name: string; rel: string; storagePath: string; mimeType?: string; size: number; source: string; sourceFileId?: string; messageId?: string; uploadedBy?: string }): RoomFileRecord {
     const id = `file_${uuidv4()}`
     const now = Date.now()
     db.prepare(`

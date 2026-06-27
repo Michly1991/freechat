@@ -28,6 +28,7 @@ const TOOL_NAMES = [
   'task.list', 'task.create', 'task.update', 'task.progress', 'task.delete', 'task.retry', 'task.plan.create',
   'task.subtask.list', 'task.subtask.add', 'task.subtask.update', 'task.subtask.delete', 'task.subtask.retry',
   'file.list', 'file.read', 'file.info', 'file.write', 'file.mkdir', 'file.delete',
+  'pdf.read', 'excel.read', 'excel.write', 'word.read', 'word.write', 'ppt.read', 'ppt.write', 'image.read',
   'tab-config.list', 'tab-config.add-file', 'tab-config.remove-file',
   'tab.list', 'tab.get', 'tab.search', 'tab.create', 'tab.create-from-file', 'tab.update', 'tab.patch', 'tab.delete', 'tab.reorder', 'tab.set-default', 'tab.open', 'tab.action',
   'members.list', 'members.add', 'profiles.list', 'profiles.update', 'users.get', 'users.search',

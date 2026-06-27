@@ -96,3 +96,10 @@
 - 私聊房间不可原地扩容：`direct_user` / `direct_agent` 添加真人成员或 Agent 时，服务端必须新建 group 房间，保留原私聊不变；新房间记录 `source_room_id`。
 - 跨服务器 Agent 必须有正式 HTTP 接入，不得只依赖本机 CLI。`/api/remote-agents/app-call` 是远程 Agent 调用界面级/房间级 App Action 的统一网关；CLI 只是该 HTTP API 的包装器。
 - Remote connector 是 Agent 执行凭证，不是用户身份；服务端应通过 runId 恢复 actor_user_id，并继续执行 room/Agent/knowledge/billing/file/task 等服务端权限校验。
+
+## Office / 图片附件能力
+
+- 小蜜/Agent 读取 PDF、Excel、Word、PPT、图片必须走服务端 App Action，不得直接拼服务器路径或绕过权限。
+- `pdf.read`、`excel.read/write`、`word.read/write`、`ppt.read/write`、`image.read` 必须按 `actorUserId + roomId` 校验房间成员身份。
+- Office 写入默认生成新文件写回当前房间文件区，不直接覆盖原文件。
+- 图片读取使用当前 Agent 生效模型的视觉能力；如果模型/provider 不支持视觉，应返回明确错误，不能假装已看图。

@@ -5,6 +5,19 @@ import { agentModelConfigService } from './agent-model-config.service.js'
 
 export type ModelSource = 'platform' | 'user_owned' | 'marketplace' | 'client_reported' | 'system_default'
 
+
+export type VisionModelContent = { type: 'text'; text: string } | { type: 'image'; mediaType: string; data: string }
+
+export interface VisionCallInput {
+  roomId: string
+  agentId: string
+  payerUserId?: string | null
+  content: VisionModelContent[]
+  system?: string
+  maxTokens?: number
+  model?: string
+}
+
 export type ResolvedModelRuntime = {
   modelProfileId: string | null
   model: string
@@ -69,6 +82,61 @@ export class ModelRuntimeService {
       baseUrlHost: hostOf(platformProfile?.base_url || provider?.baseUrl),
       isSelfProvidedModel: false,
     }
+  }
+
+
+  private async callAnthropicCompatibleVision(input: { baseUrl: string; apiKey: string; apiKeyHeader?: string; authType?: string; model?: string; content: VisionModelContent[]; maxTokens?: number; system?: string }): Promise<AICallResult> {
+    const url = `${input.baseUrl.replace(/\/$/, '')}/v1/messages`
+    const headers: Record<string, string> = { 'content-type': 'application/json', 'anthropic-version': '2023-06-01' }
+    if (input.authType === 'bearer') headers.authorization = `Bearer ${input.apiKey}`
+    else headers[input.apiKeyHeader || 'x-api-key'] = input.apiKey
+    const model = input.model || 'qwen-vl-max'
+    const content = input.content.map((item) => item.type === 'image'
+      ? { type: 'image', source: { type: 'base64', media_type: item.mediaType, data: item.data } }
+      : { type: 'text', text: item.text })
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ model, max_tokens: input.maxTokens || 1024, messages: [{ role: 'user', content }], ...(input.system && { system: input.system }) }),
+    })
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({})) as any
+      throw new Error(`AI vision API error: ${err.message || err.code || response.statusText}`)
+    }
+    const data = await response.json() as any
+    const usage = (data.usage || {}) as any
+    return {
+      text: data.content?.map((part: any) => part?.text || '').filter(Boolean).join('\n') || '',
+      model: data.model || model,
+      usage: {
+        inputTokens: Number(usage.input_tokens || usage.prompt_tokens || 0),
+        outputTokens: Number(usage.output_tokens || usage.completion_tokens || 0),
+        cacheCreationInputTokens: Number(usage.cache_creation_input_tokens || 0),
+        cacheReadInputTokens: Number(usage.cache_read_input_tokens || 0),
+        totalTokens: Number(usage.input_tokens || usage.prompt_tokens || 0) + Number(usage.output_tokens || usage.completion_tokens || 0) + Number(usage.cache_creation_input_tokens || 0) + Number(usage.cache_read_input_tokens || 0),
+      },
+    }
+  }
+
+  async callRoomAgentVision(input: VisionCallInput): Promise<AICallResult & ResolvedModelRuntime> {
+    const resolved = this.resolveRoomAgentModel(input.roomId, input.agentId, input.payerUserId)
+    if (resolved.modelProfileId) {
+      const profile = db.prepare('SELECT * FROM model_profiles WHERE id = ? AND enabled = 1').get(resolved.modelProfileId) as ModelProfileRow | undefined
+      if (profile?.base_url && profile.api_key_cipher) {
+        const apiKey = decryptSecret(profile.api_key_cipher)
+        const authType = profile.provider_type === 'bearer' ? 'bearer' : 'header'
+        const apiKeyHeader = authType === 'bearer' ? undefined : profile.provider_type === 'anthropic-compatible' ? 'x-api-key' : profile.provider_type || 'x-api-key'
+        const result = await this.callAnthropicCompatibleVision({ baseUrl: profile.base_url, apiKey: apiKey || '', apiKeyHeader, authType, model: input.model || resolved.model || profile.default_model || undefined, content: input.content, maxTokens: input.maxTokens, system: input.system })
+        return { ...result, ...resolved, model: result.model || resolved.model }
+      }
+    }
+    const aiConfig = aiConfigService.getConfig()
+    const providerKey = aiConfig.currentProvider
+    const provider = providerKey ? aiConfig.providers?.[providerKey] : null
+    const apiKey = aiConfigService.getApiKey(providerKey || '')
+    if (!provider || !apiKey) throw new Error('AI provider not configured')
+    const result = await this.callAnthropicCompatibleVision({ baseUrl: provider.baseUrl, apiKey, apiKeyHeader: provider.apiKeyHeader, authType: provider.authType, model: input.model || resolved.model || provider.defaultModel, content: input.content, maxTokens: input.maxTokens, system: input.system })
+    return { ...result, ...resolved, model: result.model || resolved.model }
   }
 
   async callRoomAgentModel(roomId: string, agentId: string, payerUserId: string | null | undefined, prompt: string, options?: { model?: string; maxTokens?: number; system?: string }): Promise<AICallResult & ResolvedModelRuntime> {

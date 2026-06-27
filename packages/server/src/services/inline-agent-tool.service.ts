@@ -119,6 +119,23 @@ function formatToolResult(action: string, result: any) {
     if (!file) return '没有查到该文件。'
     return [`文件：${file.name || file.path}`, `引用：${file.ref || file.id || file.path}`, `路径：${file.path || ''}`, `类型：${file.mimeType || 'unknown'}`, `大小：${file.size || 0} bytes`, result?.data?.hint || ''].filter(Boolean).join('\n')
   }
+  if (['pdf.read', 'excel.read', 'word.read', 'ppt.read'].includes(action)) {
+    const data = result?.data || result
+    const file = data?.file
+    const body = data?.csv || data?.text || JSON.stringify(data?.rows || data?.slides || data, null, 2)
+    const header = file ? `文件：${file.name || file.path}（${file.ref || file.path}）` : `工具结果：${action}`
+    const tail = data?.truncated ? `\n\n[内容已截断，totalChars=${data.totalChars}]` : ''
+    return `${header}\n${String(body || '')}${tail}`.slice(0, 12000)
+  }
+  if (['excel.write', 'word.write', 'ppt.write'].includes(action)) {
+    const file = result?.data?.file || result?.file
+    return file ? `已生成文件：${file.name || file.relativePath || file.path}（${file.ref || file.id}）` : '文件已生成。'
+  }
+  if (action === 'image.read') {
+    const data = result?.data || result
+    const file = data?.file
+    return [`图片：${file?.name || file?.path || ''}`, data?.text || ''].filter(Boolean).join('\n').slice(0, 12000)
+  }
   return JSON.stringify(result?.data ?? result, null, 2).slice(0, 3000)
 }
 

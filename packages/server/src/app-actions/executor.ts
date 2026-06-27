@@ -14,6 +14,7 @@ import { getAppAction, listAppActions } from './registry.js'
 import { roomFileService } from '../services/room-file.service.js'
 import { config } from '../config.js'
 import { assertRoomMember } from '../utils/room-authz.js'
+import { officeDocumentService } from '../services/office-document.service.js'
 
 export interface AppActionContext {
   roomId: string
@@ -235,6 +236,32 @@ export async function executeAppAction(ctx: AppActionContext, action: string, ar
       const ref = String(args.ref || args.fileId || args.path || '')
       if (!ref) throw { code: 'VALIDATION_ERROR', message: 'file ref/path is required' }
       return { handled: true, response: { success: true, data: await readRoomTextFile(scopeRoomId, ref, args) } }
+    }
+    case 'pdf.read':
+    case 'excel.read':
+    case 'word.read':
+    case 'ppt.read': {
+      const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
+      assertRoomMember(scopeRoomId, ctx.actorUserId)
+      const ref = String(args.ref || args.fileId || args.path || '')
+      if (!ref) throw { code: 'VALIDATION_ERROR', message: 'file ref/path is required' }
+      const kind = action.split('.')[0] as any
+      return { handled: true, response: { success: true, data: await officeDocumentService.read(kind, scopeRoomId, ref, args) } }
+    }
+    case 'excel.write':
+    case 'word.write':
+    case 'ppt.write': {
+      const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
+      assertRoomMember(scopeRoomId, ctx.actorUserId)
+      const kind = action.split('.')[0] as any
+      return { handled: true, response: { success: true, data: await officeDocumentService.write(kind, scopeRoomId, ctx.actorUserId, args) } }
+    }
+    case 'image.read': {
+      const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
+      assertRoomMember(scopeRoomId, ctx.actorUserId)
+      const ref = String(args.ref || args.fileId || args.path || '')
+      if (!ref) throw { code: 'VALIDATION_ERROR', message: 'file ref/path is required' }
+      return { handled: true, response: { success: true, data: await officeDocumentService.readImage(scopeRoomId, ctx.agentId, ctx.actorUserId, ref, args) } }
     }
     default:
       return { handled: false }

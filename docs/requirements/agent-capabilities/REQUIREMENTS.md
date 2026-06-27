@@ -30,3 +30,9 @@
 - `final_to_chat` 运行中，“我先查询/正在执行/让我看看”等中间进展不应被当成最终回复自动发送。
 - 长驻 Agent Client 应使用原始 connector token 调用远端 heartbeat/events/runtime/complete/fail/tool 接口；短期 access JWT 只作为便捷访问令牌，不能成为长期绑定失效的单点。
 - 远程 Agent 可选择两种接入方式：使用服务端下发的 `./freechat` CLI，或直接调用 Remote Agent HTTP API。两者必须走同一套 `/api/remote-agents/app-call` 授权、审计和权限兜底。
+
+## Office / 图片 Skill
+
+- Agent 遇到 `file:<fileId>` 附件时应按文件类型调用专用工具：PDF 用 `pdf.read`，Excel 用 `excel.read/excel.write`，Word 用 `word.read/word.write`，PPT 用 `ppt.read/ppt.write`，图片用 `image.read`，普通文本用 `file.read`。
+- 未调用读取工具前，不能说“看不到附件”。
+- 写入 Office 文件后必须返回生成文件的 `file:<id>` 引用，确保用户能在当前房间文件体系中看到。
