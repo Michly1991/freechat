@@ -47,6 +47,7 @@
 - 小蜜/平台托管运行时的 inline `agent.create` 只能兼容为创建确认卡，不能绕过确认直接创建；确认后的物化流程必须按确认用户/房间 owner 归属创建并加入房间。
 - Agent 读取其他 Agent detail、skill、script、knowledge 前必须验证可访问性。
 - Agent Client 不是知识库主存储；知识库由 FreeChat Server 统一维护，Agent Client 运行前同步本地 `.freechat/knowledge/`。
+- Agent 知识库上传必须走服务端 multipart 接口并由服务端校验权限、路径和文件类型；当前只允许 Markdown/TXT/JSON/CSV/YAML/XML/HTML 等文本类知识文件，PDF/Word/Excel 需先转换为 Markdown/文本。
 - Agent Client 长驻 worker 连接远端运行接口时，必须优先使用本地保存的原始 connector token，而不是短期 access JWT，避免已绑定 Agent 因 JWT 过期反复无法 heartbeat/poll/complete。
 - `final_to_chat` 模式不能让客户端和服务端重复写最终消息；服务端完成运行时要对同 run 期间已经由 Agent 发送的相同内容做去重，客户端也不能把工具执行前的中间进展当最终回复自动发送。
 - 工作组分享入口房间允许当前接待 Agent 使用 `room.handoff` 转接给同工作组内启用的 Agent；当目标 Agent 尚未在入口房间时，服务端先加入/clone 到当前房间，再用实际 room agent id 执行 handoff。

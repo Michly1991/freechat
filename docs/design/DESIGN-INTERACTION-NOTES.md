@@ -30,8 +30,9 @@
   - 运行：deployment、接管客户端和在线状态。
 - FreeChat Server 是 Agent 知识库主存储：
   - 表：`agent_knowledge_files` 保存文本/Markdown/JSON/CSV 等知识文件正文与元数据；`agent_knowledge_indexes` 保存索引状态、文件数、总大小和最近索引时间。
-  - API：`GET /api/agents/:id/knowledge`、`POST /api/agents/:id/knowledge/files`、`GET/PATCH/DELETE /api/agents/:id/knowledge/files/:fileId`、`POST /api/agents/:id/knowledge/reindex`。
-  - 权限：可使用 Agent 的用户可以查看知识库摘要/文件；可编辑 Agent 的用户才可增删改和重建索引。
+  - API：`GET /api/agents/:id/knowledge`、`POST /api/agents/:id/knowledge/files`、`POST /api/agents/:id/knowledge/files/upload`、`GET/PATCH/DELETE /api/agents/:id/knowledge/files/:fileId`、`POST /api/agents/:id/knowledge/reindex`。
+  - 上传：前端使用 multipart 专用上传接口；服务端读取文件内容并入库为知识文件。当前知识库只接收 Markdown/TXT/JSON/CSV/YAML/XML/HTML 等文本类文件；PDF/Word/Excel 等复杂二进制资料需要先转换/提取为 Markdown 或文本后上传。
+  - 权限：可使用 Agent 的用户可以查看知识库摘要/文件；可编辑 Agent 的用户才可增删改、上传和重建索引。
 - Agent Client 不再作为知识库主存储，只在运行前通过连接器凭证调用 `GET /api/remote-agents/knowledge` 同步当前 Agent 的服务端知识库到运行目录 `.freechat/knowledge/`。
 - Agent 运行时写入 `.freechat/KNOWLEDGE.md` 和 `runtime-spec.json.knowledgeDir`，提示 Agent 按需读取本地同步副本，不主动把知识库内容复制进聊天。
 

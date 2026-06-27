@@ -248,6 +248,12 @@ export const api = {
   getAgentKnowledge: (id: string) => request<{ agentId: string; files: any[]; summary: any; canEdit: boolean; managedByClient?: boolean; client?: any }>(`/agents/${id}/knowledge`),
   getAgentKnowledgeFile: (id: string, fileId: string) => request<{ file: any; canEdit: boolean }>(`/agents/${id}/knowledge/files/${fileId}`),
   createAgentKnowledgeFile: (id: string, body: any) => request<{ file: any; knowledge: any }>(`/agents/${id}/knowledge/files`, { method: 'POST', body: JSON.stringify(body) }),
+  uploadAgentKnowledgeFile: (id: string, file: File, path?: string) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (path?.trim()) formData.append('path', path.trim())
+    return request<{ file: any; knowledge: any }>(`/agents/${id}/knowledge/files/upload`, { method: 'POST', body: formData })
+  },
   updateAgentKnowledgeFile: (id: string, fileId: string, body: any) => request<{ file: any; knowledge: any }>(`/agents/${id}/knowledge/files/${fileId}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteAgentKnowledgeFile: (id: string, fileId: string) => request<{ knowledge: any }>(`/agents/${id}/knowledge/files/${fileId}`, { method: 'DELETE' }),
   reindexAgentKnowledge: (id: string) => request<{ agentId: string; files: any[]; summary: any }>(`/agents/${id}/knowledge/reindex`, { method: 'POST' }),

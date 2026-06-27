@@ -9,6 +9,13 @@ export type AgentKnowledgeFileInput = {
   mimeType?: string
 }
 
+export type AgentKnowledgeUploadInput = {
+  filename: string
+  path?: string
+  mimeType?: string
+  buffer: Buffer
+}
+
 function safePath(input: string) {
   const raw = String(input || '').replace(/\\/g, '/').trim()
   const parts = raw.split('/').map((part) => part.trim()).filter(Boolean)
@@ -98,6 +105,18 @@ export class AgentKnowledgeService {
     return this.get(agentId, id)
   }
 
+
+  async upsertUpload(agentId: string, ownerUserId: string, input: AgentKnowledgeUploadInput, updatedBy: string) {
+    const path = safePath(input.path || input.filename || '')
+    const content = extractTextKnowledgeContent(input.buffer, input.mimeType, path)
+    return this.upsert(agentId, ownerUserId, {
+      path,
+      name: nameFromPath(path),
+      content,
+      mimeType: input.mimeType || guessMime(path),
+    }, updatedBy)
+  }
+
   update(agentId: string, fileId: string, input: AgentKnowledgeFileInput, updatedBy: string) {
     const current = this.get(agentId, fileId) as any
     const nextPath = input.path !== undefined || input.name !== undefined ? safePath(input.path || input.name || current.path) : current.path
@@ -148,11 +167,42 @@ export class AgentKnowledgeService {
   }
 }
 
+const TEXT_KNOWLEDGE_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.text', '.json', '.jsonl', '.csv', '.tsv', '.yaml', '.yml', '.xml', '.html', '.htm', '.log'])
+const MAX_TEXT_KNOWLEDGE_BYTES = 10 * 1024 * 1024
+
+function extensionOf(path: string) {
+  const match = path.toLowerCase().match(/\.[^./]+$/)
+  return match?.[0] || ''
+}
+
+function isTextKnowledgeFile(path: string, mimeType?: string) {
+  const mime = String(mimeType || '').toLowerCase()
+  return TEXT_KNOWLEDGE_EXTENSIONS.has(extensionOf(path)) || mime.startsWith('text/') || ['application/json', 'application/x-ndjson', 'application/xml', 'application/yaml', 'application/x-yaml'].includes(mime)
+}
+
+function extractTextKnowledgeContent(buffer: Buffer, mimeType: string | undefined, path: string) {
+  if (!isTextKnowledgeFile(path, mimeType)) {
+    throw { code: 'VALIDATION_ERROR', message: '知识库上传目前支持 Markdown、TXT、JSON、CSV、YAML、XML、HTML 等文本文件；PDF/Word/Excel 请先提取或转换为 Markdown/文本后上传。' }
+  }
+  if (buffer.length > MAX_TEXT_KNOWLEDGE_BYTES) {
+    throw { code: 'VALIDATION_ERROR', message: `知识文件过大，请控制在 ${Math.floor(MAX_TEXT_KNOWLEDGE_BYTES / 1024 / 1024)}MB 以内或拆分后上传。` }
+  }
+  const sample = buffer.subarray(0, Math.min(buffer.length, 4096))
+  if (sample.includes(0)) {
+    throw { code: 'VALIDATION_ERROR', message: '该文件看起来不是文本文件，请先转换为 Markdown/文本后上传知识库。' }
+  }
+  return buffer.toString('utf8').replace(/^\uFEFF/, '')
+}
+
 function guessMime(path: string) {
   const lower = path.toLowerCase()
-  if (lower.endsWith('.md')) return 'text/markdown'
-  if (lower.endsWith('.json')) return 'application/json'
+  if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'text/markdown'
+  if (lower.endsWith('.json') || lower.endsWith('.jsonl')) return 'application/json'
   if (lower.endsWith('.csv')) return 'text/csv'
+  if (lower.endsWith('.tsv')) return 'text/tab-separated-values'
+  if (lower.endsWith('.yaml') || lower.endsWith('.yml')) return 'application/yaml'
+  if (lower.endsWith('.xml')) return 'application/xml'
+  if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html'
   return 'text/plain'
 }
 
