@@ -171,6 +171,7 @@ export class AgentInvocationHandler {
           isEntryAgentRoom ? '分享入口协调规则：先用 ./freechat workgroup agents 查看当前工作组可用 Agent；匹配到合适 Agent 后，用 ./freechat room handoff --agent <名称或ID> --reason <原因> 转接。工具成功前不要说“已转接”；找不到匹配对象时再向用户补充提问。' : '',
           context ? `最近对话：\n${context}` : '',
           `最新消息来自 ${actorName}: ${contentWithFiles}`,
+          contentWithFiles.includes('本次消息附件') ? '上面的消息包含附件时，必须先按提示使用 ./freechat file download file:<fileId> 下载并读取/分析附件，再回复；不要在未下载前说看不到附件。' : '',
           '请用简短、自然、面向当前用户的中文回复。',
         ].filter(Boolean).join('\n\n')
       : buildAssistantAutoPrompt({

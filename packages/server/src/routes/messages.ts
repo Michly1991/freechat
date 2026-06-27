@@ -53,7 +53,7 @@ export async function registerMessageRoutes(app: FastifyInstance) {
       const msg = await messageService.createMessage(roomId, user.id, user.nickname || user.username, user.role === 'agent' ? 'ai' : 'human', content || '[附件]', mentions, replyTo, 'text', payload, messageId)
       const gateway = getGateway()
       gateway?.broadcast(roomId, { msgId: msg.id, roomId, type: 'broadcast', action: 'chat.message', payload: msg, timestamp: Date.now() })
-      const attachmentHint = attachments.length ? `\n\n本次消息附件：\n${attachments.map((file) => `- ref: ${file.ref}; fileId: ${file.id}; folderId: ${file.folderId}; path: ${file.relativePath}; name: ${file.name}; type: ${file.mimeType || 'unknown'}; size: ${file.size}`).join('\n')}\n请用 ./freechat file download file:<fileId> 下载后处理；不同房间文件不可见，禁止跨房间访问。` : ''
+      const attachmentHint = attachments.length ? `\n\n本次消息附件（必须先读取/下载后再回答，不能说看不到）：\n${attachments.map((file) => `- ref: ${file.ref}; fileId: ${file.id}; path: ${file.relativePath}; name: ${file.name}; type: ${file.mimeType || 'unknown'}; size: ${file.size}; download: ./freechat file download ${file.ref}`).join('\n')}\n处理规则：文本类附件请用 ./freechat file download file:<fileId> 下载后读取内容；图片/PDF/Word/Excel 等也先下载到本地再分析。不同房间文件不可见，禁止跨房间访问。` : ''
       gateway?.handleUserMessageSideEffects(roomId, user, msg, `${content || '[附件]'}${attachmentHint}`, mentions || [])
       return { success: true, data: { message: msg } }
     } catch (err: any) {
