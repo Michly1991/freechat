@@ -122,7 +122,9 @@ function usage() {
     '  ./freechat friends reject <requestId>',
     '  ./freechat dm open <userId>',
     '  ./freechat dm messages <conversationId> [limit]',
-    '  ./freechat dm send <conversationId> <content>',
+    '  ./freechat knowledge list',
+    '  ./freechat knowledge search <query> [--limit <n>]',
+    '  ./freechat knowledge read <fileId|path|public:entryId>',
     '  ./freechat selftest smoke',
     "  ./freechat raw <action> '<jsonArgs>'",
     '',
@@ -277,6 +279,20 @@ async function uploadProjectFile(localPath, projectPath, addToTab) {
   if (!res.ok) die(text);
   console.log(text);
 }
+
+async function knowledgeRequest(pathname) {
+  const res = await fetch(API_URL + pathname, { headers: { Authorization: 'Bearer ' + TOKEN } });
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = { success: false, raw: text }; }
+  if (!res.ok || data.success === false) {
+    console.error(JSON.stringify(data, null, 2));
+    process.exit(1);
+  }
+  console.log(JSON.stringify(data.data ?? data, null, 2));
+}
+
+function safeKnowledgeRef(ref) { if (!ref) die('knowledge ref is required'); return encodeURIComponent(ref); }
 
 async function selftestSmoke() {
   const marker = '__selftest__/smoke-' + Date.now() + '.txt';
@@ -623,9 +639,16 @@ if (domain === 'tool' && cmd === 'list') {
   call('dm.messages', { conversationId: rest[0], limit: rest[1] || 30 });
 } else if (domain === 'dm' && cmd === 'send') {
   if (!rest[0]) die('conversationId is required');
-  const content = rest.slice(1).join(' ').trim();
-  if (!content) die('content is required');
+  const content = rest.slice(1).join(' ').trim(); if (!content) die('content is required');
   call('dm.send', { conversationId: rest[0], content });
+} else if (domain === 'knowledge' && cmd === 'list') {
+  knowledgeRequest('/api/remote-agents/knowledge');
+} else if (domain === 'knowledge' && cmd === 'search') {
+  const parsed = parseNamedOptions(rest), query = parsed.args.join(' ').trim();
+  if (!query) die('query is required');
+  knowledgeRequest('/api/remote-agents/knowledge/search?q=' + encodeURIComponent(query) + '&limit=' + encodeURIComponent(parsed.options.limit || 8));
+} else if (domain === 'knowledge' && cmd === 'read') {
+  knowledgeRequest('/api/remote-agents/knowledge/read?ref=' + safeKnowledgeRef(rest[0]));
 } else if (domain === 'selftest' && cmd === 'smoke') {
   selftestSmoke();
 } else if (domain === 'raw') {

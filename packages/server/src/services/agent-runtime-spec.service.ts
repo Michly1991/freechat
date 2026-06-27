@@ -39,9 +39,11 @@ const RUNTIME_RULES = `# FreeChat Agent Runtime Spec
 
 ## 知识库规则
 
-- Agent 知识库存在 Agent Client 本地，服务端不默认保存或注入知识库正文。
-- 优先读取本客户端工作区内的知识库目录、项目文件和运行上下文。
-- 不要把客户端本地私有知识自动上传到服务端；如需沉淀或共享，先说明建议和范围并等待 owner/用户确认。
+- FreeChat Server 是 Agent 自有知识库与通用公共知识的主存储；Agent Client 运行时只按需检索/读取。
+- 不要把知识库全文预先复制进上下文；遇到产品规则、专业资料、长期背景、用户上传给 Agent 的知识或不确定答案时，先用 \`./freechat knowledge search <query>\`。
+- 检索命中后只读取少量相关条目：\`./freechat knowledge read <fileId|path|public:entryId>\`。
+- Agent 自有知识优先；通用公共知识作为补充；搜不到时再基于当前对话回答并说明缺少对应知识。
+- Agent 自有知识按 root Agent 继承，房间 clone/materialize 的 Agent 默认使用通讯录 Agent 的知识库。
 
 ## Agent 协作规则
 

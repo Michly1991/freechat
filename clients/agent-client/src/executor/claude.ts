@@ -50,7 +50,36 @@ export function writeRunContext(cfg: ClientConfig, agent: AgentCredential, event
   const knowledgeDir = join(freechatDir, 'knowledge')
   writeKnowledgeFiles(knowledgeDir, knowledge)
   writeFileSync(join(freechatDir, 'runtime-spec.json'), JSON.stringify({ version: spec.version, checksum: spec.checksum, updatedAt: spec.updatedAt, knowledgeDir, knowledgeSummary: knowledge?.summary || null }, null, 2), 'utf8')
-  writeFileSync(join(freechatDir, 'KNOWLEDGE.md'), `# Agent 知识库\n\n本 Agent 的知识库由 FreeChat Server 维护，运行前已同步到本地目录：\n\n${knowledgeDir}\n\n文件数量：${knowledge?.summary?.fileCount || 0}\n\n如任务需要背景资料，请优先按需读取该目录中的 Markdown / 文本文件。不要把知识库文件复制到聊天，除非用户明确要求。\n`, 'utf8')
+  writeFileSync(join(freechatDir, 'KNOWLEDGE.md'), `# Agent 知识库
+
+FreeChat Server 统一维护 Agent 自有知识库和通用公共知识。运行时采用按需渐进式加载，不会把知识库全文预先塞进上下文。
+
+## 当前可用知识
+
+- Agent ID: ${event.agentId}
+- Root Agent ID: ${knowledge?.rootAgentId || event.agentId}
+- Agent 自有知识文件数: ${knowledge?.summary?.fileCount || 0}
+- Agent 自有知识总大小: ${knowledge?.summary?.totalSize || 0} bytes
+
+## 使用方式
+
+遇到产品规则、专业资料、历史背景、用户上传给 Agent 的知识、或不确定答案时，先检索再读取：
+
+\`\`\`bash
+./freechat knowledge list
+./freechat knowledge search "关键词" --limit 8
+./freechat knowledge read <fileId-or-path>
+./freechat knowledge read public:<entryId>
+\`\`\`
+
+规则：
+
+1. 先用 search 找 Agent 自有知识和通用公共知识的相关片段。
+2. 只 read 命中的少量文件/条目；不要一次性读取全部知识库。
+3. Agent 自有知识优先；通用知识作为补充。
+4. 搜不到再基于当前对话回答，并说明缺少对应知识。
+5. 不要把知识库全文复制到聊天，除非用户明确要求。
+`, 'utf8')
   writeFileSync(join(freechatDir, 'freechat.cjs'), materializeCliTemplate(spec.cliCjsTemplate, cfg, agent, event), 'utf8')
   const cli = join(cwd, 'freechat')
   writeFileSync(cli, spec.cliWrapper, 'utf8')

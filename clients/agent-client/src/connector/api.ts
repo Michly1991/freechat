@@ -88,6 +88,7 @@ export interface AgentKnowledgeFile {
 
 export interface AgentKnowledgePayload {
   agentId: string
+  rootAgentId?: string
   files: AgentKnowledgeFile[]
   summary: any
 }

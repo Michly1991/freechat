@@ -36,6 +36,7 @@
 ## 文件上传与文件面板
 
 - Agent 知识库上传使用专用 multipart API，不在浏览器端用 `file.text()` 伪装 JSON 创建；上传后要清空 file input value，允许连续选择同一个知识文件。只允许文本类知识文件，二进制文档需提示用户先转换。
+- Agent 运行界面和运行说明应强调知识库是按需渐进式加载：Agent 先 `knowledge search`，再 `knowledge read` 少量命中内容；不要把全部知识库一次性塞入上下文。
 - 文件面板的上传按钮必须绑定实际上传 action；如果上层传入 `uploadLocalFile` 而不是 `onUpload`，组件也必须能正常上传。
 - 上传后要清空 file input value，允许连续选择同一个文件再次上传。
 - 删除/打开等操作应传递明确的 `path`，避免把整个 FileNode 当成路径导致 `[object Object]` 请求。

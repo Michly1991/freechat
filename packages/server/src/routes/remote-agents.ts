@@ -48,7 +48,30 @@ export async function registerRemoteAgentRoutes(app: FastifyInstance) {
   app.get('/api/remote-agents/knowledge', async (request, reply) => {
     const auth = await requireConnector(request, reply)
     if (!auth) return
-    return { success: true, data: agentKnowledgeService.list(auth.agentId, true) }
+    return { success: true, data: agentKnowledgeService.list(auth.agentId, false) }
+  })
+
+  app.get('/api/remote-agents/knowledge/search', async (request, reply) => {
+    const auth = await requireConnector(request, reply)
+    if (!auth) return
+    const query = request.query as any
+    try {
+      return { success: true, data: agentKnowledgeService.search(auth.agentId, String(query?.q || query?.query || ''), { limit: Number(query?.limit || 8), includePublic: query?.includePublic !== 'false' }) }
+    } catch (err: any) {
+      return reply.code(err?.code === 'VALIDATION_ERROR' ? 400 : 500).send({ success: false, error: { code: err?.code || 'INTERNAL_ERROR', message: err?.message || String(err) } })
+    }
+  })
+
+  app.get('/api/remote-agents/knowledge/read', async (request, reply) => {
+    const auth = await requireConnector(request, reply)
+    if (!auth) return
+    const query = request.query as any
+    try {
+      return { success: true, data: agentKnowledgeService.read(auth.agentId, String(query?.ref || query?.path || query?.fileId || '')) }
+    } catch (err: any) {
+      const status = err?.code === 'VALIDATION_ERROR' ? 400 : err?.code === 'KNOWLEDGE_FILE_NOT_FOUND' ? 404 : 500
+      return reply.code(status).send({ success: false, error: { code: err?.code || 'INTERNAL_ERROR', message: err?.message || String(err) } })
+    }
   })
 
 

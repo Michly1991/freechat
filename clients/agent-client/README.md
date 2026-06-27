@@ -76,6 +76,21 @@ pnpm --filter @freechat/agent-client check:claude
 
 `check:client` 会检查控制台可访问、管理员登录、状态接口和环境检测接口。
 
+## Agent 知识库按需加载
+
+FreeChat Server 是 Agent 自有知识库和通用公共知识的主存储。Agent Client 每次运行只拿目录摘要和工具说明，不把知识库全文预先放进 Claude 上下文。
+
+运行时 Agent 可用：
+
+```bash
+./freechat knowledge list
+./freechat knowledge search "关键词" --limit 8
+./freechat knowledge read <fileId-or-path>
+./freechat knowledge read public:<entryId>
+```
+
+规则：先 search，再 read 少量命中内容；Agent 自有知识优先，通用公共知识作为补充。房间内克隆 Agent 会继承通讯录 root Agent 的知识库。
+
 ## Claude 会话上下文
 
 Agent Client 会为每个 Agent + Room 保存短期 Claude Code session，用于连续请求时复用本地上下文。默认 TTL 为 5 分钟，可通过环境变量调整：
