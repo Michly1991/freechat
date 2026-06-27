@@ -1,6 +1,7 @@
 import db from '../storage/db.js'
 import { aiConfigService, type AICallResult } from './ai-config.service.js'
 import { decryptSecret } from './secret-crypto.js'
+import { agentModelConfigService } from './agent-model-config.service.js'
 
 export type ModelSource = 'platform' | 'user_owned' | 'marketplace' | 'client_reported' | 'system_default'
 
@@ -38,9 +39,9 @@ function sourceFor(profile: ModelProfileRow | null | undefined, payerUserId?: st
 
 export class ModelRuntimeService {
   resolveRoomAgentModel(roomId: string, agentId: string, payerUserId?: string | null): ResolvedModelRuntime {
-    const binding = db.prepare('SELECT model_profile_id, model FROM room_agent_model_bindings WHERE room_id = ? AND agent_id = ?').get(roomId, agentId) as any
-    if (binding?.model_profile_id) {
-      const profile = db.prepare('SELECT * FROM model_profiles WHERE id = ? AND enabled = 1').get(binding.model_profile_id) as ModelProfileRow | undefined
+    const binding = agentModelConfigService.getEffectiveConfig(roomId, agentId)
+    if (binding?.modelProfileId) {
+      const profile = db.prepare('SELECT * FROM model_profiles WHERE id = ? AND enabled = 1').get(binding.modelProfileId) as ModelProfileRow | undefined
       if (profile) {
         const model = binding.model || profile.default_model || null
         const modelSource = sourceFor(profile, payerUserId)

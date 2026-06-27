@@ -237,6 +237,8 @@ export const api = {
   },
   updateAgent: (id: string, body: Record<string, any>) =>
     request(`/agents/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  updateAgentDefaultModel: (id: string, body: Record<string, any>) =>
+    request<{ agent: any }>(`/agents/${id}/model`, { method: 'PATCH', body: JSON.stringify(body) }),
   requestAgentClientBind: (id: string) =>
     request<{ request: any }>(`/agents/${id}/client-bind-request`, { method: 'POST', body: JSON.stringify({}) }),
   deleteAgent: (id: string) => request(`/agents/${id}`, { method: 'DELETE' }),

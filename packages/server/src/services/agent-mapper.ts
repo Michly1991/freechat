@@ -21,6 +21,7 @@ export interface AgentRow {
   auto_enabled?: number | null
   room_priority?: number | null
   room_model_config?: string | null
+  default_model_config?: string | null
   is_template?: number | null
   template_version?: number | null
   source_template_id?: string | null
@@ -47,17 +48,21 @@ function parseRoomModelConfig(value?: string | null): RoomAgentModelConfig | und
 
 function enrichRoomModelConfig(config: RoomAgentModelConfig | undefined, row: AgentRow): RoomAgentModelConfig | undefined {
   if (!config) return undefined
+  const scope = (config as any).scope
+  const prefix = scope === 'agent_default' ? 'default' : 'room'
   return {
     ...config,
-    modelSource: (row as any).room_model_source || config.modelSource,
-    modelProfileName: (row as any).room_model_profile_name || config.modelProfileName,
-    modelProfileOwnerId: (row as any).room_model_profile_owner_id || config.modelProfileOwnerId,
-    modelProfileOwnerName: (row as any).room_model_profile_owner_name || config.modelProfileOwnerName,
+    modelSource: (row as any)[`${prefix}_model_source`] || config.modelSource,
+    modelProfileName: (row as any)[`${prefix}_model_profile_name`] || config.modelProfileName,
+    modelProfileOwnerId: (row as any)[`${prefix}_model_profile_owner_id`] || config.modelProfileOwnerId,
+    modelProfileOwnerName: (row as any)[`${prefix}_model_profile_owner_name`] || config.modelProfileOwnerName,
   }
 }
 
 export function rowToAgent(row: AgentRow): Agent {
   const config = row.config ? JSON.parse(row.config) : undefined
+  const defaultModelConfig = enrichRoomModelConfig(parseRoomModelConfig(row.default_model_config), row)
+  const roomModelConfig = enrichRoomModelConfig(parseRoomModelConfig(row.room_model_config), row) || defaultModelConfig
   const builtInKey = config?.builtInKey
   const isBuiltIn = !!builtInKey || !!config?.locked
   const status = (row.status as 'active' | 'inactive' | 'working' | 'error') || 'active'
@@ -86,7 +91,8 @@ export function rowToAgent(row: AgentRow): Agent {
     roomRole: (row.room_role as RoomAgentRole) || undefined,
     autoEnabled: row.auto_enabled !== undefined && row.auto_enabled !== null ? !!row.auto_enabled : undefined,
     roomPriority: row.room_priority ?? undefined,
-    roomModelConfig: enrichRoomModelConfig(parseRoomModelConfig(row.room_model_config), row),
+    roomModelConfig,
+    defaultModelConfig,
     isTemplate: row.is_template !== undefined && row.is_template !== null ? !!row.is_template : undefined,
     templateVersion: row.template_version ?? undefined,
     sourceTemplateId: row.source_template_id || undefined,

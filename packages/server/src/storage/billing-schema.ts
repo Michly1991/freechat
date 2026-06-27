@@ -230,6 +230,66 @@ export function ensureBillingSchema(db: Database.Database) {
   `)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_room_agent_model_bindings_profile ON room_agent_model_bindings(model_profile_id)`)
   db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_model_defaults (
+      agent_id TEXT PRIMARY KEY,
+      model_profile_id TEXT,
+      model TEXT,
+      runtime TEXT,
+      max_tokens INTEGER,
+      temperature REAL,
+      configured_by TEXT,
+      allow_paid_shared_model INTEGER NOT NULL DEFAULT 0,
+      extra_config TEXT,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+      FOREIGN KEY (model_profile_id) REFERENCES model_profiles(id) ON DELETE SET NULL
+    )
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_model_defaults_profile ON agent_model_defaults(model_profile_id)`)
+  const agentDefaultModelCols = db.prepare('PRAGMA table_info(agent_model_defaults)').all() as any[]
+  if (!agentDefaultModelCols.some((col) => col.name === 'allow_paid_shared_model')) db.exec('ALTER TABLE agent_model_defaults ADD COLUMN allow_paid_shared_model INTEGER NOT NULL DEFAULT 0')
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS model_profile_permissions (
+      id TEXT PRIMARY KEY,
+      model_profile_id TEXT NOT NULL,
+      user_id TEXT,
+      agent_id TEXT,
+      permission TEXT NOT NULL DEFAULT 'use',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (model_profile_id) REFERENCES model_profiles(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+    )
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_model_profile_permissions_profile ON model_profile_permissions(model_profile_id)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_model_profile_permissions_user ON model_profile_permissions(user_id)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_model_profile_permissions_agent ON model_profile_permissions(agent_id)`)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS model_purchases (
+      id TEXT PRIMARY KEY,
+      buyer_user_id TEXT NOT NULL,
+      model_profile_id TEXT NOT NULL,
+      ledger_id TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (buyer_user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (model_profile_id) REFERENCES model_profiles(id) ON DELETE CASCADE
+    )
+  `)
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_model_purchases_buyer_profile ON model_purchases(buyer_user_id, model_profile_id)`)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS model_purchase_rules (
+      id TEXT PRIMARY KEY,
+      model_profile_id TEXT NOT NULL UNIQUE,
+      purchase_mode TEXT NOT NULL DEFAULT 'free',
+      fixed_credits_per_purchase INTEGER DEFAULT 0,
+      enabled INTEGER DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (model_profile_id) REFERENCES model_profiles(id) ON DELETE CASCADE
+    )
+  `)
+  db.exec(`
     CREATE TABLE IF NOT EXISTS model_billing_rules (
       id TEXT PRIMARY KEY,
       model_profile_id TEXT NOT NULL,

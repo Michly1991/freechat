@@ -403,7 +403,7 @@ export function RoomPageImpl() {
         setSelectedProfile={setSelectedProfile}
         restartAgent={restartAgent}
       />
-      <AgentModelDialog roomId={roomId} agent={modelConfigAgent} onClose={() => setModelConfigAgent(null)} onSaved={loadRoom} feedback={feedback} />
+      <AgentModelDialog mode="room-override" roomId={roomId} agent={modelConfigAgent} onClose={() => setModelConfigAgent(null)} onSaved={loadRoom} feedback={feedback} />
       <MobileBottomNav activePanel={activePanel} setActivePanel={setActivePanel} roomNewMessageCount={roomNewMessageCount} agentWorking={workingAgents.length > 0} />
       <RoomSettingsSidePanel
         open={showRoomSettings}

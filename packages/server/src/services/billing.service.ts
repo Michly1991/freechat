@@ -4,6 +4,7 @@ import type { MeteredUsageEvent } from '../domains/usage-metering/usage.types.js
 import { usageRepository } from '../domains/usage-metering/usage.repository.js'
 import db from '../storage/db.js'
 import { aiConfigService } from './ai-config.service.js'
+import { agentModelConfigService } from './agent-model-config.service.js'
 import type { TokenUsage } from './room-analytics.service.js'
 import { creditWalletService } from './credit-wallet.service.js'
 import { microToCredit, toInt } from '../domains/billing/money.js'
@@ -163,13 +164,11 @@ export class BillingService {
   }
 
   private resolveRoomAgentModelBinding(roomId: string, agentId: string, payerUserId?: string): { modelProfileId: string | null; model: string | null; isSelfProvidedModel: boolean } {
-    const binding = db.prepare(`
-      SELECT b.model_profile_id, b.model, mp.owner_id model_provider_user_id
-      FROM room_agent_model_bindings b
-      LEFT JOIN model_profiles mp ON mp.id = b.model_profile_id AND mp.enabled = 1
-      WHERE b.room_id = ? AND b.agent_id = ?
-    `).get(roomId, agentId) as any
-    if (binding?.model_profile_id || binding?.model) return { modelProfileId: binding.model_profile_id || null, model: binding.model || null, isSelfProvidedModel: !!binding.model_profile_id && !!payerUserId && binding.model_provider_user_id === payerUserId }
+    const binding = agentModelConfigService.getEffectiveConfig(roomId, agentId)
+    if (binding?.modelProfileId || binding?.model) {
+      const profile = binding.modelProfileId ? db.prepare('SELECT owner_id FROM model_profiles WHERE id = ? AND enabled = 1').get(binding.modelProfileId) as any : null
+      return { modelProfileId: binding.modelProfileId || null, model: binding.model || null, isSelfProvidedModel: !!binding.modelProfileId && !!payerUserId && profile?.owner_id === payerUserId }
+    }
     const aiConfig = aiConfigService.getConfig()
     const providerKey = aiConfig.currentProvider
     const provider = providerKey ? aiConfig.providers?.[providerKey] : null

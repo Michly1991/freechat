@@ -52,6 +52,9 @@ export interface RoomAgentModelConfig {
   modelProfileName?: string
   modelProfileOwnerId?: string
   modelProfileOwnerName?: string
+  scope?: 'agent_default' | 'room_override' | 'platform_default'
+  inheritedFromAgent?: boolean
+  allowPaidSharedModel?: boolean
 }
 
 export interface Agent {
@@ -71,6 +74,7 @@ export interface Agent {
   autoEnabled?: boolean
   roomPriority?: number
   roomModelConfig?: RoomAgentModelConfig
+  defaultModelConfig?: RoomAgentModelConfig
   isTemplate?: boolean
   templateVersion?: number
   sourceTemplateId?: string

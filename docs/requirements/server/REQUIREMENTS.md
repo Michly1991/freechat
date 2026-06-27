@@ -53,6 +53,8 @@
 - 客户端不能决定是否免费、是否扣费。
 - 小蜜等内置 Agent 的免费次数由服务端 `agent_billing_rules.model_free_runs_per_day` 和 pricing/billing 逻辑按 payer/day 结算。
 - 用户自带模型 profile 由服务端按 `model_profiles.owner_id === payerUserId` 判定；平台托管 Agent 使用付款人自己的模型时，不收平台模型费，只记录可信用量。
+- Agent 默认模型应在通讯录 Agent 管理页配置；房间内只保存 override。有效模型解析顺序必须是：房间覆盖 -> Agent 默认模型 -> 平台默认模型。
+- 模型后续可售卖：共享/市场模型有定价时，其他用户通过 Agent 默认模型或房间覆盖使用该模型，应按模型提供者价格结算；私有模型不能被他人隐式白嫖，必须先共享/上架并有明确授权/购买/关注。
 - client-hosted Agent runtime 不应被服务端当作平台模型费用扣费，除非明确是 platform-hosted runtime。
 
 ## 服务端架构拆分

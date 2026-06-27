@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import db from '../../storage/db.js'
 import { aiConfigService } from '../../services/ai-config.service.js'
+import { agentModelConfigService } from '../../services/agent-model-config.service.js'
 import type { MeteredUsageEvent } from './usage.types.js'
 
 function toInt(value: any): number {
@@ -65,25 +66,21 @@ export class UsageRepository {
     const agent = db.prepare('SELECT owner_id, source_template_id FROM agents WHERE id = ?').get(run.agent_id) as any
     const templateId = agent?.source_template_id || run.agent_id
     const template = db.prepare('SELECT owner_id FROM agents WHERE id = ?').get(templateId) as any
-    const binding = db.prepare(`
-      SELECT b.model_profile_id, b.model, mp.owner_id model_provider_user_id, mp.visibility, mp.base_url, mp.default_model
-      FROM room_agent_model_bindings b
-      LEFT JOIN model_profiles mp ON mp.id = b.model_profile_id AND mp.enabled = 1
-      WHERE b.room_id = ? AND b.agent_id = ?
-    `).get(run.room_id, run.agent_id) as any
+    const effectiveBinding = agentModelConfigService.getEffectiveConfig(run.room_id, run.agent_id)
+    const bindingProfile = effectiveBinding?.modelProfileId ? db.prepare('SELECT owner_id model_provider_user_id, visibility, base_url, default_model FROM model_profiles WHERE id = ? AND enabled = 1').get(effectiveBinding.modelProfileId) as any : null
     const aiConfig = aiConfigService.getConfig()
     const currentProviderKey = aiConfig.currentProvider
     const currentProvider = currentProviderKey ? aiConfig.providers?.[currentProviderKey] : null
     const platformProfileId = currentProviderKey ? `mp_platform_${currentProviderKey}` : null
-    const platformProfile = platformProfileId && !binding ? db.prepare('SELECT owner_id model_provider_user_id, visibility, base_url, default_model FROM model_profiles WHERE id = ? AND enabled = 1').get(platformProfileId) as any : null
+    const platformProfile = platformProfileId && !effectiveBinding ? db.prepare('SELECT owner_id model_provider_user_id, visibility, base_url, default_model FROM model_profiles WHERE id = ? AND enabled = 1').get(platformProfileId) as any : null
     const clientReported = (run.runtime === 'remote-claude-code' || run.usage_source === 'client_reported') && run.runtime !== 'platform-hosted-client'
     const rawUsage = parseJson(run.raw_usage_json)
     const reportedModelProfileId = rawUsage.modelProfileId || rawUsage.model_profile_id || null
     const reportedProfile = reportedModelProfileId ? db.prepare('SELECT owner_id model_provider_user_id, visibility, base_url, default_model FROM model_profiles WHERE id = ? AND enabled = 1').get(reportedModelProfileId) as any : null
-    const profileId = clientReported ? null : (reportedModelProfileId || binding?.model_profile_id || platformProfileId || null)
-    const providerUserId = reportedProfile?.model_provider_user_id || binding?.model_provider_user_id || platformProfile?.model_provider_user_id || null
+    const profileId = clientReported ? null : (reportedModelProfileId || effectiveBinding?.modelProfileId || platformProfileId || null)
+    const providerUserId = reportedProfile?.model_provider_user_id || bindingProfile?.model_provider_user_id || platformProfile?.model_provider_user_id || null
     const selfProvided = !!profileId && !!providerUserId && providerUserId === (run.payer_user_id || room?.created_by || agent?.owner_id)
-    const model = run.model || (clientReported ? null : (binding?.model || binding?.default_model || reportedProfile?.default_model || platformProfile?.default_model || currentProvider?.defaultModel || null))
+    const model = run.model || (clientReported ? null : (effectiveBinding?.model || bindingProfile?.default_model || reportedProfile?.default_model || platformProfile?.default_model || currentProvider?.defaultModel || null))
     const id = `mue_${uuidv4()}`
     const inputTokens = toInt(run.input_tokens)
     const outputTokens = toInt(run.output_tokens)
@@ -102,8 +99,8 @@ export class UsageRepository {
       model_profile_id: profileId,
       runtime: run.runtime,
       model,
-      model_source: clientReported ? 'client_reported' : (selfProvided ? 'user_owned' : (rawUsage.modelSource || rawUsage.model_source || binding?.visibility || reportedProfile?.visibility || platformProfile?.visibility || (profileId ? 'platform' : 'system_default'))),
-      base_url_host: clientReported ? null : hostOf(binding?.base_url || reportedProfile?.base_url || platformProfile?.base_url || rawUsage.baseUrlHost || rawUsage.base_url_host),
+      model_source: clientReported ? 'client_reported' : (selfProvided ? 'user_owned' : (rawUsage.modelSource || rawUsage.model_source || bindingProfile?.visibility || reportedProfile?.visibility || platformProfile?.visibility || (profileId ? 'platform' : 'system_default'))),
+      base_url_host: clientReported ? null : hostOf(bindingProfile?.base_url || reportedProfile?.base_url || platformProfile?.base_url || rawUsage.baseUrlHost || rawUsage.base_url_host),
       input_tokens: inputTokens,
       output_tokens: outputTokens,
       cache_write_tokens: cacheWriteTokens,

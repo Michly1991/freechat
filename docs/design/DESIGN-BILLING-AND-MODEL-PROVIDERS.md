@@ -11,15 +11,22 @@ FreeChat billing is based on Agent runs. Runtime accounting can include two inde
 Core rule: **Agent is token-billable only after the owner explicitly sets a per-token price; otherwise it is free.** Model billing depends on who hosts the runtime:
 
 - **Client-hosted Agent (`deployment='client'`, `runtime='remote-claude-code'`, or `usage_source='client_reported'`)**: Agent Client reports token usage to FreeChat Server. Server reads the corresponding Agent rule and charges only the Agent service fee to the Agent creator/owner. It does **not** calculate or charge platform model fees, because the model/API key/runtime cost is borne outside FreeChat by the client host.
-- **Platform/server-provided Agent runtime**: Server calculates Agent service fee for the Agent owner and model fee for the platform/model provider separately. If the room Agent is bound to a model profile owned by the payer, the model is treated as user-owned infrastructure: server may call that profile's encrypted API key, records trusted usage, but model fee is zero.
+- **Platform/server-provided Agent runtime**: Server calculates Agent service fee for the Agent owner and model fee for the platform/model provider separately. If the effective Agent model is owned by the payer, the model is treated as user-owned infrastructure: server may call that profile's encrypted API key, records trusted usage, but model fee is zero. If the effective model is shared/market-listed and has pricing, the usage payer pays the model provider.
 
-The runtime model is configured on the **room Agent instance**, not on the whole room.
+Model configuration has inheritance:
+
+```text
+room-agent override -> contact/Agent default model -> platform default model
+```
+
+The main product entry is **Contacts -> Agent -> 模型与运行**. Room Agent UI only sets a project-specific override or restores inheritance.
 
 ## Domain Boundaries
 
 ```text
 model-provider      model profiles, encrypted key/baseUrl, model token rules, platform model bootstrap
-model-runtime       resolves room-agent model binding and calls platform/user/shared model profiles
+agent-model-config  Agent default model, room override, inheritance, profile-use authorization
+model-runtime       resolves effective model and calls platform/user/shared model profiles
 usage-metering      converts Agent run facts into immutable usage events
 billing             calculates Agent/model charges and creates accounting entries
 wallet              credit balances and wallet transactions
@@ -58,7 +65,7 @@ Agent service fee is not charged when the payer is also the Agent provider.
 ## Marketplace Billing Surfaces
 
 - **AI market**: Agent templates. Others see public summary; owner/admin/editor sees full prompt, skills, scripts, permissions, and Agent token price. Agent price defaults to free.
-- **Model market**: model profiles backed by provider `apiKey + baseUrl + models`. Pricing uses `model_billing_rules`. A profile owned by the payer is considered a bring-your-own-model profile and does not create `model_usage_charge` for that payer.
+- **Model market**: model profiles backed by provider `apiKey + baseUrl + models`. Pricing uses `model_billing_rules`. A profile owned by the payer is considered a bring-your-own-model profile and does not create `model_usage_charge` for that payer. A shared/market model profile can be used as a sellable model service; when another payer uses it through an Agent default or room override, model usage is charged to the payer and credited to the model provider.
 - **Scene market**: scene templates. Current MVP supports free/fixed one-time purchase pricing.
 
 Platform model pricing uses separate input/output token prices. Output is priced at `2 USD / 1M tokens`; input/cache-write is priced lower at `1 USD / 1M tokens`. In current credit UI/API this is represented as input `1`, output `2`, cache write `1`, and cache read `0` credits per 1M tokens. Minimum per run stays `0` in development to avoid blocking users with empty wallets. Runtime charges are rounded up to the nearest microcredit, not the nearest public credit.
@@ -111,6 +118,35 @@ agent_billing_rules (
 ```
 
 Legacy columns like `token_multiplier`, `fixed_credits_per_run`, and `fixed_credits_per_purchase` may remain for compatibility, but active runtime Agent fee uses only `free/per_token` and token price columns. `model_free_runs_per_day` is a model-fee quota, not Agent service pricing; it can be used by any Agent, including built-ins.
+
+### `agent_model_defaults`
+
+Stores the default model for the contact-list Agent. Room Agents inherit this default unless a room override exists.
+
+```sql
+agent_model_defaults (
+  agent_id TEXT PRIMARY KEY,
+  model_profile_id TEXT,
+  model TEXT,
+  runtime TEXT,
+  max_tokens INTEGER,
+  temperature REAL,
+  configured_by TEXT,
+  allow_paid_shared_model INTEGER DEFAULT 0,
+  extra_config TEXT,
+  updated_at INTEGER NOT NULL
+)
+```
+
+`allow_paid_shared_model` is the explicit owner intent for scheme B: the Agent owner allows other users to run this Agent through a shared/market model and pay that model provider according to pricing. Private owner profiles must first be listed/shared before they can be sold to others.
+
+### `room_agent_model_bindings`
+
+Stores only room-level overrides. Deleting the row restores inheritance from `agent_model_defaults`.
+
+### `model_profile_permissions`, `model_purchases`, `model_purchase_rules`
+
+Reserved/initial schema for model selling and finer-grained authorization. Current runtime uses owner/shared/platform/follow checks; purchases can later grant explicit profile use without changing the runtime resolver.
 
 ### `metered_usage_events`
 

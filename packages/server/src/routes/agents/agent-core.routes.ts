@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify'
 import { agentService } from '../../services/agent.service.js'
+import { agentModelConfigService } from '../../services/agent-model-config.service.js'
 import { marketEngagementService } from '../../services/market-engagement.service.js'
 import { agentPackageService } from '../../services/agent-package.service.js'
 import { agentCapabilityService } from '../../services/agent-capability.service.js'
@@ -68,6 +69,22 @@ app.post('/api/agents', async (request, reply) => {
     })
     return reply.code(201).send({ success: true, data: result })
   } catch (err: any) {
+    throw err
+  }
+})
+
+// PATCH /api/agents/:id/model - update Agent default model config
+app.patch('/api/agents/:id/model', async (request, reply) => {
+  const user = (request as any).user
+  const { id } = request.params as any
+  try {
+    await agentService.assertAgentOwner(id, user.id, user.role)
+    const agent = await agentService.updateAgentDefaultModelConfig(id, request.body as any, user.id)
+    return reply.send({ success: true, data: { agent } })
+  } catch (err: any) {
+    if (err.code === 'AGENT_NOT_FOUND' || err.code === 'MODEL_PROFILE_NOT_FOUND') return reply.code(404).send({ success: false, error: err })
+    if (err.code === 'FORBIDDEN') return reply.code(403).send({ success: false, error: err })
+    if (err.code === 'VALIDATION_ERROR') return reply.code(400).send({ success: false, error: err })
     throw err
   }
 })
@@ -143,8 +160,10 @@ app.get('/api/agents/:id/detail', async (request, reply) => {
   const { id } = request.params as any
   try {
     const agent: any = await agentService.getAgent(id)
-    agent.canEdit = await agentService.canEditAgent(id, user)
+    const canEdit = await agentService.canEditAgent(id, user)
+    agent.canEdit = canEdit
     agent.canDelete = agent.canEdit && agent.canDelete !== false
+    agent.defaultModelConfig = agent.defaultModelConfig || agentModelConfigService.getEffectiveConfig(null, id) || undefined
     const skills = agentCapabilityService.listSkills(id)
     const scripts = agentCapabilityService.listScripts(id)
     const agentMarkdown = await agentPackageService.readAgentMarkdown(agent).catch(() => '')

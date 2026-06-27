@@ -5,7 +5,7 @@ import { config } from '../config.js'
 import bcrypt from 'bcryptjs'
 import type { AgentRunContext } from './agent-run-context.js'
 import { searchMarketplaceAgents } from './agent-marketplace.js'
-import type { Agent, AgentRuntimeConfig, AgentToolPermissions, RoomAgentModelConfig, RoomAgentRole } from '@freechat/shared'
+import type { Agent, AgentRuntimeConfig, AgentToolPermissions, RoomAgentRole } from '@freechat/shared'
 import { DEFAULT_AGENT_TOOLS } from '@freechat/shared'
 import { mergeAgentConfig, rowToAgent, type AgentRow } from './agent-mapper.js'
 import { agentPackageService } from './agent-package.service.js'
@@ -14,6 +14,7 @@ import { templatePermissionService } from './template-permission.service.js'
 import { remoteAgentConnectorService } from './remote-agent-connector.service.js'
 import { XIAOMI_AGENT_BUILT_IN_KEY } from './built-in-agent-constants.js'
 import { AgentWorkspaceService } from './agent-workspace.service.js'
+import { agentModelConfigService } from './agent-model-config.service.js'
 
 export interface AgentConfig {
   name: string
@@ -36,23 +37,6 @@ export interface AddAgentToRoomOptions {
   autoEnabled?: boolean
   priority?: number
   confirmedPurchase?: boolean
-}
-
-function sanitizeRoomModelConfig(value: any): RoomAgentModelConfig | null {
-  if (!value || typeof value !== 'object') return null
-  const out: RoomAgentModelConfig = {}
-  if (value.modelProfileId) out.modelProfileId = String(value.modelProfileId)
-  if (value.model) out.model = String(value.model)
-  if (value.runtime === 'claude-code') out.runtime = value.runtime
-  if (value.maxTokens !== undefined) {
-    const n = Number(value.maxTokens)
-    if (Number.isFinite(n) && n > 0) out.maxTokens = Math.trunc(n)
-  }
-  if (value.temperature !== undefined) {
-    const n = Number(value.temperature)
-    if (Number.isFinite(n)) out.temperature = n
-  }
-  return Object.keys(out).length > 0 ? out : null
 }
 
 function buildAgentRunInput(agent: Agent, message: string): string {
@@ -104,56 +88,35 @@ export class AgentService extends AgentWorkspaceService {
   }
 
   async updateRoomAgentModelConfig(roomId: string, agentId: string, input: any, configuredBy?: string): Promise<Agent> {
-    const modelConfig = sanitizeRoomModelConfig(input)
     const row = db.prepare('SELECT 1 FROM room_agents WHERE room_id = ? AND agent_id = ?').get(roomId, agentId)
     if (!row) throw { code: 'AGENT_NOT_FOUND', message: 'Agent is not in this room' }
-    if (modelConfig?.modelProfileId) {
-      const profile = db.prepare('SELECT id, owner_id, visibility FROM model_profiles WHERE id = ? AND enabled = 1').get(modelConfig.modelProfileId) as any
-      if (!profile) throw { code: 'MODEL_PROFILE_NOT_FOUND', message: 'Model profile not found or disabled' }
-      const canUse = profile.owner_id === configuredBy || profile.visibility === 'platform' || profile.visibility === 'shared' || db.prepare("SELECT 1 FROM market_follows WHERE user_id = ? AND target_type = 'model' AND target_id = ?").get(configuredBy || '', modelConfig.modelProfileId)
-      if (!canUse) throw { code: 'FORBIDDEN', message: 'No permission to use this model profile' }
-    }
-    const now = Date.now()
-    const tx = db.transaction(() => {
-      if (modelConfig) {
-        const extra = { maxTokens: modelConfig.maxTokens, temperature: modelConfig.temperature }
-        db.prepare(`
-          INSERT INTO room_agent_model_bindings (
-            room_id, agent_id, model_profile_id, model, runtime, max_tokens, temperature, configured_by, extra_config, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(room_id, agent_id) DO UPDATE SET
-            model_profile_id = excluded.model_profile_id,
-            model = excluded.model,
-            runtime = excluded.runtime,
-            max_tokens = excluded.max_tokens,
-            temperature = excluded.temperature,
-            extra_config = excluded.extra_config,
-            updated_at = excluded.updated_at
-        `).run(
-          roomId,
-          agentId,
-          modelConfig.modelProfileId || null,
-          modelConfig.model || null,
-          modelConfig.runtime || null,
-          modelConfig.maxTokens || null,
-          modelConfig.temperature ?? null,
-          configuredBy || null,
-          JSON.stringify(extra),
-          now
-        )
-      } else {
-        db.prepare('DELETE FROM room_agent_model_bindings WHERE room_id = ? AND agent_id = ?').run(roomId, agentId)
-      }
-    })
-    tx()
+    agentModelConfigService.updateRoomOverride(roomId, agentId, input, configuredBy)
     const agents = await this.getRoomAgents(roomId)
     const agent = agents.find((item) => item.id === agentId)
     if (!agent) throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found' }
     return agent
   }
 
+  async updateAgentDefaultModelConfig(agentId: string, input: any, configuredBy: string): Promise<Agent> {
+    agentModelConfigService.updateAgentDefault(agentId, input, configuredBy)
+    return this.getAgent(agentId)
+  }
+
   async getAgent(agentId: string): Promise<Agent> {
-    const row = db.prepare(`SELECT a.*, COALESCE(u.nickname, u.username) owner_name FROM agents a LEFT JOIN users u ON u.id = a.owner_id WHERE a.id = ?`).get(agentId) as AgentRow | undefined
+    const row = db.prepare(`
+      SELECT a.*, COALESCE(u.nickname, u.username) owner_name,
+        CASE WHEN amd.agent_id IS NULL THEN NULL ELSE json_object('modelProfileId', amd.model_profile_id, 'model', amd.model, 'runtime', amd.runtime, 'maxTokens', amd.max_tokens, 'temperature', amd.temperature, 'scope', 'agent_default', 'inheritedFromAgent', 1, 'allowPaidSharedModel', amd.allow_paid_shared_model) END as default_model_config,
+        dmp.name as default_model_profile_name,
+        dmp.owner_id as default_model_profile_owner_id,
+        COALESCE(dmu.nickname, dmu.username) as default_model_profile_owner_name,
+        CASE WHEN amd.model_profile_id IS NULL THEN NULL WHEN dmp.owner_id = a.owner_id THEN 'user_owned' WHEN dmp.visibility = 'platform' THEN 'platform' ELSE 'marketplace' END as default_model_source
+      FROM agents a
+      LEFT JOIN users u ON u.id = a.owner_id
+      LEFT JOIN agent_model_defaults amd ON amd.agent_id = a.id
+      LEFT JOIN model_profiles dmp ON dmp.id = amd.model_profile_id
+      LEFT JOIN users dmu ON dmu.id = dmp.owner_id
+      WHERE a.id = ?
+    `).get(agentId) as AgentRow | undefined
     if (!row) {
       throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found' }
     }
@@ -162,8 +125,17 @@ export class AgentService extends AgentWorkspaceService {
 
   async getUserAgents(ownerId: string): Promise<Agent[]> {
     const rows = db.prepare(`
-      SELECT agents.*, COALESCE(u.nickname, u.username) owner_name FROM agents
+      SELECT agents.*, COALESCE(u.nickname, u.username) owner_name,
+        CASE WHEN amd.agent_id IS NULL THEN NULL ELSE json_object('modelProfileId', amd.model_profile_id, 'model', amd.model, 'runtime', amd.runtime, 'maxTokens', amd.max_tokens, 'temperature', amd.temperature, 'scope', 'agent_default', 'inheritedFromAgent', 1, 'allowPaidSharedModel', amd.allow_paid_shared_model) END as default_model_config,
+        dmp.name as default_model_profile_name,
+        dmp.owner_id as default_model_profile_owner_id,
+        COALESCE(dmu.nickname, dmu.username) as default_model_profile_owner_name,
+        CASE WHEN amd.model_profile_id IS NULL THEN NULL WHEN dmp.owner_id = ? THEN 'user_owned' WHEN dmp.visibility = 'platform' THEN 'platform' ELSE 'marketplace' END as default_model_source
+      FROM agents
       LEFT JOIN users u ON u.id = agents.owner_id
+      LEFT JOIN agent_model_defaults amd ON amd.agent_id = agents.id
+      LEFT JOIN model_profiles dmp ON dmp.id = amd.model_profile_id
+      LEFT JOIN users dmu ON dmu.id = dmp.owner_id
       WHERE COALESCE(is_template, 1) = 1
         AND (config IS NULL OR config NOT LIKE '%"defaultRoomAssistant":true%')
         AND (
@@ -179,7 +151,7 @@ export class AgentService extends AgentWorkspaceService {
           ELSE 2
         END ASC,
         created_at DESC
-    `).all(ownerId, ownerId) as AgentRow[]
+    `).all(ownerId, ownerId, ownerId) as AgentRow[]
     return rows.map(r => rowToAgent(r))
   }
 
@@ -498,18 +470,26 @@ export class AgentService extends AgentWorkspaceService {
   async getAutoAgent(roomId: string): Promise<Agent | null> {
     const select = `
       SELECT a.*, COALESCE(u.nickname, u.username) owner_name, ra.room_role, ra.auto_enabled, ra.priority as room_priority,
-        CASE WHEN b.room_id IS NULL THEN NULL ELSE json_object('modelProfileId', b.model_profile_id, 'model', b.model, 'runtime', b.runtime, 'maxTokens', b.max_tokens, 'temperature', b.temperature) END as room_model_config,
+        CASE WHEN b.room_id IS NULL THEN NULL ELSE json_object('modelProfileId', b.model_profile_id, 'model', b.model, 'runtime', b.runtime, 'maxTokens', b.max_tokens, 'temperature', b.temperature, 'scope', 'room_override', 'inheritedFromAgent', 0) END as room_model_config,
         mp.name as room_model_profile_name,
         mp.owner_id as room_model_profile_owner_id,
         COALESCE(mu.nickname, mu.username) as room_model_profile_owner_name,
         CASE WHEN b.model_profile_id IS NULL THEN NULL WHEN mp.owner_id = r.created_by THEN 'user_owned' WHEN mp.visibility = 'platform' THEN 'platform' ELSE 'marketplace' END as room_model_source,
+        CASE WHEN amd.agent_id IS NULL THEN NULL ELSE json_object('modelProfileId', amd.model_profile_id, 'model', amd.model, 'runtime', amd.runtime, 'maxTokens', amd.max_tokens, 'temperature', amd.temperature, 'scope', 'agent_default', 'inheritedFromAgent', 1, 'allowPaidSharedModel', amd.allow_paid_shared_model) END as default_model_config,
+        dmp.name as default_model_profile_name,
+        dmp.owner_id as default_model_profile_owner_id,
+        COALESCE(dmu.nickname, dmu.username) as default_model_profile_owner_name,
+        CASE WHEN amd.model_profile_id IS NULL THEN NULL WHEN dmp.owner_id = r.created_by THEN 'user_owned' WHEN dmp.visibility = 'platform' THEN 'platform' ELSE 'marketplace' END as default_model_source,
         (SELECT MAX(last_active_at) FROM agent_sessions s WHERE s.room_id = ra.room_id AND s.agent_id = a.id) as agent_last_active_at
       FROM agents a INNER JOIN room_agents ra ON a.id = ra.agent_id
       INNER JOIN rooms r ON r.id = ra.room_id
       LEFT JOIN users u ON u.id = a.owner_id
       LEFT JOIN room_agent_model_bindings b ON b.room_id = ra.room_id AND b.agent_id = ra.agent_id
       LEFT JOIN model_profiles mp ON mp.id = b.model_profile_id
-      LEFT JOIN users mu ON mu.id = mp.owner_id`
+      LEFT JOIN users mu ON mu.id = mp.owner_id
+      LEFT JOIN agent_model_defaults amd ON amd.agent_id = a.id
+      LEFT JOIN model_profiles dmp ON dmp.id = amd.model_profile_id
+      LEFT JOIN users dmu ON dmu.id = dmp.owner_id`
     const current = db.prepare(`${select} WHERE ra.room_id = ? AND r.current_assistant_agent_id = a.id AND a.status != 'inactive' LIMIT 1`).get(roomId) as AgentRow | undefined
     const fallback = current || db.prepare(`${select} WHERE ra.room_id = ? AND ra.auto_enabled = 1 AND a.status != 'inactive' ORDER BY ra.priority ASC, ra.added_at ASC LIMIT 1`).get(roomId) as AgentRow | undefined
     return fallback ? rowToAgent(fallback) : null
@@ -585,12 +565,28 @@ export class AgentService extends AgentWorkspaceService {
           'model', b.model,
           'runtime', b.runtime,
           'maxTokens', b.max_tokens,
-          'temperature', b.temperature
+          'temperature', b.temperature,
+          'scope', 'room_override',
+          'inheritedFromAgent', 0
         ) END as room_model_config,
         mp.name as room_model_profile_name,
         mp.owner_id as room_model_profile_owner_id,
         COALESCE(mu.nickname, mu.username) as room_model_profile_owner_name,
         CASE WHEN b.model_profile_id IS NULL THEN NULL WHEN mp.owner_id = r.created_by THEN 'user_owned' WHEN mp.visibility = 'platform' THEN 'platform' ELSE 'marketplace' END as room_model_source,
+        CASE WHEN amd.agent_id IS NULL THEN NULL ELSE json_object(
+          'modelProfileId', amd.model_profile_id,
+          'model', amd.model,
+          'runtime', amd.runtime,
+          'maxTokens', amd.max_tokens,
+          'temperature', amd.temperature,
+          'scope', 'agent_default',
+          'inheritedFromAgent', 1,
+          'allowPaidSharedModel', amd.allow_paid_shared_model
+        ) END as default_model_config,
+        dmp.name as default_model_profile_name,
+        dmp.owner_id as default_model_profile_owner_id,
+        COALESCE(dmu.nickname, dmu.username) as default_model_profile_owner_name,
+        CASE WHEN amd.model_profile_id IS NULL THEN NULL WHEN dmp.owner_id = r.created_by THEN 'user_owned' WHEN dmp.visibility = 'platform' THEN 'platform' ELSE 'marketplace' END as default_model_source,
         (
         SELECT MAX(last_active_at)
         FROM agent_sessions s
@@ -603,6 +599,9 @@ export class AgentService extends AgentWorkspaceService {
       LEFT JOIN room_agent_model_bindings b ON b.room_id = ra.room_id AND b.agent_id = ra.agent_id
       LEFT JOIN model_profiles mp ON mp.id = b.model_profile_id
       LEFT JOIN users mu ON mu.id = mp.owner_id
+      LEFT JOIN agent_model_defaults amd ON amd.agent_id = a.id
+      LEFT JOIN model_profiles dmp ON dmp.id = amd.model_profile_id
+      LEFT JOIN users dmu ON dmu.id = dmp.owner_id
       WHERE ra.room_id = ?
       ORDER BY ra.auto_enabled DESC, ra.priority ASC, ra.added_at ASC
     `).all(roomId) as AgentRow[]

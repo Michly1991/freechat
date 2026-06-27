@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../../lib/api'
 import { TemplatePermissionPanel } from './TemplatePermissionPanel'
 import { KnowledgePanel } from './KnowledgePanel'
+import { AgentModelDialog } from './AgentModelDialog'
 
 const TOOL_KEYS = ['chat', 'task', 'file', 'tab', 'interaction', 'members']
 
@@ -34,6 +35,7 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null)
   const [scriptForm, setScriptForm] = useState({ name: '', description: '', language: 'bash', content: '', enabled: true, runPolicy: 'manual_only' })
   const [billingRule, setBillingRule] = useState<any | null>(null)
+  const [showModelDialog, setShowModelDialog] = useState(false)
   const [billingForm, setBillingForm] = useState({ billingMode: 'free', inputCreditPerMillion: 0, outputCreditPerMillion: 0, cacheWriteCreditPerMillion: 0, cacheReadCreditPerMillion: 0, minCreditsPerRun: 0, modelFreeRunsPerDay: 0, modelOveragePolicy: 'charge', enabled: true })
 
   useEffect(() => {
@@ -66,6 +68,7 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
       setEditingProfile(false)
       setEditingSkillId(null)
       setEditingScriptId(null)
+      setShowModelDialog(false)
     } catch (err: any) {
       feedback.error(err?.message || '加载 Agent 配置失败')
     } finally {
@@ -209,6 +212,14 @@ export function AgentConfigEditor({ agentId, feedback, scopeLabel, emptyText = '
         {canEdit && <pre className="text-xs bg-gray-900 text-gray-100 rounded-xl p-3 overflow-auto max-h-40 whitespace-pre-wrap mt-3">{agent.config?.systemPrompt || '暂无自定义提示词'}</pre>}
       </div>}
     </section>
+
+    <section className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-2 mb-3"><div><h3 className="font-semibold text-gray-900">模型与运行</h3><p className="text-xs text-gray-400 mt-1">通讯录 Agent 默认模型。项目房间默认继承，也可在房间里单独覆盖。</p></div>{canEdit && <button onClick={() => setShowModelDialog(true)} className="text-sm text-blue-600">设置模型</button>}</div>
+      <div className="rounded-xl bg-gray-50 px-3 py-2 text-sm text-gray-600">
+        {agent.defaultModelConfig?.model || agent.defaultModelConfig?.modelProfileName ? <><p className="font-medium text-gray-800">{agent.defaultModelConfig.modelProfileName || '默认模型配置'}{agent.defaultModelConfig.model ? ` · ${agent.defaultModelConfig.model}` : ''}</p><p className="text-xs text-gray-500 mt-1">{agent.defaultModelConfig.modelSource === 'user_owned' ? '我的模型' : agent.defaultModelConfig.modelSource === 'platform' ? '平台模型' : agent.defaultModelConfig.modelSource === 'marketplace' ? '共享/市场模型' : '模型配置'}{agent.defaultModelConfig.allowPaidSharedModel ? ' · 允许按模型定价售卖' : ''}</p></> : <p>未设置 Agent 默认模型；运行时使用平台默认，或由项目房间单独覆盖。</p>}
+      </div>
+    </section>
+    {showModelDialog && <AgentModelDialog mode="agent-default" agent={agent} onClose={() => setShowModelDialog(false)} onSaved={() => loadDetail(agent.id)} feedback={feedback} />}
 
     {canEdit && <KnowledgePanel scope="agent" agentId={agent.id} feedback={feedback} compact />}
 
