@@ -14,6 +14,8 @@ import { marketEngagementService } from '../services/market-engagement.service.j
 import { roomAssistantService } from '../services/room-assistant.service.js'
 import { workgroupService } from '../services/workgroup.service.js'
 import { billingQueryRepository } from '../domains/billing/billing-query.repository.js'
+import { assertRoomEditor, assertRoomMember, routeAuthError } from './route-auth.js'
+import { assertCanAddRoomMember, assertCanChangeRoomMemberRole, assertCanRemoveRoomMember } from '../utils/room-authz.js'
 
 function routeToInt(value: any): number {
   const n = Number(value || 0)
@@ -124,13 +126,16 @@ export async function registerRoomRoutes(app: FastifyInstance) {
 
   // Update room
   app.patch('/api/rooms/:id', async (request, reply) => {
+    const user = (request as any).user
     const { id } = request.params as any
     const { name, description } = request.body as any
 
     try {
+      assertRoomEditor(id, user.id)
       const room = await roomService.updateRoom(id, name, description)
       return reply.send({ success: true, data: { room } })
     } catch (err: any) {
+      if (err.code === 'NOT_ROOM_MEMBER' || err.code === 'FORBIDDEN') return routeAuthError(reply, err)
       throw err
     }
   })
@@ -326,12 +331,15 @@ export async function registerRoomRoutes(app: FastifyInstance) {
 
   // Get room members
   app.get('/api/rooms/:id/members', async (request, reply) => {
+    const user = (request as any).user
     const { id } = request.params as any
 
     try {
+      assertRoomMember(id, user.id)
       const members = await roomService.getRoomMembers(id)
       return reply.send({ success: true, data: { members } })
     } catch (err: any) {
+      if (err.code === 'NOT_ROOM_MEMBER' || err.code === 'FORBIDDEN') return routeAuthError(reply, err)
       throw err
     }
   })
@@ -355,12 +363,10 @@ export async function registerRoomRoutes(app: FastifyInstance) {
       })
     }
 
-    const current = db.prepare('SELECT role FROM room_members WHERE room_id = ? AND user_id = ?').get(id, user.id) as any
-    if (!current || !['owner', 'editor'].includes(current.role)) {
-      return reply.code(403).send({
-        success: false,
-        error: { code: 'FORBIDDEN', message: 'Only project owner/editor can add collaborators' }
-      })
+    try {
+      assertCanAddRoomMember(id, user.id, role)
+    } catch (err: any) {
+      return routeAuthError(reply, err)
     }
 
     const target = db.prepare('SELECT id FROM users WHERE id = ?').get(userId) as any
@@ -385,24 +391,69 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     return reply.send({ success: true, data: { members } })
   })
 
+  // Update a room member role (owner only; room must keep at least one owner)
+  app.patch('/api/rooms/:id/members/:userId', async (request, reply) => {
+    const user = (request as any).user
+    const { id, userId } = request.params as any
+    const { role } = request.body as any
+    if (!['owner', 'editor', 'viewer'].includes(role)) {
+      return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'invalid role' } })
+    }
+    try {
+      assertCanChangeRoomMemberRole(id, user.id, userId, role)
+      await roomService.updateMemberRole(id, userId, role)
+      await agentService.refreshRoomAgentContext(id).catch(() => {})
+      const members = await roomService.getRoomMembers(id)
+      getGateway()?.broadcast(id, { msgId: uuidv4(), roomId: id, type: 'broadcast', action: 'room.members_update', payload: { members }, timestamp: Date.now() })
+      return reply.send({ success: true, data: { members } })
+    } catch (err: any) {
+      if (err.code === 'NOT_ROOM_MEMBER' || err.code === 'FORBIDDEN' || err.code === 'LAST_OWNER_REQUIRED') return routeAuthError(reply, err)
+      throw err
+    }
+  })
+
+  // Remove a room member (owner only except self-leave; room must keep at least one owner)
+  app.delete('/api/rooms/:id/members/:userId', async (request, reply) => {
+    const user = (request as any).user
+    const { id, userId } = request.params as any
+    try {
+      assertCanRemoveRoomMember(id, user.id, userId)
+      await roomService.removeMember(id, userId)
+      await agentService.refreshRoomAgentContext(id).catch(() => {})
+      const members = await roomService.getRoomMembers(id)
+      getGateway()?.broadcast(id, { msgId: uuidv4(), roomId: id, type: 'broadcast', action: 'room.members_update', payload: { members }, timestamp: Date.now() })
+      return reply.send({ success: true, data: { members } })
+    } catch (err: any) {
+      if (err.code === 'NOT_ROOM_MEMBER' || err.code === 'FORBIDDEN' || err.code === 'LAST_OWNER_REQUIRED') return routeAuthError(reply, err)
+      throw err
+    }
+  })
+
   // Create invite link
   app.post('/api/rooms/:id/invite-link', async (request, reply) => {
     const user = (request as any).user
     const { id } = request.params as any
-    const { max_uses, expires_in_days } = request.body as any
+    const { max_uses, expires_in_days, role: requestedRole } = request.body as any
+    const role = ['owner', 'editor', 'viewer'].includes(requestedRole) ? requestedRole : 'viewer'
+
+    try {
+      assertRoomEditor(id, user.id)
+    } catch (err: any) {
+      return routeAuthError(reply, err)
+    }
 
     const code = uuidv4().replace(/-/g, '').substring(0, 12)
     const now = Date.now()
     const expiresAt = expires_in_days ? now + (expires_in_days * 24 * 60 * 60 * 1000) : null
 
     db.prepare(`
-      INSERT INTO room_invites (code, room_id, created_by, max_uses, expires_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(code, id, user.id, max_uses || null, expiresAt, now)
+      INSERT INTO room_invites (code, room_id, created_by, max_uses, expires_at, role, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(code, id, user.id, max_uses || null, expiresAt, role, now)
 
     return reply.send({
       success: true,
-      data: { code, url: `/invite?code=${code}`, expires_at: expiresAt }
+      data: { code, url: `/invite?code=${code}`, expires_at: expiresAt, role }
     })
   })
 
@@ -440,14 +491,22 @@ export async function registerRoomRoutes(app: FastifyInstance) {
       })
     }
 
+    if (invite.revoked_at) {
+      return reply.code(410).send({
+        success: false,
+        error: { code: 'INVITE_REVOKED', message: 'Invite has been revoked' }
+      })
+    }
+
+    const room = await roomService.getRoom(invite.room_id)
+    const inviteRole = ['owner', 'editor', 'viewer'].includes(invite.role) ? invite.role : 'viewer'
     // Add member
-    await roomService.addMember(invite.room_id, user.id, 'editor')
+    await roomService.addMember(invite.room_id, user.id, inviteRole)
     await agentService.refreshRoomAgentContext(invite.room_id).catch(() => {})
 
     // Increment used count
     db.prepare('UPDATE room_invites SET used_count = used_count + 1 WHERE code = ?').run(invite_code)
 
-    const room = await roomService.getRoom(invite.room_id)
     const members = await roomService.getRoomMembers(invite.room_id)
 
     // Notify users already inside the room so their member panels refresh immediately.
@@ -460,7 +519,7 @@ export async function registerRoomRoutes(app: FastifyInstance) {
       timestamp: Date.now()
     })
 
-    return reply.send({ success: true, data: { room, role: 'editor' } })
+    return reply.send({ success: true, data: { room, role: inviteRole } })
   })
 
   // Leave room
@@ -469,9 +528,11 @@ export async function registerRoomRoutes(app: FastifyInstance) {
     const { id } = request.params as any
 
     try {
+      assertCanRemoveRoomMember(id, user.id, user.id)
       await roomService.removeMember(id, user.id)
       return reply.send({ success: true })
     } catch (err: any) {
+      if (err.code === 'NOT_ROOM_MEMBER' || err.code === 'FORBIDDEN' || err.code === 'LAST_OWNER_REQUIRED') return routeAuthError(reply, err)
       throw err
     }
   })

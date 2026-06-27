@@ -50,10 +50,24 @@ function ensureActorInDm(conversationId: string, actorUserId: string) {
 }
 
 function ensureConversationPref(actorUserId: string, type: string, id: string) {
+  assertConversationAccessible(actorUserId, type, id)
   db.prepare(`
     INSERT OR IGNORE INTO conversation_prefs (user_id, conversation_type, conversation_id, pinned, muted, hidden, last_read_at, updated_at)
     VALUES (?, ?, ?, 0, 0, 0, 0, ?)
   `).run(actorUserId, type, id, Date.now())
+}
+
+function assertConversationAccessible(actorUserId: string, type: string, id: string) {
+  if (type === 'project') {
+    const row = db.prepare('SELECT 1 FROM room_members rm INNER JOIN rooms r ON r.id = rm.room_id WHERE rm.room_id = ? AND rm.user_id = ? AND r.deleted_at IS NULL').get(id, actorUserId)
+    if (!row) throw { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' }
+    return
+  }
+  if (type === 'dm') {
+    ensureActorInDm(id, actorUserId)
+    return
+  }
+  throw { code: 'VALIDATION_ERROR', message: 'invalid conversation type' }
 }
 
 function listConversations(actorUserId: string) {
@@ -214,6 +228,7 @@ export async function handleAppUiTool(ctx: AppUiToolContext): Promise<{ handled:
       const userId = args.userId || args.id
       if (!userId) throw { code: 'VALIDATION_ERROR', message: 'userId is required' }
       if (userId === actorUserId) throw { code: 'VALIDATION_ERROR', message: 'cannot open DM with self' }
+      if (!areFriends(actorUserId, userId)) throw { code: 'NOT_FRIENDS', message: '只能和好友单聊' }
       const userA = [actorUserId, userId].sort()[0]
       const userB = [actorUserId, userId].sort()[1]
       let row = db.prepare('SELECT * FROM dm_conversations WHERE user_a_id = ? AND user_b_id = ?').get(userA, userB) as any

@@ -45,6 +45,13 @@ workspace-data/{roomId}/meta/tabs.json
 - 缺失配置时自动创建空配置；默认不显示任何文件。
 - 前端文件 Tab 显示后端过滤后的文件树，并提示“仅显示已加入当前 Tab 配置的文件”。
 
+
+## 权限
+
+- `GET /api/rooms/:roomId/tab-config/:tabKey`：仅房间成员可读取。
+- `POST/DELETE /files` 与 `POST /dirs`：属于 Tab 可见性配置写操作，仅房间 `owner/editor` 可执行；`viewer` 只能查看。
+- Agent Tool 的 `tab-config.add-file/remove-file` 同样必须沿用 actorUserId 的房间编辑权限，不能因调用者是房间助理而放宽。
+
 ## API
 
 ```text

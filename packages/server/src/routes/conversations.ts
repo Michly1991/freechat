@@ -1,5 +1,24 @@
 import { FastifyInstance } from 'fastify'
 import db from '../storage/db.js'
+import { routeAuthError } from './route-auth.js'
+
+function assertConversationAccessible(userId: string, type: string, id: string) {
+  if (type === 'project') {
+    const row = db.prepare(`
+      SELECT 1 FROM room_members rm
+      INNER JOIN rooms r ON r.id = rm.room_id
+      WHERE rm.user_id = ? AND rm.room_id = ? AND r.deleted_at IS NULL
+    `).get(userId, id)
+    if (!row) throw { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' }
+    return
+  }
+  if (type === 'dm') {
+    const row = db.prepare('SELECT 1 FROM dm_conversations WHERE id = ? AND (user_a_id = ? OR user_b_id = ?)').get(id, userId, userId)
+    if (!row) throw { code: 'DM_NOT_FOUND', message: 'DM conversation not found' }
+    return
+  }
+  throw { code: 'VALIDATION_ERROR', message: 'invalid conversation type' }
+}
 
 function ensurePref(userId: string, type: string, id: string) {
   db.prepare(`
@@ -146,7 +165,13 @@ export async function registerConversationRoutes(app: FastifyInstance) {
       return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'type and id are required' } })
     }
 
-    ensurePref(user.id, type, id)
+    try {
+      assertConversationAccessible(user.id, type, id)
+      ensurePref(user.id, type, id)
+    } catch (err: any) {
+      if (err.code === 'VALIDATION_ERROR') return reply.code(400).send({ success: false, error: err })
+      return routeAuthError(reply, err)
+    }
     const now = Date.now()
     db.prepare(`
       UPDATE conversation_prefs
@@ -171,7 +196,13 @@ export async function registerConversationRoutes(app: FastifyInstance) {
       return reply.code(400).send({ success: false, error: { code: 'VALIDATION_ERROR', message: 'invalid conversation type' } })
     }
 
-    ensurePref(user.id, type, id)
+    try {
+      assertConversationAccessible(user.id, type, id)
+      ensurePref(user.id, type, id)
+    } catch (err: any) {
+      if (err.code === 'VALIDATION_ERROR') return reply.code(400).send({ success: false, error: err })
+      return routeAuthError(reply, err)
+    }
     const updates: string[] = []
     const values: any[] = []
     if (pinned !== undefined) { updates.push('pinned = ?'); values.push(pinned ? 1 : 0) }

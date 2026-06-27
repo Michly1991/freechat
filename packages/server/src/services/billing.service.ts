@@ -6,8 +6,10 @@ import db from '../storage/db.js'
 import { aiConfigService } from './ai-config.service.js'
 import type { TokenUsage } from './room-analytics.service.js'
 import { creditWalletService } from './credit-wallet.service.js'
-import { ceilMicro, microToCredit, toInt } from '../domains/billing/money.js'
-import { PLATFORM_USER_ID } from './platform-model-bootstrap.service.js'
+import { microToCredit, toInt } from '../domains/billing/money.js'
+import { calculateRunCharge } from '../domains/pricing/pricing-engine.js'
+import { pricingPolicyRepository } from '../domains/pricing/pricing-policy.repository.js'
+import type { AgentPricingPolicy, PricingPromotion, PromotionUsage } from '../domains/pricing/pricing.types.js'
 
 export type BillingStatus = 'not_billable' | 'billed' | 'price_missing' | 'billing_failed'
 
@@ -19,33 +21,6 @@ export type BillingPreflightResult = {
   reason?: 'INSUFFICIENT_CREDITS'
 }
 
-type TokenRule = {
-  id: string
-  billing_mode?: string | null
-  input_credit_per_million?: number | null
-  output_credit_per_million?: number | null
-  cache_write_credit_per_million?: number | null
-  cache_read_credit_per_million?: number | null
-  min_credits_per_run?: number | null
-  provider_user_id?: string | null
-  model_free_runs_per_day?: number | null
-  model_overage_policy?: string | null
-}
-
-function chargeByTokens(usage: TokenUsage, rule: {
-  input_credit_per_million?: number | null
-  output_credit_per_million?: number | null
-  cache_write_credit_per_million?: number | null
-  cache_read_credit_per_million?: number | null
-}): number {
-  const amount =
-    (toInt(usage.inputTokens) * Number(rule.input_credit_per_million || 0) / 1_000_000) +
-    (toInt(usage.outputTokens) * Number(rule.output_credit_per_million || 0) / 1_000_000) +
-    (toInt(usage.cacheCreationInputTokens) * Number(rule.cache_write_credit_per_million || 0) / 1_000_000) +
-    (toInt(usage.cacheReadInputTokens) * Number(rule.cache_read_credit_per_million || 0) / 1_000_000)
-  return ceilMicro(amount)
-}
-
 export class BillingService {
   private dayStart(ts = Date.now()): number {
     const date = new Date(ts)
@@ -53,18 +28,20 @@ export class BillingService {
     return date.getTime()
   }
 
-  private isWithinAgentModelFreeQuota(event: MeteredUsageEvent, agentRule?: TokenRule): boolean {
-    const freeRuns = Math.max(0, toInt(agentRule?.model_free_runs_per_day))
-    if (!freeRuns || agentRule?.model_overage_policy === 'block') return false
-    const used = db.prepare(`
+  private promotionUsed(event: MeteredUsageEvent, promotion: PricingPromotion): number {
+    if (promotion.kind !== 'daily_free_runs' || promotion.scope !== 'payer_agent_day') return 0
+    return Number((db.prepare(`
       SELECT COUNT(1) count
       FROM metered_usage_events mue
       LEFT JOIN billing_ledger_entries ble ON ble.usage_event_id = mue.id AND ble.entry_type = 'model_usage_charge' AND ble.direction = 'debit'
       WHERE mue.payer_user_id = ? AND mue.agent_template_id = ? AND mue.created_at >= ?
         AND mue.id != ? AND COALESCE(mue.status, '') IN ('charged', 'ignored')
         AND ble.id IS NULL
-    `).get(event.payerUserId, event.agentTemplateId || event.agentId, this.dayStart(event.createdAt), event.id) as any
-    return Number(used?.count || 0) < freeRuns
+    `).get(event.payerUserId, event.agentTemplateId || event.agentId, this.dayStart(event.createdAt), event.id) as any)?.count || 0)
+  }
+
+  private promotionUsage(event: MeteredUsageEvent, agentPolicy?: AgentPricingPolicy): PromotionUsage[] {
+    return (agentPolicy?.promotions || []).map((promotion) => ({ promotion, used: this.promotionUsed(event, promotion) }))
   }
 
   billRun(runId: string): BillingStatus {
@@ -146,13 +123,13 @@ export class BillingService {
     const agent = db.prepare('SELECT owner_id FROM agents WHERE id = ?').get(agentId) as any
     const payerUserId = actorUserId || room?.created_by || agent?.owner_id || 'system'
     const binding = this.resolveRoomAgentModelBinding(roomId, agentId)
-    const modelRule = binding.modelProfileId && binding.model
-      ? this.getModelRule(binding.modelProfileId, binding.model)
-      : (binding.model ? this.findPlatformModelRule(binding.model) : undefined)
-    const agentTemplateId = this.resolveAgentTemplateId(agentId)
-    const agentRule = agentTemplateId ? this.getAgentRule(agentTemplateId) : undefined
-    const chargeAgent = !!agentRule && agentRule.billing_mode === 'per_token' && agentRule.provider_user_id && agentRule.provider_user_id !== payerUserId
-    const estimatedMinMicrocredits = toInt(modelRule?.min_credits_per_run) + (chargeAgent ? toInt(agentRule?.min_credits_per_run) : 0)
+    const modelPolicy = binding.modelProfileId && binding.model
+      ? pricingPolicyRepository.getModelPolicy(binding.modelProfileId, binding.model)
+      : (binding.model ? pricingPolicyRepository.findPlatformModelPolicy(binding.model) : undefined)
+    const agentTemplateId = pricingPolicyRepository.resolveAgentTemplateId(agentId)
+    const agentPolicy = agentTemplateId ? pricingPolicyRepository.getAgentPolicy(agentTemplateId) : undefined
+    const chargeAgent = !!agentPolicy?.agentService && agentPolicy.agentService.mode === 'per_token' && agentPolicy.agentService.providerUserId && agentPolicy.agentService.providerUserId !== payerUserId
+    const estimatedMinMicrocredits = toInt(modelPolicy?.minCreditsPerRun) + (chargeAgent ? toInt(agentPolicy?.agentService.minCreditsPerRun) : 0)
     const account = creditWalletService.getAccount(payerUserId)
     const allowed = estimatedMinMicrocredits <= 0 || account.balance >= estimatedMinMicrocredits
     return {
@@ -171,64 +148,17 @@ export class BillingService {
       cacheCreationInputTokens: event.cacheWriteTokens,
       cacheReadInputTokens: event.cacheReadTokens,
     }
-    const modelRule = this.resolveModelRule(event)
-    const agentRule = event.agentTemplateId ? this.getAgentRule(event.agentTemplateId) : undefined
-    const modelFreeQuota = this.isWithinAgentModelFreeQuota(event, agentRule)
-    const modelCharge = modelFreeQuota ? 0 : (modelRule ? Math.max(chargeByTokens(usage, modelRule), toInt(modelRule.min_credits_per_run)) : 0)
-    const chargeAgent = !!agentRule && agentRule.billing_mode === 'per_token' && event.agentProviderUserId && event.agentProviderUserId !== event.payerUserId
-    const agentRawCharge = chargeAgent ? chargeByTokens(usage, agentRule) : 0
-    const agentCharge = chargeAgent && agentRawCharge > 0 ? Math.max(agentRawCharge, toInt(agentRule.min_credits_per_run)) : 0
-    const totalCharge = modelCharge + agentCharge
-    const hasAnyRule = !!modelRule || !!agentRule
-    const status: BillingStatus = totalCharge > 0 ? 'billed' : (modelRule && modelFreeQuota ? 'not_billable' : (hasAnyRule ? 'not_billable' : 'price_missing'))
-    return {
-      modelCharge,
-      agentCharge,
-      totalCharge,
-      status,
-      snapshot: JSON.stringify({ modelRule: modelRule || null, agentRule: agentRule || null, modelFreeQuotaApplied: !!modelRule && modelFreeQuota }),
-    }
+    const modelPolicy = this.resolveModelPolicy(event)
+    const agentPolicy = event.agentTemplateId ? pricingPolicyRepository.getAgentPolicy(event.agentTemplateId) : undefined
+    const chargeAgentService = !!agentPolicy?.agentService.providerUserId && agentPolicy.agentService.providerUserId !== event.payerUserId
+    return calculateRunCharge({ usage, modelPolicy, agentPolicy, chargeAgentService, promotionUsage: this.promotionUsage(event, agentPolicy) })
   }
 
-  private resolveModelRule(event: MeteredUsageEvent): TokenRule | undefined {
+  private resolveModelPolicy(event: MeteredUsageEvent) {
     if ((event.usageSource === 'client_reported' || event.modelSource === 'client_reported' || event.runtime === 'remote-claude-code') && event.runtime !== 'platform-hosted-client') return undefined
-    if (event.modelProfileId && event.model) return this.getModelRule(event.modelProfileId, event.model)
-    if (event.model) return this.findPlatformModelRule(event.model)
+    if (event.modelProfileId && event.model) return pricingPolicyRepository.getModelPolicy(event.modelProfileId, event.model)
+    if (event.model) return pricingPolicyRepository.findPlatformModelPolicy(event.model)
     return undefined
-  }
-
-  private getModelRule(modelProfileId: string, model: string): TokenRule | undefined {
-    return db.prepare(`
-      SELECT * FROM model_billing_rules
-      WHERE model_profile_id = ? AND model = ? AND enabled = 1
-      LIMIT 1
-    `).get(modelProfileId, model) as TokenRule | undefined
-  }
-
-  private findPlatformModelRule(model: string): TokenRule | undefined {
-    return db.prepare(`
-      SELECT mbr.*
-      FROM model_billing_rules mbr
-      INNER JOIN model_profiles mp ON mp.id = mbr.model_profile_id
-      WHERE mbr.model = ? AND mbr.enabled = 1 AND mp.enabled = 1 AND (mp.visibility = 'platform' OR mp.owner_id = ?)
-      ORDER BY CASE WHEN mp.owner_id = ? THEN 0 ELSE 1 END, mbr.updated_at DESC
-      LIMIT 1
-    `).get(model, PLATFORM_USER_ID, PLATFORM_USER_ID) as TokenRule | undefined
-  }
-
-  private getAgentRule(agentTemplateId: string): TokenRule | undefined {
-    return db.prepare(`
-      SELECT abr.*, a.owner_id provider_user_id
-      FROM agent_billing_rules abr
-      LEFT JOIN agents a ON a.id = abr.agent_template_id
-      WHERE abr.agent_template_id = ? AND abr.enabled = 1
-      LIMIT 1
-    `).get(agentTemplateId) as TokenRule | undefined
-  }
-
-  private resolveAgentTemplateId(agentId: string): string | null {
-    const agent = db.prepare('SELECT source_template_id FROM agents WHERE id = ?').get(agentId) as any
-    return agent?.source_template_id || agentId || null
   }
 
   private resolveRoomAgentModelBinding(roomId: string, agentId: string): { modelProfileId: string | null; model: string | null } {

@@ -38,6 +38,19 @@
 
 ---
 
+## 后端分层与热点拆分原则
+
+FreeChat 后端以 Fastify route 作为协议边界，业务规则下沉到 service/domain/repository：
+
+- route：解析 HTTP/WS/Agent Tool 输入，做认证上下文装配和错误码映射，不承载复杂业务分支。
+- service/domain：承载业务规则、权限兜底、状态机和跨表写入；例如 billing 已拆成 pricing policy、pricing engine 与 settlement orchestration。
+- storage schema：按领域拆成 `*-schema.ts`，`db.ts` 只保留核心基线表与初始化编排；新增大表优先独立 schema 文件。
+- Agent Tool：采用薄路由 + 领域处理器链，避免在单个 route 文件维护大型 action switch。
+- Agent runtime/workspace：CLI wrapper、CLI CJS 模板、workspace/context 文件生成分离；长模板允许单独资源文件承载，业务服务只做渲染装配。
+- Workgroup：基础成员/Agent/房间管理与入口分享/访客会话拆分，避免工作组服务继续膨胀。
+
+文件大小约束：新增或重构后的代码/Markdown 默认不超过 500 行；历史热点只允许逐步降低，不再继续膨胀。
+
 ## 项目结构
 
 ```

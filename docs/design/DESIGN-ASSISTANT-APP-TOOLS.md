@@ -19,6 +19,20 @@ FreeChat 的助手 Agent 不应只会聊天，还应能调用 FreeChat 应用自
 5. **可自测**：CLI 提供 smoke/selftest 命令，使用隔离命名并尽量清理。
 6. **文档轻量**：主文档和模板不堆超长内容；工具清单可拆到 `.freechat` 或 `res`。
 
+## 路由拆分与处理器模式
+
+`POST /api/agent-tools/:roomId` 保持唯一兼容入口，但实现上采用薄路由 + 领域处理器链：
+
+- `routes/agent-tools.ts`：只做 token/actor 解析、房间 Agent 归属校验、工具调用审计、stream activity 与错误映射。
+- `agent-tools.app-ui.ts`：工具清单、个人/会话/Friends/DM/用户查询等 App UI 工具。
+- `agent-tools-file.ts`：项目文件读写、目录、glob、promote/delete。
+- `agent-tools-tab.ts`：Tab read/search/patch/open/action 等轻量 Tab 操作。
+- `agent-tools-task.ts`：`chat.send`、任务、子任务、任务计划相关动作。
+- `agent-tools-interaction-tab.ts`：interaction CRUD 与 Tab 配置/CRUD/reorder。
+- `agent-tools-admin.ts`：Agent 增删改查、能力脚本、场景、成员、房间、工作组与邀请。
+
+处理器统一返回 `{ handled, response }`。主路由按顺序分派，未匹配时返回 `UNKNOWN_ACTION`。权限仍在服务端兜底：主路由负责 Agent 工具权限和 actor 解析；处理器内部对成员/邀请/Agent 增删等敏感动作继续调用房间 owner/editor 或 Agent owner 校验，不能依赖 CLI/前端是否隐藏命令。
+
 ## 调用协议
 
 现有入口继续兼容：
@@ -148,6 +162,18 @@ Agent 工作区根目录提供 `./freechat`：
 | 用户设置 | 修改资料/密码/头像 | `/user/*` | 暂不开放 | dangerous | blocked |
 
 
+
+
+## 权限收敛补充（2026-06-27）
+
+Assistant App Tools 不得成为绕过 Web/REST 权限的旁路：
+
+- `agent.add/remove/restart`、`members.add`、`profiles.update`、`room.update`、`room.create-invite` 等写操作必须以 token 中的 `actorUserId` 校验房间 `owner/editor`，不能回退到房间创建人、Agent owner 或系统账号。
+- `members.add` 默认只能添加 `editor/viewer`；如要添加 `owner` 必须由房间 `owner` 发起，且成员降级/移除必须遵守“至少保留一名 owner”的服务端规则。
+- `room.create-invite` 默认生成 `viewer` 邀请；如果 Agent Tool 传入 `role`，服务端必须显式保存和校验，不能隐式赋予 editor。
+- `agent.detail`、`agent.skill.list`、`agent.script.list` 只能读取当前房间内 Agent，或 actorUserId 已拥有/关注/可编辑的 Agent；不能用任意 agentId 枚举未授权 Agent 能力文件。
+- `conversation.mark-read/update-prefs` 必须校验 project 房间成员身份或 dm 参与方身份，再写入个人会话偏好。
+- `dm.open` 必须与 REST 规则一致：只能和好友建立单聊，不能通过 App Tool 绕过好友关系。
 
 ## 小蜜入口与 App Tools 边界
 

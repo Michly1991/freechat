@@ -52,14 +52,17 @@ export class PlatformHostedAgentRuntimeService {
       const system = [cfg.systemPrompt || '', toolHelp(event.roomId, auth.agentId, event.payload?.actorUserId || event.payload?.metadata?.actorUserId)].filter(Boolean).join('\n\n')
       const prompt = [context ? `最近对话：\n${context}` : '', `本次请求：\n${trimPrompt(event.payload?.input || '')}`].filter(Boolean).join('\n\n')
       let output = ''
+      let aiUsage: any = null
       try {
-        output = await aiConfigService.callAI(prompt, { system, maxTokens: cfg.model?.maxTokens || 1600, model: cfg.model?.model })
+        const aiResult = await aiConfigService.callAIWithUsage(prompt, { system, maxTokens: cfg.model?.maxTokens || 1600, model: cfg.model?.model })
+        output = aiResult.text
+        aiUsage = { model: aiResult.model, ...aiResult.usage }
         const toolSummary = await executeInlineToolCalls(event.roomId, auth.agentId, event.payload?.actorUserId || event.payload?.metadata?.actorUserId, output)
         if (toolSummary) output = toolSummary
       } catch (err: any) {
         output = fallbackReply()
       }
-      complete(auth, event.runId, { output, responseMode: event.payload?.responseMode, usage: { model: cfg.model?.model || undefined, usageSource: 'server_metered', trustLevel: 'trusted' } })
+      complete(auth, event.runId, { output, responseMode: event.payload?.responseMode, usage: { model: aiUsage?.model || cfg.model?.model || undefined, ...aiUsage, usageSource: 'server_metered', trustLevel: aiUsage ? 'trusted' : 'fallback_no_model_usage' } })
     } catch (err: any) {
       fail(auth, event.runId, err?.message || String(err))
     }

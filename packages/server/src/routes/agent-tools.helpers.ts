@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid'
 import { readdir, stat } from 'fs/promises'
 import { join, normalize, relative } from 'path'
 import db from '../storage/db.js'
@@ -100,6 +101,28 @@ export async function invokeAssignedAgent(roomId: string, assigneeId: string | u
 }
 
 
+
+export async function assertActorCanUseAgentInRoom(roomId: string, targetAgentId: string, actorUserId: string) {
+  const inRoom = db.prepare('SELECT 1 FROM room_agents WHERE room_id = ? AND agent_id = ?').get(roomId, targetAgentId)
+  if (inRoom) return
+  const canUse = await agentService.canUseAgent(targetAgentId, actorUserId)
+  const canEdit = await agentService.canEditAgent(targetAgentId, { id: actorUserId })
+  if (!canUse && !canEdit) throw { code: 'FORBIDDEN', message: 'No permission to read this Agent' }
+}
+
+export function createRoomInvite(roomId: string, actorUserId: string, args: any = {}) {
+  const code = uuidv4().replace(/-/g, '').substring(0, 12)
+  const now = Date.now()
+  const expiresAt = args.expiresInDays ? now + Number(args.expiresInDays) * 24 * 60 * 60 * 1000 : null
+  const role = ['owner', 'editor', 'viewer'].includes(args.role) ? args.role : 'viewer'
+  if (role === 'owner') {
+    const member = db.prepare('SELECT role FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, actorUserId) as any
+    if (member?.role !== 'owner') throw { code: 'FORBIDDEN', message: 'Only room owner can create owner invite' }
+  }
+  db.prepare('INSERT INTO room_invites (code, room_id, created_by, max_uses, expires_at, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(code, roomId, actorUserId, args.maxUses || null, expiresAt, role, now)
+  return { code, url: `/invite?code=${code}`, expiresAt, role }
+}
 
 export function assertProjectFilePathAllowed(rel: string): void {
   const forbidden = /^(res|scripts|skills|agents|\.freechat|meta|workspace-data|data)(\/|$)/i

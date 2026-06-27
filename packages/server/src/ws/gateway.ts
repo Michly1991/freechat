@@ -46,13 +46,21 @@ export class WebSocketGateway {
       return
     }
 
+    // Verify user actually exists in database and attach fresh role data instead of trusting JWT claims.
+    const dbUser = db.prepare('SELECT id, username, nickname, role FROM users WHERE id = ?').get(decoded.id) as any
+    if (!dbUser) {
+      ws.close(4001, 'User not found')
+      return
+    }
+
     const clientId = uuidv4()
     const client: ClientConnection = {
       ws,
-      userId: decoded.id,
-      username: decoded.username,
-      nickname: decoded.nickname,
-      role: decoded.role === 'agent' ? 'ai' : 'human'
+      userId: dbUser.id,
+      username: dbUser.username,
+      nickname: dbUser.nickname,
+      userRole: dbUser.role,
+      role: dbUser.role === 'agent' ? 'ai' : 'human'
     }
 
     this.clients.set(clientId, client)
@@ -90,7 +98,7 @@ export class WebSocketGateway {
       roomId: '',
       type: 'system',
       action: 'connected',
-      payload: { userId: decoded.id, username: decoded.username },
+      payload: { userId: dbUser.id, username: dbUser.username },
       timestamp: Date.now()
     })
   }
@@ -307,7 +315,7 @@ export class WebSocketGateway {
     const client = this.clients.get(clientId)
     if (!client || !client.currentRoomId) return
 
-    const msg = await messageService.updateMessage(payload.message_id, payload.content)
+    const msg = await messageService.updateMessageAsUser(payload.message_id, client.currentRoomId, { id: client.userId, role: client.userRole }, payload.content)
 
     this.broadcastToRoom(client.currentRoomId, {
       msgId: uuidv4(),
@@ -323,7 +331,7 @@ export class WebSocketGateway {
     const client = this.clients.get(clientId)
     if (!client || !client.currentRoomId) return
 
-    await messageService.deleteMessage(payload.message_id)
+    await messageService.deleteMessageAsUser(payload.message_id, client.currentRoomId, { id: client.userId, role: client.userRole })
 
     this.broadcastToRoom(client.currentRoomId, {
       msgId: uuidv4(),

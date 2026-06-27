@@ -2,6 +2,15 @@
 
 > 从 ARCHITECTURE 拆分出的前端页面、响应式、核心流程、部署和阶段规划。
 
+### 前端 API 客户端分层
+
+前端 API 客户端保持 `api` 聚合对象作为兼容导出，页面不需要感知拆分；底层请求核心拆到 `src/lib/api-core.ts`：
+
+- `api-core.ts`：统一读取 auth token、设置 JSON/FormData header、记录 client log、解析错误响应。
+- `api.ts`：只保留业务 API 方法聚合，按 Auth/Rooms/Files/Tabs/Agents/Conversations 等注释分组。
+
+后续如果继续增长，可在保持 `api` 聚合导出的前提下，把 Rooms、Agents、Billing 等方法拆成 `api-*.ts`，最后由 `api.ts` 组合导出。权限判断仍以后端为准，前端 API 层不做安全边界。
+
 ## 页面设计
 
 ### 路由表

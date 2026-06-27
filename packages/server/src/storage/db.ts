@@ -745,8 +745,9 @@ export function initDatabase() {
       FOREIGN KEY (created_by) REFERENCES users(id)
     )
   `)
-
-  console.log('Database initialized')
+  for (const [name, ddl] of [['role', "ALTER TABLE room_invites ADD COLUMN role TEXT DEFAULT 'viewer'"], ['revoked_at', 'ALTER TABLE room_invites ADD COLUMN revoked_at INTEGER'], ['revoked_by', 'ALTER TABLE room_invites ADD COLUMN revoked_by TEXT']] as const) {
+    if (!(db.prepare('PRAGMA table_info(room_invites)').all() as any[]).some((col) => col.name === name)) db.exec(ddl)
+  }; console.log('Database initialized')
 }
 
 export default db

@@ -43,7 +43,7 @@ function IdentityBadge({ identityType, compact = false }: { identityType?: strin
   return <span className={`inline-flex shrink-0 rounded-full px-1.5 py-0.5 ${compact ? 'text-[10px]' : 'text-[11px]'} font-medium ${isAgent ? 'bg-violet-50 text-violet-600' : 'bg-gray-100 text-gray-500'}`}>{isAgent ? 'Agent' : '真人'}</span>
 }
 
-function AddContactMembers({ roomId, members, feedback, onMembersChanged, compact = false }: any) {
+function AddContactMembers({ roomId, members, feedback, onMembersChanged, compact = false, canEditRoom = true }: any) {
   const [open, setOpen] = useState(false)
   const [friends, setFriends] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -55,6 +55,7 @@ function AddContactMembers({ roomId, members, feedback, onMembersChanged, compac
   }, [open])
 
   const addMember = async (userId: string) => {
+    if (!canEditRoom) { feedback?.warning?.('你没有权限添加成员'); return }
     if (!roomId) return
     try {
       await api.addRoomMember(roomId, userId, 'editor')
@@ -67,7 +68,7 @@ function AddContactMembers({ roomId, members, feedback, onMembersChanged, compac
   }
 
   return <div className={compact ? 'mb-3' : 'mb-4'}>
-    <button onClick={() => setOpen(!open)} className={`${compact ? 'w-full justify-center py-2' : 'w-full justify-between py-2'} flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 text-sm font-medium text-blue-600 hover:bg-blue-100`}>
+    <button disabled={!canEditRoom} onClick={() => { if (!canEditRoom) { feedback?.warning?.('你没有权限添加成员'); return }; setOpen(!open) }} className={`${compact ? 'w-full justify-center py-2' : 'w-full justify-between py-2'} flex items-center gap-2 rounded-xl border px-3 text-sm font-medium ${canEditRoom ? 'border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100' : 'border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed'}`}>
       <span className="inline-flex items-center gap-2"><Plus className="w-4 h-4" />添加通讯录成员</span>
       {!compact && <span className="text-xs text-blue-400">{open ? '收起' : '展开'}</span>}
     </button>
@@ -89,7 +90,7 @@ function AddContactMembers({ roomId, members, feedback, onMembersChanged, compac
   </div>
 }
 
-function AddAvailableAgents({ roomId, roomAgents, feedback, onMembersChanged, compact = false }: any) {
+function AddAvailableAgents({ roomId, roomAgents, feedback, onMembersChanged, compact = false, canEditRoom = true }: any) {
   const [open, setOpen] = useState(false)
   const [agents, setAgents] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
@@ -101,6 +102,7 @@ function AddAvailableAgents({ roomId, roomAgents, feedback, onMembersChanged, co
   }, [open])
 
   const addAgent = async (agent: any, asAssistant = false) => {
+    if (!canEditRoom) { feedback?.warning?.('你没有权限添加 Agent'); return }
     if (!roomId) return
     try {
       await api.addRoomAgent(roomId, agent.id, { roomRole: asAssistant ? 'assistant' : 'specialist', autoEnabled: asAssistant })
@@ -114,7 +116,7 @@ function AddAvailableAgents({ roomId, roomAgents, feedback, onMembersChanged, co
   }
 
   return <div className={compact ? 'mb-3' : 'mb-4'}>
-    <button onClick={() => setOpen(!open)} className={`${compact ? 'w-full justify-center py-2' : 'w-full justify-between py-2'} flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50 px-3 text-sm font-medium text-violet-600 hover:bg-violet-100`}>
+    <button disabled={!canEditRoom} onClick={() => { if (!canEditRoom) { feedback?.warning?.('你没有权限添加 Agent'); return }; setOpen(!open) }} className={`${compact ? 'w-full justify-center py-2' : 'w-full justify-between py-2'} flex items-center gap-2 rounded-xl border px-3 text-sm font-medium ${canEditRoom ? 'border-violet-100 bg-violet-50 text-violet-600 hover:bg-violet-100' : 'border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed'}`}>
       <span className="inline-flex items-center gap-2"><Plus className="w-4 h-4" />添加 Agent</span>
       {!compact && <span className="text-xs text-violet-400">{open ? '收起' : '展开'}</span>}
     </button>
@@ -154,12 +156,15 @@ function MemberListItem({ member, room, openMemberProfile, mobile = false }: any
   </button>
 }
 
-export function DesktopMembersPanel({ showMembers, setShowMembers, members, roomAgents, openMemberProfile, restartAgent, openModelConfig, roomId, room, feedback, onMembersChanged }: any) {
+export function DesktopMembersPanel({ showMembers, setShowMembers, members, roomAgents, openMemberProfile, restartAgent, openModelConfig, roomId, room, user, feedback, onMembersChanged }: any) {
   const orderedMembers = useMemo(() => sortedMembers(members), [members])
+  const currentMember = orderedMembers.find((member: any) => (member.id || member.userId) === user?.id)
+  const canEditRoom = !currentMember || ['owner', 'editor'].includes(currentMember.role)
   const admins = orderedMembers.filter((member: any) => member.role === 'owner')
   const payer = orderedMembers.find((member: any) => (member.userId || member.id) === room?.createdBy)
-  const handoffAgent = async (agent: any) => { if (!roomId) return; try { await api.handoffRoomAssistant(roomId, agent.id, `手动切换当前协调者为 ${agent.name}`); feedback?.success?.(`已切换当前协调者为 ${agent.name}`); onMembersChanged?.() } catch (err: any) { feedback?.error?.(err?.message || '切换协调者失败') } }
+  const handoffAgent = async (agent: any) => { if (!canEditRoom) { feedback?.warning?.('你没有权限切换协调者'); return }; if (!roomId) return; try { await api.handoffRoomAssistant(roomId, agent.id, `手动切换当前协调者为 ${agent.name}`); feedback?.success?.(`已切换当前协调者为 ${agent.name}`); onMembersChanged?.() } catch (err: any) { feedback?.error?.(err?.message || '切换协调者失败') } }
   const removeAgent = async (agent: any) => {
+    if (!canEditRoom) { feedback?.warning?.('你没有权限移除 Agent'); return }
     if (!roomId) return
     const ok = feedback?.confirm ? await feedback.confirm({ title: '移除 Agent？', message: `确认把「${agent.name}」从当前群聊移除？不会删除通讯录里的 Agent。`, confirmText: '确认移除' }) : window.confirm(`确认把「${agent.name}」从当前群聊移除？不会删除通讯录里的 Agent。`)
     if (!ok) return
@@ -172,20 +177,23 @@ export function DesktopMembersPanel({ showMembers, setShowMembers, members, room
       <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center justify-between">房间成员<span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{members.length}</span></h3>
       {admins.length > 0 && <p className="mb-2 flex items-center gap-1.5 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700"><Crown className="w-3.5 h-3.5" />管理员：{admins.map(getMemberDisplayName).join('、')}</p>}
       {payer && <p className="mb-4 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">模型付费人 / 可指挥 Agent：{getMemberDisplayName(payer)}</p>}
-      <AddContactMembers roomId={roomId} members={members} feedback={feedback} onMembersChanged={onMembersChanged} />
-      <AddAvailableAgents roomId={roomId} roomAgents={roomAgents} feedback={feedback} onMembersChanged={onMembersChanged} />
+      <AddContactMembers roomId={roomId} members={members} feedback={feedback} onMembersChanged={onMembersChanged} canEditRoom={canEditRoom} />
+      <AddAvailableAgents roomId={roomId} roomAgents={roomAgents} feedback={feedback} onMembersChanged={onMembersChanged} canEditRoom={canEditRoom} />
       <div className="space-y-1">{orderedMembers.map((member: any) => <MemberListItem key={member.id || member.userId} member={member} room={room} openMemberProfile={openMemberProfile} />)}</div>
-      {roomAgents.length > 0 && <><h3 className="text-sm font-semibold text-gray-700 mt-6 mb-4 flex items-center justify-between">AI Agents<span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{roomAgents.length}</span></h3><div className="space-y-1">{roomAgents.map((agent: any) => <AgentRow key={agent.id} agent={agent} room={room} openMemberProfile={openMemberProfile} restartAgent={restartAgent} openModelConfig={openModelConfig} removeAgent={removeAgent} handoffAgent={handoffAgent} />)}</div></>}
+      {roomAgents.length > 0 && <><h3 className="text-sm font-semibold text-gray-700 mt-6 mb-4 flex items-center justify-between">AI Agents<span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{roomAgents.length}</span></h3><div className="space-y-1">{roomAgents.map((agent: any) => <AgentRow key={agent.id} agent={agent} room={room} openMemberProfile={openMemberProfile} restartAgent={canEditRoom ? restartAgent : undefined} openModelConfig={canEditRoom ? openModelConfig : undefined} removeAgent={canEditRoom ? removeAgent : undefined} handoffAgent={canEditRoom ? handoffAgent : undefined} />)}</div></>}
     </div>
   </div>
 }
 
-export function MobileMembersDrawer({ showMobileMembers, setShowMobileMembers, members, roomAgents, openMemberProfile, restartAgent, openModelConfig, roomId, room, feedback, onMembersChanged }: any) {
+export function MobileMembersDrawer({ showMobileMembers, setShowMobileMembers, members, roomAgents, openMemberProfile, restartAgent, openModelConfig, roomId, room, user, feedback, onMembersChanged }: any) {
   const orderedMembers = useMemo(() => sortedMembers(members), [members])
+  const currentMember = orderedMembers.find((member: any) => (member.id || member.userId) === user?.id)
+  const canEditRoom = !currentMember || ['owner', 'editor'].includes(currentMember.role)
   const admins = orderedMembers.filter((member: any) => member.role === 'owner')
   const payer = orderedMembers.find((member: any) => (member.userId || member.id) === room?.createdBy)
-  const handoffAgent = async (agent: any) => { if (!roomId) return; try { await api.handoffRoomAssistant(roomId, agent.id, `手动切换当前协调者为 ${agent.name}`); feedback?.success?.(`已切换当前协调者为 ${agent.name}`); onMembersChanged?.() } catch (err: any) { feedback?.error?.(err?.message || '切换协调者失败') } }
+  const handoffAgent = async (agent: any) => { if (!canEditRoom) { feedback?.warning?.('你没有权限切换协调者'); return }; if (!roomId) return; try { await api.handoffRoomAssistant(roomId, agent.id, `手动切换当前协调者为 ${agent.name}`); feedback?.success?.(`已切换当前协调者为 ${agent.name}`); onMembersChanged?.() } catch (err: any) { feedback?.error?.(err?.message || '切换协调者失败') } }
   const removeAgent = async (agent: any) => {
+    if (!canEditRoom) { feedback?.warning?.('你没有权限移除 Agent'); return }
     if (!roomId) return
     const ok = feedback?.confirm ? await feedback.confirm({ title: '移除 Agent？', message: `确认把「${agent.name}」从当前群聊移除？不会删除通讯录里的 Agent。`, confirmText: '确认移除' }) : window.confirm(`确认把「${agent.name}」从当前群聊移除？不会删除通讯录里的 Agent。`)
     if (!ok) return
@@ -198,11 +206,11 @@ export function MobileMembersDrawer({ showMobileMembers, setShowMobileMembers, m
       <div className="p-4 space-y-2">
         {admins.length > 0 && <p className="flex items-center gap-1.5 rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-700"><Crown className="w-4 h-4" />管理员：{admins.map(getMemberDisplayName).join('、')}</p>}
         {payer && <p className="rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-700">模型付费人 / 可指挥 Agent：{getMemberDisplayName(payer)}</p>}
-        <AddContactMembers roomId={roomId} members={members} feedback={feedback} onMembersChanged={onMembersChanged} compact />
-        <AddAvailableAgents roomId={roomId} roomAgents={roomAgents} feedback={feedback} onMembersChanged={onMembersChanged} compact />
+        <AddContactMembers roomId={roomId} members={members} feedback={feedback} onMembersChanged={onMembersChanged} compact canEditRoom={canEditRoom} />
+        <AddAvailableAgents roomId={roomId} roomAgents={roomAgents} feedback={feedback} onMembersChanged={onMembersChanged} compact canEditRoom={canEditRoom} />
         <h4 className="px-1 text-xs font-semibold text-gray-500 uppercase tracking-wide">在线成员</h4>
         {orderedMembers.map((member: any) => <MemberListItem key={member.id || member.userId} member={member} room={room} openMemberProfile={openMemberProfile} mobile />)}
-        {roomAgents.length > 0 && <><h4 className="px-1 pt-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">AI Agents</h4>{roomAgents.map((agent: any) => <AgentRow key={agent.id} agent={agent} room={room} openMemberProfile={openMemberProfile} restartAgent={restartAgent} openModelConfig={openModelConfig} removeAgent={removeAgent} handoffAgent={handoffAgent} mobile />)}</>}
+        {roomAgents.length > 0 && <><h4 className="px-1 pt-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">AI Agents</h4>{roomAgents.map((agent: any) => <AgentRow key={agent.id} agent={agent} room={room} openMemberProfile={openMemberProfile} restartAgent={canEditRoom ? restartAgent : undefined} openModelConfig={canEditRoom ? openModelConfig : undefined} removeAgent={canEditRoom ? removeAgent : undefined} handoffAgent={canEditRoom ? handoffAgent : undefined} mobile />)}</>}
       </div>
     </div>
   </div>

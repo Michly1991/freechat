@@ -131,6 +131,24 @@ Agent provider credit agent_income          # only when Agent per_token charge >
 
 Newly registered users receive an initial wallet top-up of `1000 credits` (`10,000,000 microcredits`) via `signup_bonus`.
 
+## Pricing Domain
+
+Runtime pricing is normalized through the server-side `domains/pricing` layer before wallet settlement:
+
+```text
+pricing-policy.repository  DB rows -> normalized pricing policies
+pricing-engine             pure charge calculation, no DB writes
+billing.service            orchestration: usage event -> policy -> promotion usage -> ledger/wallet
+```
+
+The normalized model separates three concepts:
+
+1. **Model fee** from `model_billing_rules`.
+2. **Agent service fee** from `agent_billing_rules.billing_mode` and Agent token prices.
+3. **Promotions / free quota** from server-side promotion policy, currently backed by `agent_billing_rules.model_free_runs_per_day`.
+
+Client UI may show or submit pricing configuration, but it never decides whether an invocation is free. The server calculates promotion usage and final charge during settlement.
+
 ## Charge Formula
 
 ```text
@@ -141,7 +159,8 @@ usage_total_micro  = model_charge_micro + agent_charge_micro
 total_tokens = input_tokens + output_tokens + cache_write_tokens + cache_read_tokens
 ```
 
-Charges are rounded up to the nearest microcredit. Free model-charge quota is counted by `(payer_user_id, agent_template_id, natural day)` using already settled usage events that did not create a `model_usage_charge` ledger entry; over-quota runs fall back to normal model pricing.
+Charges are rounded up to the nearest microcredit. Free model-charge quota is a **server-side billing rule**. The frontend may display the configured quota, but it must not decide whether a run is free or paid. Runtime preflight and final settlement both read `agent_billing_rules.model_free_runs_per_day` on the server and count settled usage by `(payer_user_id, agent_template_id, natural day)`. Platform-hosted built-ins such as 小蜜 must report trusted server-metered token usage from the server-side model response; if the model call falls back without usage, the run is recorded as non-billable usage audit instead of letting the client mark it free.
+
 
 ## Workgroup Share / Visitor Billing
 

@@ -1,49 +1,4 @@
-import { addClientLog } from './clientLog'
-
-const API_BASE = '/api'
-
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const token = localStorage.getItem('auth-storage')
-    ? JSON.parse(localStorage.getItem('auth-storage')!).state.token
-    : null
-
-  const isFormData = options?.body instanceof FormData
-  const hasBody = options?.body !== undefined && options?.body !== null
-  const headers: Record<string, string> = {
-    ...(hasBody && !isFormData ? { 'Content-Type': 'application/json' } : {}),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  }
-
-  const method = options?.method || 'GET'
-  const startedAt = Date.now()
-  addClientLog('info', 'api', `${method} ${url} start`, { token: token ? 'present' : 'missing' })
-
-  let res: Response
-  try {
-    res = await fetch(`${API_BASE}${url}`, {
-      ...options,
-      headers: { ...headers, ...options?.headers },
-    })
-  } catch (err: any) {
-    addClientLog('error', 'api', `${method} ${url} network error`, { message: err?.message })
-    throw err
-  }
-
-  let data: any = null
-  try {
-    data = await res.json()
-  } catch (err: any) {
-    addClientLog('error', 'api', `${method} ${url} invalid json`, { status: res.status, message: err?.message })
-    throw err
-  }
-
-  const elapsed = Date.now() - startedAt
-  addClientLog(res.ok ? 'info' : 'error', 'api', `${method} ${url} ${res.status}`, { elapsed, error: data?.error?.message || data?.error })
-  if (!res.ok) {
-    throw new Error(data.error?.message || `请求失败 (${res.status})`)
-  }
-  return data.data || data
-}
+import { request } from './api-core'
 
 export const api = {
   // Auth
@@ -135,8 +90,8 @@ export const api = {
   getMembers: (id: string) => request<{ members: any[] }>(`/rooms/${id}/members`),
   addRoomMember: (id: string, userId: string, role: 'owner' | 'editor' | 'viewer' = 'editor') =>
     request<{ members: any[] }>(`/rooms/${id}/members`, { method: 'POST', body: JSON.stringify({ userId, role }) }),
-  createInvite: (id: string, body?: { max_uses?: number; expires_in_days?: number }) =>
-    request<{ code: string; url: string }>(`/rooms/${id}/invite-link`, {
+  createInvite: (id: string, body?: { max_uses?: number; expires_in_days?: number; role?: 'owner' | 'editor' | 'viewer' }) =>
+    request<{ code: string; url: string; role?: string }>(`/rooms/${id}/invite-link`, {
       method: 'POST',
       body: JSON.stringify(body || {}),
     }),
@@ -146,6 +101,10 @@ export const api = {
       body: JSON.stringify({ invite_code }),
     }),
   leaveRoom: (id: string) => request(`/rooms/${id}/leave`, { method: 'POST' }),
+  updateRoomMemberRole: (id: string, userId: string, role: 'owner' | 'editor' | 'viewer') =>
+    request<{ members: any[] }>(`/rooms/${id}/members/${userId}`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+  removeRoomMember: (id: string, userId: string) =>
+    request<{ members: any[] }>(`/rooms/${id}/members/${userId}`, { method: 'DELETE' }),
   getRoomAnalytics: (id: string, params?: { from?: number; to?: number }) => {
     const qs = params ? new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString() : ''
     return request<any>(`/rooms/${id}/analytics${qs ? `?${qs}` : ''}`)

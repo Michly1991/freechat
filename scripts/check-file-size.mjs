@@ -14,8 +14,8 @@ const baselines = new Map([
   ['packages/web/src/pages/RoomPage.tsx', 1690],
   ['packages/server/src/services/agent.service.ts', 980],
   ['packages/server/src/ws/gateway.ts', 830],
-  ['packages/server/src/routes/agent-tools.ts', 734],
   ['packages/server/src/storage/db.ts', 754],
+  ['packages/server/src/services/agent-cli-template.cjs.ts', 660],
   ['packages/web/src/pages/HomePage.tsx', 700],
 ])
 

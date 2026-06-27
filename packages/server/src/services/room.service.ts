@@ -238,13 +238,24 @@ export class RoomService {
   async addMember(roomId: string, userId: string, role: string = 'editor'): Promise<void> {
     const now = Date.now()
     db.prepare(`
-      INSERT OR REPLACE INTO room_members (room_id, user_id, role, type, joined_at)
+      INSERT INTO room_members (room_id, user_id, role, type, joined_at)
       VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(room_id, user_id) DO UPDATE SET role = excluded.role, type = excluded.type
     `).run(roomId, userId, role, getUserIdentityType(userId), now)
     const room = db.prepare('SELECT workgroup_id FROM rooms WHERE id = ?').get(roomId) as any
     if (room?.workgroup_id) {
       db.prepare('INSERT OR IGNORE INTO workgroup_members (workgroup_id, user_id, role, joined_at) VALUES (?, ?, ?, ?)')
         .run(room.workgroup_id, userId, role === 'owner' ? 'admin' : 'member', now)
+    }
+  }
+
+  async updateMemberRole(roomId: string, userId: string, role: string): Promise<void> {
+    const result = db.prepare('UPDATE room_members SET role = ? WHERE room_id = ? AND user_id = ?').run(role, roomId, userId)
+    if (result.changes === 0) throw { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' }
+    const room = db.prepare('SELECT workgroup_id FROM rooms WHERE id = ?').get(roomId) as any
+    if (room?.workgroup_id) {
+      const wgRole = role === 'owner' ? 'admin' : 'member'
+      db.prepare('UPDATE workgroup_members SET role = ? WHERE workgroup_id = ? AND user_id = ?').run(wgRole, room.workgroup_id, userId)
     }
   }
 

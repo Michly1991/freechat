@@ -5,6 +5,7 @@ export interface ClientConnection {
   userId: string
   username: string
   nickname: string
+  userRole?: string
   role: 'human' | 'ai'
   currentRoomId?: string
 }

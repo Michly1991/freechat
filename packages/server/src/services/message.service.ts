@@ -36,6 +36,37 @@ function interactionRowToPayload(row: any) {
 }
 
 export class MessageService {
+  private rowToMessage(row: any): Message {
+    return {
+      id: row.id,
+      roomId: row.room_id,
+      actorId: row.actor_id,
+      actorName: row.actor_name,
+      actorRole: row.actor_role,
+      content: row.content,
+      kind: row.kind || 'text',
+      payload: row.payload ? JSON.parse(row.payload) : undefined,
+      attachments: row.payload && Array.isArray(JSON.parse(row.payload)?.attachments) ? JSON.parse(row.payload).attachments : undefined,
+      mentions: row.mentions ? JSON.parse(row.mentions) : undefined,
+      replyTo: row.reply_to,
+      editedAt: row.edited_at,
+      deleted: !!row.deleted,
+      createdAt: row.created_at
+    }
+  }
+
+  private async assertMessageWriteAllowed(messageId: string, roomId: string, user: { id: string; role?: string }, options: { allowAi?: boolean } = {}): Promise<any> {
+    const row = db.prepare('SELECT * FROM messages WHERE id = ? AND deleted = 0').get(messageId) as any
+    if (!row || row.room_id !== roomId) throw { code: 'MESSAGE_NOT_FOUND', message: 'Message not found in this room' }
+    const member = db.prepare('SELECT role FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, user.id) as any
+    if (!member) throw { code: 'NOT_ROOM_MEMBER', message: 'You are not a member of this room' }
+    const canModerate = ['owner', 'editor'].includes(member.role) || user.role === 'admin'
+    const ownsHumanMessage = row.actor_id === user.id && row.actor_role === 'human'
+    if (!canModerate && !ownsHumanMessage) throw { code: 'FORBIDDEN', message: 'Only message author or room owner/editor can modify this message' }
+    if (!options.allowAi && row.actor_role === 'ai' && !canModerate) throw { code: 'FORBIDDEN', message: 'Only room owner/editor can modify AI messages' }
+    return row
+  }
+
   async createMessage(
     roomId: string,
     actorId: string,
@@ -147,26 +178,21 @@ export class MessageService {
     db.prepare('UPDATE messages SET content = ?, edited_at = ? WHERE id = ?').run(content, now, messageId)
 
     const row: any = db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId)
-    return {
-      id: row.id,
-      roomId: row.room_id,
-      actorId: row.actor_id,
-      actorName: row.actor_name,
-      actorRole: row.actor_role,
-      content: row.content,
-      kind: row.kind || 'text',
-      payload: row.payload ? JSON.parse(row.payload) : undefined,
-      attachments: row.payload && Array.isArray(JSON.parse(row.payload)?.attachments) ? JSON.parse(row.payload).attachments : undefined,
-      mentions: row.mentions ? JSON.parse(row.mentions) : undefined,
-      replyTo: row.reply_to,
-      editedAt: row.edited_at,
-      deleted: !!row.deleted,
-      createdAt: row.created_at
-    }
+    return this.rowToMessage(row)
+  }
+
+  async updateMessageAsUser(messageId: string, roomId: string, user: { id: string; role?: string }, content: string): Promise<Message> {
+    await this.assertMessageWriteAllowed(messageId, roomId, user)
+    return this.updateMessage(messageId, content)
   }
 
   async deleteMessage(messageId: string): Promise<void> {
     db.prepare('UPDATE messages SET deleted = 1 WHERE id = ?').run(messageId)
+  }
+
+  async deleteMessageAsUser(messageId: string, roomId: string, user: { id: string; role?: string }): Promise<void> {
+    await this.assertMessageWriteAllowed(messageId, roomId, user, { allowAi: true })
+    await this.deleteMessage(messageId)
   }
 
   private cleanupOldMessages(roomId: string): void {

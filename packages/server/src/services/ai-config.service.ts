@@ -21,6 +21,41 @@ export interface AIConfig {
   apiKeys: Record<string, string>
 }
 
+export interface AIUsage {
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  totalTokens: number
+}
+
+export interface AICallResult {
+  text: string
+  model: string
+  usage: AIUsage
+}
+
+function toNumber(value: any): number {
+  const n = Number(value || 0)
+  return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0
+}
+
+function parseUsage(data: any): AIUsage {
+  const usage = data?.usage || {}
+  const inputTokens = toNumber(usage.input_tokens ?? usage.inputTokens ?? usage.prompt_tokens)
+  const outputTokens = toNumber(usage.output_tokens ?? usage.outputTokens ?? usage.completion_tokens)
+  const cacheCreationInputTokens = toNumber(usage.cache_creation_input_tokens ?? usage.cacheCreationInputTokens)
+  const cacheReadInputTokens = toNumber(usage.cache_read_input_tokens ?? usage.cacheReadInputTokens)
+  const explicitTotal = toNumber(usage.total_tokens ?? usage.totalTokens)
+  return {
+    inputTokens,
+    outputTokens,
+    cacheCreationInputTokens,
+    cacheReadInputTokens,
+    totalTokens: explicitTotal || inputTokens + outputTokens + cacheCreationInputTokens + cacheReadInputTokens,
+  }
+}
+
 class AIConfigService {
   private config: AIConfig
 
@@ -121,7 +156,7 @@ class AIConfigService {
     }
   }
 
-  async callAI(prompt: string, options?: { model?: string; maxTokens?: number; system?: string }): Promise<string> {
+  async callAIWithUsage(prompt: string, options?: { model?: string; maxTokens?: number; system?: string }): Promise<AICallResult> {
     const provider = this.getCurrentProvider()
     const apiKey = this.getApiKey(this.config.currentProvider)
 
@@ -153,7 +188,11 @@ class AIConfigService {
     }
 
     const data = await response.json() as any
-    return data.content?.[0]?.text || ''
+    return { text: data.content?.[0]?.text || '', model: data.model || model, usage: parseUsage(data) }
+  }
+
+  async callAI(prompt: string, options?: { model?: string; maxTokens?: number; system?: string }): Promise<string> {
+    return (await this.callAIWithUsage(prompt, options)).text
   }
 }
 

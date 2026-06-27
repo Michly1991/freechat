@@ -61,12 +61,12 @@ Header: Authorization: Bearer <token>
 Body: { name: string, description?: string }
 Response: { room: { id, name, description, created_at } }
 
-// 获取项目详情
+// 获取项目详情（仅房间成员）
 GET /api/rooms/:id
 Header: Authorization: Bearer <token>
 Response: { room: { ... }, members: [{ ... }] }
 
-// 更新项目设置（仅 owner）
+// 更新项目设置（owner/editor）
 PATCH /api/rooms/:id
 Header: Authorization: Bearer <token>
 Body: { name?: string, description?: string }
@@ -83,6 +83,20 @@ Response: { success: true }
 // 头像静态文件通过 Fastify 的 fastify-static 插件提供访问
 // URL 格式：/avatars/{user_id}.webp
 ```
+
+
+### 服务端授权边界（2026-06-27）
+
+前端只负责交互展示和权限态提示，不能作为安全边界。以下操作必须由服务端强制校验：
+
+- 房间资料修改、生成邀请链接、Tab 文件/目录映射修改、Agent 增删/重启/模型配置、Agent 成长记忆写入：仅 `owner/editor`。
+- 成员角色治理：`owner/editor` 可添加 `editor/viewer`；只有 `owner` 可添加/转让 `owner`、修改成员角色、移除他人；服务端必须阻止最后一个 `owner` 被降级、移除或离开。
+- 邀请链接默认 `viewer` 加入；如允许设置邀请角色，服务端必须保存并校验 `role`，且加入前检查邀请未过期、未超额、未撤销、房间未删除。
+- 房间详情、成员列表、消息、文件、Tab、成长记录读取：至少要求当前用户是房间成员。
+- WebSocket `chat.edit` / `chat.delete`：服务端必须校验消息属于当前房间；普通成员只能修改/删除自己的真人消息，`owner/editor/admin` 可按管理权限处理房间消息。
+- 会话已读/偏好：`project` 必须是房间成员，`dm` 必须是单聊参与方。
+- 语音转写/合成如果携带 `roomId/taskId/messageId`，服务端必须校验这些资源归属当前用户可访问的房间，避免审计记录挂到无权资源。
+- Agent App Tools 以 `actorUserId` 为授权主体；小蜜/房间助理不能因为自己是系统 Agent 而绕过用户的 `owner/editor/viewer` 权限。
 
 ### JWT Token 结构
 

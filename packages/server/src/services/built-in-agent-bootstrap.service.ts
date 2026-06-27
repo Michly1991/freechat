@@ -141,7 +141,7 @@ export class BuiltInAgentBootstrapService {
     db.prepare(`
       INSERT INTO agent_billing_rules (id, agent_template_id, billing_mode, token_multiplier, fixed_credits_per_run, fixed_credits_per_purchase, input_credit_per_million, output_credit_per_million, cache_write_credit_per_million, cache_read_credit_per_million, min_credits_per_run, model_free_runs_per_day, model_overage_policy, revenue_share_rate, enabled, created_at, updated_at)
       VALUES (?, ?, 'free', 0, 0, 0, 0, 0, 0, 0, 0, 20, 'charge', 1, 1, ?, ?)
-      ON CONFLICT(agent_template_id) DO UPDATE SET model_free_runs_per_day = CASE WHEN agent_billing_rules.model_free_runs_per_day = 0 THEN 20 ELSE agent_billing_rules.model_free_runs_per_day END, model_overage_policy = COALESCE(agent_billing_rules.model_overage_policy, 'charge'), updated_at = excluded.updated_at
+      ON CONFLICT(agent_template_id) DO UPDATE SET billing_mode = 'free', model_free_runs_per_day = 20, model_overage_policy = 'charge', updated_at = excluded.updated_at
     `).run(`abr_${randomUUID()}`, agentId, now, now)
   }
 }

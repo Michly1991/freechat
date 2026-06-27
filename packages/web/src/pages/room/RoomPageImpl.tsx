@@ -424,6 +424,7 @@ export function RoomPageImpl() {
           openModelConfig={setModelConfigAgent}
           roomId={roomId}
           room={room}
+          user={user}
           feedback={feedback}
           onMembersChanged={loadRoom}
         />
@@ -438,6 +439,7 @@ export function RoomPageImpl() {
         openModelConfig={setModelConfigAgent}
         roomId={roomId}
         room={room}
+        user={user}
         feedback={feedback}
         onMembersChanged={loadRoom}
       />
@@ -452,7 +454,7 @@ export function RoomPageImpl() {
         open={showRoomSettings}
         onClose={() => setShowRoomSettings(false)}
         roomId={roomId}
-        room={room}
+        room={room ? { ...room, members } : room}
         roomAgents={visibleRoomAgents}
         user={user}
         feedback={feedback}

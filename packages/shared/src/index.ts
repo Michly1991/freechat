@@ -171,7 +171,7 @@ export interface Room {
   assistantMode?: 'fixed' | 'handoff'
   assistantHandoffAt?: number
   assistantHandoffBy?: string
-  assistantHandoffReason?: string
+  members?: RoomMember[]
 }
 
 export interface RoomMember {
