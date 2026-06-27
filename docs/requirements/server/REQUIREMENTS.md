@@ -46,6 +46,7 @@
 - `members.add`、`agent.add`、`room.create-invite` 等工具动作必须按 actor 在房间中的权限校验。
 - Agent 读取其他 Agent detail、skill、script、knowledge 前必须验证可访问性。
 - Agent Client 不是知识库主存储；知识库由 FreeChat Server 统一维护，Agent Client 运行前同步本地 `.freechat/knowledge/`。
+- 工作组分享入口房间允许当前接待 Agent 使用 `room.handoff` 转接给同工作组内启用的 Agent；当目标 Agent 尚未在入口房间时，服务端先加入/clone 到当前房间，再用实际 room agent id 执行 handoff。
 
 ## 计费与免费额度
 
