@@ -15,6 +15,7 @@ export interface AppActionContext {
   agentId: string
   actorUserId: string
   actorRole?: string
+  scopeRoomId?: string
 }
 
 function toInt(value: any): number {
@@ -46,13 +47,15 @@ function publicAccount(account: { balance: number; incomeBalance: number }) {
 async function resolveAgentForActor(ctx: AppActionContext, raw?: any) {
   const text = String(raw || '').trim()
   if (!text) return agentService.getAgent(ctx.agentId)
-  const roomAgents = await agentService.getRoomAgents(ctx.roomId)
-  const roomMatch = roomAgents.find((a: any) => a.id === text || a.name === text || a.name.includes(text) || text.includes(a.name))
-  if (roomMatch) return roomMatch
   const visible = await agentService.getUserAgents(ctx.actorUserId)
   const matched = visible.find((a: any) => a.id === text || a.name === text || a.name.includes(text) || text.includes(a.name))
   if (matched) return matched
-  await assertActorCanUseAgentInRoom(ctx.roomId, text, ctx.actorUserId)
+  if (ctx.scopeRoomId) {
+    const roomAgents = await agentService.getRoomAgents(ctx.scopeRoomId)
+    const roomMatch = roomAgents.find((a: any) => a.id === text || a.name === text || a.name.includes(text) || text.includes(a.name))
+    if (roomMatch) return roomMatch
+  }
+  await assertActorCanUseAgentInRoom(ctx.scopeRoomId || ctx.roomId, text, ctx.actorUserId)
   return agentService.getAgent(text)
 }
 
@@ -95,19 +98,21 @@ export async function executeAppAction(ctx: AppActionContext, action: string, ar
       const target = String(args.action || args.tool || args.name || '').trim()
       if (!target) throw { code: 'VALIDATION_ERROR', message: 'action is required' }
       if (target === 'app.call' || target === 'tool.call') throw { code: 'VALIDATION_ERROR', message: 'nested app.call is not allowed' }
-      return executeAppAction(ctx, target, args.args || args.params || {})
+      const nextArgs = args.args || args.params || {}
+      const scopeRoomId = args.roomId || args.scopeRoomId || nextArgs.roomId || nextArgs.scopeRoomId || ctx.scopeRoomId
+      return executeAppAction({ ...ctx, scopeRoomId }, target, nextArgs)
     }
     case 'agent.detail': {
       const target = await resolveAgentForActor(ctx, args.agent || args.agentId || args.id)
-      await assertActorCanUseAgentInRoom(ctx.roomId, target.id, ctx.actorUserId)
+      if (ctx.scopeRoomId) await assertActorCanUseAgentInRoom(ctx.scopeRoomId, target.id, ctx.actorUserId)
       const agent = await agentService.getAgent(target.id)
       return { handled: true, response: { success: true, data: { agent: sanitizeAgent(agent), skills: agentCapabilityService.listSkills(agent.id), scripts: agentCapabilityService.listScripts(agent.id) } } }
     }
     case 'agent.model.get': {
       const target = await resolveAgentForActor(ctx, args.agent || args.agentId || args.id)
-      await assertActorCanUseAgentInRoom(ctx.roomId, target.id, ctx.actorUserId)
+      if (ctx.scopeRoomId) await assertActorCanUseAgentInRoom(ctx.scopeRoomId, target.id, ctx.actorUserId)
       const agent = await agentService.getAgent(target.id)
-      return { handled: true, response: { success: true, data: { agent: sanitizeAgent(agent), effective: agentModelConfigService.getEffectiveConfig(ctx.roomId, agent.id), roomOverride: agent.roomModelConfig, agentDefault: agent.defaultModelConfig } } }
+      return { handled: true, response: { success: true, data: { agent: sanitizeAgent(agent), effective: agentModelConfigService.getEffectiveConfig(ctx.scopeRoomId || ctx.roomId, agent.id), roomOverride: agent.roomModelConfig, agentDefault: agent.defaultModelConfig } } }
     }
     case 'agent.model.update-default': {
       const target = await resolveAgentForActor(ctx, args.agent || args.agentId || args.id)
@@ -117,24 +122,25 @@ export async function executeAppAction(ctx: AppActionContext, action: string, ar
     }
     case 'agent.room-model.update': {
       const target = await resolveAgentForActor(ctx, args.agent || args.agentId || args.id)
-      const member = db.prepare('SELECT role FROM room_members WHERE room_id = ? AND user_id = ?').get(ctx.roomId, ctx.actorUserId) as any
+      const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
+      const member = db.prepare('SELECT role FROM room_members WHERE room_id = ? AND user_id = ?').get(scopeRoomId, ctx.actorUserId) as any
       if (!member || !['owner', 'editor'].includes(member.role)) throw { code: 'FORBIDDEN', message: 'Only project owner/editor can update room Agent model config' }
-      const agent = await agentService.updateRoomAgentModelConfig(ctx.roomId, target.id, args.inherit === true ? null : (args.config || args), ctx.actorUserId)
+      const agent = await agentService.updateRoomAgentModelConfig(scopeRoomId, target.id, args.inherit === true ? null : (args.config || args), ctx.actorUserId)
       return { handled: true, response: { success: true, data: { agent: sanitizeAgent(agent) } } }
     }
     case 'agent.knowledge.list': {
       const target = await resolveAgentForActor(ctx, args.agent || args.agentId || args.id)
-      await assertActorCanUseAgentInRoom(ctx.roomId, target.id, ctx.actorUserId)
+      if (ctx.scopeRoomId) await assertActorCanUseAgentInRoom(ctx.scopeRoomId, target.id, ctx.actorUserId)
       return { handled: true, response: { success: true, data: agentKnowledgeService.list(target.id, false) } }
     }
     case 'agent.knowledge.search': {
       const target = await resolveAgentForActor(ctx, args.agent || args.agentId || args.id)
-      await assertActorCanUseAgentInRoom(ctx.roomId, target.id, ctx.actorUserId)
+      if (ctx.scopeRoomId) await assertActorCanUseAgentInRoom(ctx.scopeRoomId, target.id, ctx.actorUserId)
       return { handled: true, response: { success: true, data: agentKnowledgeService.search(target.id, String(args.query || args.q || ''), { limit: Number(args.limit || 8), includePublic: args.includePublic !== false }) } }
     }
     case 'agent.knowledge.read': {
       const target = await resolveAgentForActor(ctx, args.agent || args.agentId || args.id)
-      await assertActorCanUseAgentInRoom(ctx.roomId, target.id, ctx.actorUserId)
+      if (ctx.scopeRoomId) await assertActorCanUseAgentInRoom(ctx.scopeRoomId, target.id, ctx.actorUserId)
       return { handled: true, response: { success: true, data: agentKnowledgeService.read(target.id, String(args.ref || args.fileId || args.path || '')) } }
     }
     case 'agent.knowledge.upsert': {

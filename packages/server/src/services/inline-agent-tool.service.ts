@@ -39,6 +39,11 @@ function assertActorInRoom(roomId: string, actorUserId: string) {
   if (!row) throw new Error('Current user is not a member of this room')
 }
 
+function isXiaomiAgent(agentId: string) {
+  const row = db.prepare('SELECT config FROM agents WHERE id = ?').get(agentId) as any
+  return String(row?.config || '').includes('"builtInKey":"xiaomi_assistant"')
+}
+
 function sanitizeAgentForInline(agent: any) {
   if (!agent) return null
   return {
@@ -152,7 +157,12 @@ export async function executeInlineToolCalls(roomId: string, agentId: string, ac
   const results = []
   for (const call of calls) {
     if (call.name === 'app.call' || call.name === 'tool.call') {
-      const result = await executeAppAction({ roomId, agentId, actorUserId }, call.name, call.args || {})
+      const scopeRoomId = call.args?.roomId || call.args?.scopeRoomId || undefined
+      if (scopeRoomId) {
+        if (!isXiaomiAgent(agentId)) throw new Error('Only XiaoMi can operate across rooms as the current user')
+        assertActorInRoom(String(scopeRoomId), actorUserId)
+      }
+      const result = await executeAppAction({ roomId, agentId, actorUserId, scopeRoomId }, call.name, call.args || {})
       if (result.handled) {
         const response = result.response || {}
         results.push({ action: call.name, success: response.success !== false, data: response.data, error: response.error })

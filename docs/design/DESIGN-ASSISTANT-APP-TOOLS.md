@@ -239,7 +239,7 @@ Smoke 测试只做低污染检查：
 - Executor 文件：`packages/server/src/app-actions/executor.ts`。
 - 每个 action 带 `category`、`risk`、`description`、`args` 与 UI 来源说明。
 - `tool.list` 返回 registry 元数据，不再只是字符串数组；`tool.schema/tool.help` 返回单个 action 说明。
-- `app.call`/`tool.call` 是统一代理入口，参数为 `{ action, args }`，小蜜 inline 和 Agent CLI 共用。
+- `app.call`/`tool.call` 是统一代理入口，参数为 `{ action, args, roomId? }`，小蜜 inline 和 Agent CLI 共用；`roomId` 仅用于小蜜按当前用户权限代操作其他用户已加入房间的界面功能。
 
 首批覆盖与界面一致的重点能力：
 
@@ -255,4 +255,5 @@ Smoke 测试只做低污染检查：
 - 写 Agent 默认模型、知识库写入/删除等操作仍要求 Agent owner/admin。
 - 房间 Agent 模型覆盖要求当前用户是房间 owner/editor。
 - 账单 action 只读取当前 actorUserId 的账户/流水/汇总，不开放调账、充值扣款、价格修改。
-- 小蜜平台托管 inline tool 会先校验 actorUserId 是当前房间成员，再通过 `app.call` 进入同一套 executor。
+- 小蜜平台托管 inline tool 会先校验 actorUserId 是当前小蜜会话房间成员；如果传入目标 `roomId`，还会校验 actorUserId 是目标房间成员，再通过 `app.call` 进入同一套 executor。
+- 小蜜与当前用户同权：小蜜只按 actorUserId 的权限操作，既不能越权，也不应被小蜜私聊房间限制住通讯录 Agent、账单、知识库等用户级界面功能；跨房间操作必须显式传目标 `roomId` 并校验用户是该房间成员。

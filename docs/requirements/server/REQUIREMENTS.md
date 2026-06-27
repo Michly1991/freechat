@@ -91,3 +91,5 @@
 - `tool.list`/`tool.schema` 应返回 action 元数据、风险等级和参数说明，帮助 Agent 自主选择正确工具。
 - 所有 App Action 必须以当前 actorUserId 为权限主体；小蜜不能因为是内置 Agent 获得额外权限。
 - 账单类 App Action 默认只开放查询当前用户账户、汇总和流水；调账、充值扣款、价格和密钥类管理 API 不提供给小蜜默认调用。
+- 小蜜与当前用户同权：小蜜代操作必须以 actorUserId 为唯一权限主体；用户在界面上有权限做的，小蜜可以代做；用户无权做的，小蜜也无权做。小蜜不能使用系统 owner、内置 Agent owner 或房间创建人作为越权主体。
+- 小蜜不应被小蜜私聊房间错误降权：用户级能力（通讯录 Agent、Agent 知识库、账单、模型配置等）按 actorUserId 判断；项目/房间级能力可传目标 roomId，服务端必须校验 actorUserId 是目标房间成员并具备相应角色。
