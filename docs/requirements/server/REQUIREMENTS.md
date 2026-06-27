@@ -83,3 +83,11 @@
 - `POST /api/rooms/:roomId/messages/with-files` 必须至少校验房间成员身份，文件落到当前房间 `message-files/<messageId>/`，并写入 `room_files`，通过消息 `payload.attachments` 返回 `file:<id>` 引用。
 - 附件消息必须保留普通消息语义：服务端要解析 multipart 中的 `content`、`mentions`、`reply_to`，创建消息后 side effects 使用相同 mentions，确保 @ Agent、通知、自动助理逻辑一致。
 - 附件文件和项目文件下载/读取都必须限定当前房间，禁止跨房间引用或路径逃逸。
+
+## 小蜜代替界面操作 / App Action
+
+- 服务端必须提供界面功能级 App Action Registry，覆盖用户在界面上常用的 Agent 管理、Agent 知识库、账单查询、模型配置查询、房间/成员/文件/任务等功能。
+- 小蜜和 Agent CLI 调用界面功能必须通过统一 `app.call`/`tool.call` 或明确 action，不能直接绕过服务端权限访问内部 REST API。
+- `tool.list`/`tool.schema` 应返回 action 元数据、风险等级和参数说明，帮助 Agent 自主选择正确工具。
+- 所有 App Action 必须以当前 actorUserId 为权限主体；小蜜不能因为是内置 Agent 获得额外权限。
+- 账单类 App Action 默认只开放查询当前用户账户、汇总和流水；调账、充值扣款、价格和密钥类管理 API 不提供给小蜜默认调用。

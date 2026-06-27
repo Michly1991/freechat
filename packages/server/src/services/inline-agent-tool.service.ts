@@ -3,6 +3,7 @@ import { agentService } from './agent.service.js'
 import { interactionService } from './interaction.service.js'
 import { broadcast, assertActorCanUseAgentInRoom } from '../routes/agent-tools.helpers.js'
 import { agentCapabilityService } from './agent-capability.service.js'
+import { executeAppAction } from '../app-actions/executor.js'
 
 type ToolCall = { name: string; args: any }
 
@@ -150,6 +151,14 @@ export async function executeInlineToolCalls(roomId: string, agentId: string, ac
   assertActorInRoom(roomId, actorUserId)
   const results = []
   for (const call of calls) {
+    if (call.name === 'app.call' || call.name === 'tool.call') {
+      const result = await executeAppAction({ roomId, agentId, actorUserId }, call.name, call.args || {})
+      if (result.handled) {
+        const response = result.response || {}
+        results.push({ action: call.name, success: response.success !== false, data: response.data, error: response.error })
+        continue
+      }
+    }
     if (call.name === 'agent.my-list' || call.name === 'agent.my_list') {
       const agents = await agentService.getUserAgents(actorUserId)
       results.push({ action: 'agent.my-list', success: true, data: { agents } })
@@ -177,6 +186,12 @@ export async function executeInlineToolCalls(roomId: string, agentId: string, ac
       const skills = agentCapabilityService.listSkills(targetAgent.id)
       const scripts = agentCapabilityService.listScripts(targetAgent.id)
       results.push({ action: 'agent.detail', success: true, data: { agent: sanitizeAgentForInline(targetAgent), skills, scripts } })
+      continue
+    }
+    const registryResult = await executeAppAction({ roomId, agentId, actorUserId }, call.name, call.args || {})
+    if (registryResult.handled) {
+      const response = registryResult.response || {}
+      results.push({ action: call.name, success: response.success !== false, data: response.data, error: response.error })
       continue
     }
     results.push({ action: call.name, success: false, error: `Inline tool ${call.name} is not supported yet` })

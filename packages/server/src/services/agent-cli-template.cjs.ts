@@ -26,105 +26,27 @@ function usage() {
     '  ./freechat tab update-local <tabId> res/dashboard.html',
     '',
     'Commands:',
-    '  ./freechat tool list',
-    '  ./freechat tool schema <toolName>',
-    "  ./freechat tool call <toolName> '<jsonArgs>'",
-    '  ./freechat chat recent [limit]  (default 30)',
-    '  ./freechat chat send <content>',
-    '  ./freechat task list [status]',
-    '  ./freechat task create <title> [description] [--assignee <agentNameOrId>]',
-    '  ./freechat task update <taskId> <field> <value> [field value...]',
-    '  ./freechat task delete <taskId>',
-    '  ./freechat task progress <taskId> <note>',
-    '  ./freechat task retry <taskId> [--reason <text>]',
-    '  ./freechat task subtask list <taskId>',
-    '  ./freechat task subtask add <taskId> <title> [description] [--assignee <agentNameOrId>]',
-    '  ./freechat task subtask update <subtaskId> <field> <value> [field value...]',
-    '  ./freechat task subtask retry <subtaskId> [--reason <text>]',
-    '  ./freechat task subtask delete <subtaskId>',
-    '  ./freechat task plan create-json <localJsonPath>',
-    '  ./freechat file list',
-    '  ./freechat file glob <pattern>',
-    '  ./freechat file read <path> [--limit <chars>] [--offset <chars>]',
-    '  ./freechat file info <path>',
-    '  ./freechat file download <path> [localPath]',
-    '  ./freechat file upload <localPath> [projectPath] [--show]',
-    '  ./freechat file write <path> <content> [--show|--hide]',
-    '  ./freechat file write-local <path> <localPath> [--show|--hide]',
-    '  ./freechat file mkdir <path> [--show|--hide]',
-    '  ./freechat file delete <path>',
-    '  ./freechat file show <path> [tabKey]',
-    '  ./freechat file hide <path> [tabKey]',
-    '  ./freechat workspace ls [path]',
-    '  ./freechat workspace glob <pattern>',
-    '  ./freechat workspace grep <query> [--glob <pattern>]',
-    '  ./freechat workspace cat <path>',
-    '  ./freechat tab files',
-    '  ./freechat tab-config list [tabKey]',
-    '  ./freechat tab-config add-file <path> [tabKey]',
-    '  ./freechat tab-config remove-file <path> [tabKey]',
-    '  ./freechat tab list',
-    '  ./freechat tab get <tabId|title>',
-    '  ./freechat tab search <query>',
-    '  ./freechat tab create <title> <htmlContent>',
-    '  ./freechat tab create-file <title> <projectFilePath>',
-    '  ./freechat tab create-local <title> <localPath>',
-    '  ./freechat tab update <tabId> <htmlContent>',
-    '  ./freechat tab update-file <tabId> <projectFilePath>',
-    '  ./freechat tab update-local <tabId> <localPath>',
-    '  ./freechat tab patch <tabId|title> --find <oldText> --replace <newText>',
-    '  ./freechat tab patch-json <localJsonPath>',
-    '  ./freechat tab open <tabId|title> [--anchor <anchor>]',
-    '  ./freechat tab action <tabId|title> <open|scrollTo|highlight> [--anchor <anchor>] [--selector <selector>]',
-    '  ./freechat tab delete <tabId>',
-    '  ./freechat tab reorder <tabId> [tabId...]',
-    '  ./freechat members list',
-    '  ./freechat members add <userId> [role]',
-    '  ./freechat workgroup info',
-    '  ./freechat workgroup members',
-    '  ./freechat workgroup agents',
-    '  ./freechat workgroup rooms',
-    '  ./freechat profiles list',
-    '  ./freechat profiles update-json <memberId> <localJsonPath>',
-    '  ./freechat users get <userId>',
-    '  ./freechat users search <query>',
-    '  ./freechat agent my-list',
-    '  ./freechat agent room-list',
-    '  ./freechat agent list-available',
-    '  ./freechat agent add <agentNameOrId>',
-    '  ./freechat agent remove <agentNameOrId>',
-    '  ./freechat agent detail [agentId]',
-    '  ./freechat agent restart <agentNameOrId> [--clear-session true] [--force true]',
-    '  ./freechat agent create-request <name> --description <desc> --specialties <a,b>',
-    '  ./freechat agent create-json <localJsonPath>',
-    '  ./freechat room info',
-    '  ./freechat room create <name> [--description <desc>] [--members <a,b>] [--agents <a,b>] [--auto-agent <agent>] [--initial-message <text>]',
-    '  ./freechat room create-json <localJsonPath>',
-    '  ./freechat room handoff --agent <agentNameOrId> [--reason <reason>]',
-    '  ./freechat room update [--name <name>] [--description <desc>]',
-    '  ./freechat room invite [--max-uses <n>] [--expires-in-days <n>]',
-    '  ./freechat interaction confirm <title> [description]',
-    '  ./freechat interaction choice <title> <opt1|opt2|...> [description]',
-    '  ./freechat interaction multi_choice <title> <opt1|opt2|...> [description]',
-    '  ./freechat interaction create-json <localJsonPath>',
-    '  ./freechat interaction list [status]',
-    '  ./freechat interaction respond <interactionId> <value|value1,value2> [inputKey=inputText...]',
-    '  ./freechat interaction consume <interactionId>',
-    '  ./freechat interaction cancel <interactionId>',
-    '  ./freechat interaction show <interactionId>',
-    '  ./freechat conversation list',
-    '  ./freechat conversation read <project|dm> <id>',
-    '  ./freechat conversation prefs <project|dm> <id> [pinned=true] [muted=true] [hidden=true]',
-    '  ./freechat friends list',
-    '  ./freechat friends requests',
-    '  ./freechat friends request <userId> [message]',
-    '  ./freechat friends accept <requestId>',
-    '  ./freechat friends reject <requestId>',
-    '  ./freechat dm open <userId>',
-    '  ./freechat dm messages <conversationId> [limit]',
-    '  ./freechat knowledge list',
-    '  ./freechat knowledge search <query> [--limit <n>]',
-    '  ./freechat knowledge read <fileId|path|public:entryId>',
+    '  ./freechat app list [category] | app help <action> | app call <action> \'{...}\'',
+    '  ./freechat tool list | tool schema <toolName> | tool call <toolName> \'{...}\'',
+    '  ./freechat chat recent [limit] | chat send <content>',
+    '  ./freechat task list/create/update/delete/progress/retry/subtask/plan ...',
+    '  ./freechat file list/glob/read/info/download/upload/write/write-local/mkdir/delete/show/hide ...',
+    '  ./freechat workspace ls/glob/grep/cat ...',
+    '  ./freechat tab files/list/get/search/create/create-file/create-local/update/update-file/update-local/patch/patch-json/open/action/delete/reorder ...',
+    '  ./freechat tab-config list/add-file/remove-file ...',
+    '  ./freechat members list | members add <userId> [role]',
+    '  ./freechat workgroup info/members/agents/rooms',
+    '  ./freechat profiles list | profiles update-json <memberId> <localJsonPath>',
+    '  ./freechat users get <userId> | users search <query>',
+    '  ./freechat agent my-list/room-list/list-available/add/remove/detail/restart/create-request/create-json ...',
+    '  ./freechat room info/create/create-json/handoff/update/invite ...',
+    '  ./freechat interaction confirm/choice/multi_choice/create-json/list/respond/consume/cancel/show ...',
+    '  ./freechat conversation list/read/prefs ...',
+    '  ./freechat friends list/requests/request/accept/reject ...',
+    '  ./freechat dm open/messages/send ...',
+    '  ./freechat knowledge list/search/read ...',
+    '  ./freechat billing account/summary/ledger ...',
+    '  ./freechat model profiles',
     '  ./freechat selftest smoke',
     "  ./freechat raw <action> '<jsonArgs>'",
     '',
@@ -323,14 +245,22 @@ if (!domain || ['-h', '--help', 'help'].includes(domain)) {
   process.exit(0);
 }
 
-if (domain === 'tool' && cmd === 'list') {
+if (domain === 'app' && cmd === 'list') {
+  call('tool.list', { category: rest[0] });
+} else if (domain === 'app' && ['help', 'schema'].includes(cmd)) {
+  if (!rest[0]) die('action is required');
+  call('tool.schema', { action: rest[0] });
+} else if (domain === 'app' && cmd === 'call') {
+  if (!rest[0]) die('action is required');
+  call('app.call', { action: rest[0], args: rest[1] ? JSON.parse(rest[1]) : {} });
+} else if (domain === 'tool' && cmd === 'list') {
   call('tool.list');
 } else if (domain === 'tool' && cmd === 'schema') {
   if (!rest[0]) die('toolName is required');
   call('tool.schema', { name: rest[0] });
 } else if (domain === 'tool' && cmd === 'call') {
   if (!rest[0]) die('toolName is required');
-  call(rest[0], rest[1] ? JSON.parse(rest[1]) : {});
+  call('app.call', { action: rest[0], args: rest[1] ? JSON.parse(rest[1]) : {} });
 } else if (domain === 'chat' && ['recent', 'list'].includes(cmd)) {
   call('chat.list', { limit: rest[0] || 20 });
 } else if (domain === 'chat' && cmd === 'send') {
@@ -649,10 +579,20 @@ if (domain === 'tool' && cmd === 'list') {
   knowledgeRequest('/api/remote-agents/knowledge/search?q=' + encodeURIComponent(query) + '&limit=' + encodeURIComponent(parsed.options.limit || 8));
 } else if (domain === 'knowledge' && cmd === 'read') {
   knowledgeRequest('/api/remote-agents/knowledge/read?ref=' + safeKnowledgeRef(rest[0]));
+} else if (domain === 'billing' && cmd === 'account') {
+  call('billing.account');
+} else if (domain === 'billing' && cmd === 'summary') {
+  call('billing.summary', parseNamedOptions(rest).options);
+} else if (domain === 'billing' && cmd === 'ledger') {
+  call('billing.ledger', parseNamedOptions(rest).options);
+} else if (domain === 'model' && ['profiles', 'profile-list'].includes(cmd)) {
+  call('model.profile.list');
 } else if (domain === 'selftest' && cmd === 'smoke') {
   selftestSmoke();
 } else if (domain === 'raw') {
   call(cmd, rest[0] ? JSON.parse(rest[0]) : {});
+} else if (domain && domain.includes('.')) {
+  call('app.call', { action: domain, args: cmd ? JSON.parse([cmd, ...rest].join(' ')) : {} });
 } else {
   die('Unknown command: ' + [domain, cmd].filter(Boolean).join(' '));
 }

@@ -230,3 +230,29 @@ Smoke 测试只做低污染检查：
 4. 扩充 CLI 便捷命令与 `selftest smoke`。
 5. 更新 Agent 工作区模板，把“界面所有操作尽量走 FreeChat 工具”写入默认规则。
 6. 运行 `pnpm check`，再用现有房间 workspace 或临时请求做 smoke 验证。
+
+## 界面功能级 App Action Registry（2026-06-27）
+
+用户希望小蜜“代替界面操作”，因此工具边界从“零散 Agent Tool”收敛为“界面功能级 App Action”：
+
+- Registry 文件：`packages/server/src/app-actions/registry.ts`。
+- Executor 文件：`packages/server/src/app-actions/executor.ts`。
+- 每个 action 带 `category`、`risk`、`description`、`args` 与 UI 来源说明。
+- `tool.list` 返回 registry 元数据，不再只是字符串数组；`tool.schema/tool.help` 返回单个 action 说明。
+- `app.call`/`tool.call` 是统一代理入口，参数为 `{ action, args }`，小蜜 inline 和 Agent CLI 共用。
+
+首批覆盖与界面一致的重点能力：
+
+- Agent 管理：`agent.detail`、`agent.model.get`、`agent.model.update-default`、`agent.room-model.update` 等。
+- Agent 知识库：`agent.knowledge.list/search/read/upsert/delete/reindex`。
+- 账单查询：`billing.account`、`billing.summary`、`billing.ledger`。
+- 模型配置查询：`model.profile.list`。
+- 既有房间、成员、文件、任务、Tab 等工具继续保留并登记到 registry。
+
+安全约束：
+
+- App Action 不能绕过服务端权限。读 Agent/知识库时仍校验当前用户是否可使用/编辑该 Agent 或 Agent 是否在当前房间。
+- 写 Agent 默认模型、知识库写入/删除等操作仍要求 Agent owner/admin。
+- 房间 Agent 模型覆盖要求当前用户是房间 owner/editor。
+- 账单 action 只读取当前 actorUserId 的账户/流水/汇总，不开放调账、充值扣款、价格修改。
+- 小蜜平台托管 inline tool 会先校验 actorUserId 是当前房间成员，再通过 `app.call` 进入同一套 executor。

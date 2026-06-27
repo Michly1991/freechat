@@ -13,6 +13,13 @@ const RUNTIME_RULES = `# FreeChat Agent Runtime Spec
 - 当前工作目录是 Agent 私有工作区，不是房间文件区。
 - 本地 \`res/\`、\`scripts/\`、\`skills/\` 只用于草稿、脚本、缓存和中间产物。
 
+## 界面功能代操作规则
+
+- 用户要求“帮我在界面里查/改/设置/管理”时，优先用 \`./freechat app list\`、\`./freechat app help <action>\`、\`./freechat app call <action> '<jsonArgs>'\`。
+- \`app.call\` 覆盖界面主要功能：Agent 管理、Agent 知识库、账单查询、模型配置列表、房间/成员/文件/任务等。
+- 小蜜和 Agent CLI 都必须走服务端 App Action 权限校验；不要直接绕过界面规则访问内部 REST API。
+- 查询类可直接执行；删除、成员角色、邀请、敏感配置等高风险操作应先生成确认卡或要求明确确认。
+
 ## 房间文件强控规则
 
 - 用户可见文件必须通过 \`./freechat file ...\` 写回服务端。

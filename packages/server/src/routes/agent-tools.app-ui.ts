@@ -7,6 +7,8 @@ import { membersService } from '../services/members.service.js'
 import { agentService } from '../services/agent.service.js'
 import { areFriends } from './friends.js'
 import { config } from '../config.js'
+import { appActionList, executeAppAction } from '../app-actions/executor.js'
+import { getAppAction } from '../app-actions/registry.js'
 
 interface AppUiToolContext {
   action: string
@@ -14,10 +16,13 @@ interface AppUiToolContext {
   roomId: string
   actorUserId: string
   agentId: string
+  actorRole?: string
   broadcast: (roomId: string, action: string, payload: any) => void
 }
 
 const TOOL_NAMES = [
+  ...new Set([
+    ...appActionList().map((tool) => tool.action),
   'tool.list', 'tool.schema',
   'chat.list', 'chat.send',
   'task.list', 'task.create', 'task.update', 'task.progress', 'task.delete', 'task.retry', 'task.plan.create',
@@ -35,6 +40,7 @@ const TOOL_NAMES = [
   'friends.list', 'friends.requests', 'friends.request', 'friends.accept', 'friends.reject', 'friends.status',
   'dm.open', 'dm.get', 'dm.messages', 'dm.send',
   'room.info', 'room.update', 'room.create-invite',
+  ]),
 ]
 
 function getUserSummary(userId: string) {
@@ -91,14 +97,22 @@ function listConversations(actorUserId: string) {
 }
 
 export async function handleAppUiTool(ctx: AppUiToolContext): Promise<{ handled: boolean; response?: any }> {
-  const { action, args, roomId, actorUserId, agentId, broadcast } = ctx
+  const { action, args, roomId, actorUserId, agentId, actorRole, broadcast } = ctx
   switch (action) {
     case 'tool.list':
-      return { handled: true, response: { success: true, data: { tools: TOOL_NAMES } } }
+      return { handled: true, response: { success: true, data: { tools: appActionList(args.category).map((tool) => ({ ...tool, available: TOOL_NAMES.includes(tool.action) })) } } }
+    case 'tool.help':
     case 'tool.schema': {
       const name = String(args.name || args.tool || args.action || '').trim()
       if (!name) throw { code: 'VALIDATION_ERROR', message: 'tool name is required' }
-      return { handled: true, response: { success: true, data: { name, input: 'JSON object args; run ./freechat help for common command forms', transport: { action: name, args: {} } } } }
+      const tool = getAppAction(name)
+      return { handled: true, response: { success: true, data: tool ? { tool } : { name, input: 'JSON object args; run ./freechat help for common command forms', transport: { action: name, args: {} } } } }
+    }
+    case 'app.call':
+    case 'tool.call': {
+      const result = await executeAppAction({ roomId, agentId, actorUserId, actorRole }, action, args)
+      if (result.handled) return result
+      return { handled: false }
     }
     case 'chat.list': {
       const limit = Math.max(1, Math.min(Number(args.limit || config.agent.chatRecentDefaultLimit) || config.agent.chatRecentDefaultLimit, 200))

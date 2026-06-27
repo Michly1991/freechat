@@ -54,3 +54,9 @@
   - API core/client 模块。
 - API 客户端保持聚合导出兼容时，底层请求、token、错误解析、日志等横切逻辑应集中在 core 模块。
 - 大页面和设置面板应按需懒加载，控制移动端首屏体积。
+
+## Agent CLI / 小蜜界面代操作
+
+- Agent Client 每次运行前应同步服务端 runtime spec 和 CLI，使 `./freechat app list/help/call`、`tool call`、`raw` 始终与服务端 App Action Registry 一致。
+- 小蜜代替界面操作时，前端展示仍以服务端结果和确认卡为准；删除、成员角色、邀请、敏感模型/知识库写操作不能仅凭前端隐藏按钮作为安全边界。
+- 用户上传本地文件仍由前端 file input/聊天附件完成；小蜜可操作已上传的文件引用或 Agent 知识库文本内容。
