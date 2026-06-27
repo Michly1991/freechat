@@ -52,6 +52,7 @@
 - 计费、免费次数、promotion/free quota 必须服务端计算。
 - 客户端不能决定是否免费、是否扣费。
 - 小蜜等内置 Agent 的免费次数由服务端 `agent_billing_rules.model_free_runs_per_day` 和 pricing/billing 逻辑按 payer/day 结算。
+- 用户自带模型 profile 由服务端按 `model_profiles.owner_id === payerUserId` 判定；平台托管 Agent 使用付款人自己的模型时，不收平台模型费，只记录可信用量。
 - client-hosted Agent runtime 不应被服务端当作平台模型费用扣费，除非明确是 platform-hosted runtime。
 
 ## 服务端架构拆分

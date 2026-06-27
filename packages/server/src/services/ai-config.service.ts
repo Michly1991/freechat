@@ -156,6 +156,45 @@ class AIConfigService {
     }
   }
 
+  async callAnthropicCompatibleWithUsage(input: {
+    baseUrl: string
+    apiKey: string
+    apiKeyHeader?: string
+    authType?: 'header' | 'bearer'
+    model?: string
+    prompt: string
+    maxTokens?: number
+    system?: string
+  }): Promise<AICallResult> {
+    const model = input.model
+    if (!model) throw new Error('AI model not configured')
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'anthropic-version': '2023-06-01',
+    }
+    if (input.authType === 'bearer') headers.authorization = input.apiKey.startsWith('Bearer ') ? input.apiKey : `Bearer ${input.apiKey}`
+    else headers[input.apiKeyHeader || 'x-api-key'] = input.apiKey
+
+    const response = await fetch(`${input.baseUrl.replace(/\/$/, '')}/v1/messages`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model,
+        max_tokens: input.maxTokens || 1024,
+        messages: [{ role: 'user', content: input.prompt }],
+        ...(input.system && { system: input.system })
+      })
+    })
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({})) as any
+      throw new Error(`AI API error: ${err.message || err.code || response.statusText}`)
+    }
+
+    const data = await response.json() as any
+    return { text: data.content?.[0]?.text || '', model: data.model || model, usage: parseUsage(data) }
+  }
+
   async callAIWithUsage(prompt: string, options?: { model?: string; maxTokens?: number; system?: string }): Promise<AICallResult> {
     const provider = this.getCurrentProvider()
     const apiKey = this.getApiKey(this.config.currentProvider)
@@ -164,31 +203,16 @@ class AIConfigService {
       throw new Error('AI provider not configured')
     }
 
-    const model = options?.model || provider.defaultModel
-    const messages = [{ role: 'user', content: prompt }]
-
-    const response = await fetch(`${provider.baseUrl}/v1/messages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        [provider.apiKeyHeader]: apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: options?.maxTokens || 1024,
-        messages,
-        ...(options?.system && { system: options.system })
-      })
+    return this.callAnthropicCompatibleWithUsage({
+      baseUrl: provider.baseUrl,
+      apiKey,
+      apiKeyHeader: provider.apiKeyHeader,
+      authType: provider.authType,
+      model: options?.model || provider.defaultModel,
+      prompt,
+      maxTokens: options?.maxTokens,
+      system: options?.system,
     })
-
-    if (!response.ok) {
-      const err = await response.json() as any
-      throw new Error(`AI API error: ${err.message || err.code || response.statusText}`)
-    }
-
-    const data = await response.json() as any
-    return { text: data.content?.[0]?.text || '', model: data.model || model, usage: parseUsage(data) }
   }
 
   async callAI(prompt: string, options?: { model?: string; maxTokens?: number; system?: string }): Promise<string> {

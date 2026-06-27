@@ -45,6 +45,17 @@ function parseRoomModelConfig(value?: string | null): RoomAgentModelConfig | und
   try { return JSON.parse(value) as RoomAgentModelConfig } catch { return undefined }
 }
 
+function enrichRoomModelConfig(config: RoomAgentModelConfig | undefined, row: AgentRow): RoomAgentModelConfig | undefined {
+  if (!config) return undefined
+  return {
+    ...config,
+    modelSource: (row as any).room_model_source || config.modelSource,
+    modelProfileName: (row as any).room_model_profile_name || config.modelProfileName,
+    modelProfileOwnerId: (row as any).room_model_profile_owner_id || config.modelProfileOwnerId,
+    modelProfileOwnerName: (row as any).room_model_profile_owner_name || config.modelProfileOwnerName,
+  }
+}
+
 export function rowToAgent(row: AgentRow): Agent {
   const config = row.config ? JSON.parse(row.config) : undefined
   const builtInKey = config?.builtInKey
@@ -75,7 +86,7 @@ export function rowToAgent(row: AgentRow): Agent {
     roomRole: (row.room_role as RoomAgentRole) || undefined,
     autoEnabled: row.auto_enabled !== undefined && row.auto_enabled !== null ? !!row.auto_enabled : undefined,
     roomPriority: row.room_priority ?? undefined,
-    roomModelConfig: parseRoomModelConfig(row.room_model_config),
+    roomModelConfig: enrichRoomModelConfig(parseRoomModelConfig(row.room_model_config), row),
     isTemplate: row.is_template !== undefined && row.is_template !== null ? !!row.is_template : undefined,
     templateVersion: row.template_version ?? undefined,
     sourceTemplateId: row.source_template_id || undefined,

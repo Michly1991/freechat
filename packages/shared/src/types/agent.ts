@@ -48,6 +48,10 @@ export interface RoomAgentModelConfig {
   runtime?: 'claude-code'
   maxTokens?: number
   temperature?: number
+  modelSource?: 'platform' | 'user_owned' | 'marketplace' | 'client_reported' | 'system_default'
+  modelProfileName?: string
+  modelProfileOwnerId?: string
+  modelProfileOwnerName?: string
 }
 
 export interface Agent {

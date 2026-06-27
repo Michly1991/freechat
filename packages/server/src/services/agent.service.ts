@@ -103,13 +103,15 @@ export class AgentService extends AgentWorkspaceService {
     return { agent, apiKey }
   }
 
-  async updateRoomAgentModelConfig(roomId: string, agentId: string, input: any): Promise<Agent> {
+  async updateRoomAgentModelConfig(roomId: string, agentId: string, input: any, configuredBy?: string): Promise<Agent> {
     const modelConfig = sanitizeRoomModelConfig(input)
     const row = db.prepare('SELECT 1 FROM room_agents WHERE room_id = ? AND agent_id = ?').get(roomId, agentId)
     if (!row) throw { code: 'AGENT_NOT_FOUND', message: 'Agent is not in this room' }
     if (modelConfig?.modelProfileId) {
-      const profile = db.prepare('SELECT id FROM model_profiles WHERE id = ? AND enabled = 1').get(modelConfig.modelProfileId)
+      const profile = db.prepare('SELECT id, owner_id, visibility FROM model_profiles WHERE id = ? AND enabled = 1').get(modelConfig.modelProfileId) as any
       if (!profile) throw { code: 'MODEL_PROFILE_NOT_FOUND', message: 'Model profile not found or disabled' }
+      const canUse = profile.owner_id === configuredBy || profile.visibility === 'platform' || profile.visibility === 'shared' || db.prepare("SELECT 1 FROM market_follows WHERE user_id = ? AND target_type = 'model' AND target_id = ?").get(configuredBy || '', modelConfig.modelProfileId)
+      if (!canUse) throw { code: 'FORBIDDEN', message: 'No permission to use this model profile' }
     }
     const now = Date.now()
     const tx = db.transaction(() => {
@@ -118,7 +120,7 @@ export class AgentService extends AgentWorkspaceService {
         db.prepare(`
           INSERT INTO room_agent_model_bindings (
             room_id, agent_id, model_profile_id, model, runtime, max_tokens, temperature, configured_by, extra_config, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(room_id, agent_id) DO UPDATE SET
             model_profile_id = excluded.model_profile_id,
             model = excluded.model,
@@ -135,6 +137,7 @@ export class AgentService extends AgentWorkspaceService {
           modelConfig.runtime || null,
           modelConfig.maxTokens || null,
           modelConfig.temperature ?? null,
+          configuredBy || null,
           JSON.stringify(extra),
           now
         )
@@ -496,11 +499,18 @@ export class AgentService extends AgentWorkspaceService {
     const select = `
       SELECT a.*, COALESCE(u.nickname, u.username) owner_name, ra.room_role, ra.auto_enabled, ra.priority as room_priority,
         CASE WHEN b.room_id IS NULL THEN NULL ELSE json_object('modelProfileId', b.model_profile_id, 'model', b.model, 'runtime', b.runtime, 'maxTokens', b.max_tokens, 'temperature', b.temperature) END as room_model_config,
+        mp.name as room_model_profile_name,
+        mp.owner_id as room_model_profile_owner_id,
+        COALESCE(mu.nickname, mu.username) as room_model_profile_owner_name,
+        CASE WHEN b.model_profile_id IS NULL THEN NULL WHEN mp.owner_id = r.created_by THEN 'user_owned' WHEN mp.visibility = 'platform' THEN 'platform' ELSE 'marketplace' END as room_model_source,
         (SELECT MAX(last_active_at) FROM agent_sessions s WHERE s.room_id = ra.room_id AND s.agent_id = a.id) as agent_last_active_at
       FROM agents a INNER JOIN room_agents ra ON a.id = ra.agent_id
+      INNER JOIN rooms r ON r.id = ra.room_id
       LEFT JOIN users u ON u.id = a.owner_id
-      LEFT JOIN room_agent_model_bindings b ON b.room_id = ra.room_id AND b.agent_id = ra.agent_id`
-    const current = db.prepare(`${select} INNER JOIN rooms r ON r.id = ra.room_id WHERE ra.room_id = ? AND r.current_assistant_agent_id = a.id AND a.status != 'inactive' LIMIT 1`).get(roomId) as AgentRow | undefined
+      LEFT JOIN room_agent_model_bindings b ON b.room_id = ra.room_id AND b.agent_id = ra.agent_id
+      LEFT JOIN model_profiles mp ON mp.id = b.model_profile_id
+      LEFT JOIN users mu ON mu.id = mp.owner_id`
+    const current = db.prepare(`${select} WHERE ra.room_id = ? AND r.current_assistant_agent_id = a.id AND a.status != 'inactive' LIMIT 1`).get(roomId) as AgentRow | undefined
     const fallback = current || db.prepare(`${select} WHERE ra.room_id = ? AND ra.auto_enabled = 1 AND a.status != 'inactive' ORDER BY ra.priority ASC, ra.added_at ASC LIMIT 1`).get(roomId) as AgentRow | undefined
     return fallback ? rowToAgent(fallback) : null
   }
@@ -576,15 +586,23 @@ export class AgentService extends AgentWorkspaceService {
           'runtime', b.runtime,
           'maxTokens', b.max_tokens,
           'temperature', b.temperature
-        ) END as room_model_config, (
+        ) END as room_model_config,
+        mp.name as room_model_profile_name,
+        mp.owner_id as room_model_profile_owner_id,
+        COALESCE(mu.nickname, mu.username) as room_model_profile_owner_name,
+        CASE WHEN b.model_profile_id IS NULL THEN NULL WHEN mp.owner_id = r.created_by THEN 'user_owned' WHEN mp.visibility = 'platform' THEN 'platform' ELSE 'marketplace' END as room_model_source,
+        (
         SELECT MAX(last_active_at)
         FROM agent_sessions s
         WHERE s.room_id = ra.room_id AND s.agent_id = a.id
       ) as agent_last_active_at
       FROM agents a
       INNER JOIN room_agents ra ON a.id = ra.agent_id
+      INNER JOIN rooms r ON r.id = ra.room_id
       LEFT JOIN users u ON u.id = a.owner_id
       LEFT JOIN room_agent_model_bindings b ON b.room_id = ra.room_id AND b.agent_id = ra.agent_id
+      LEFT JOIN model_profiles mp ON mp.id = b.model_profile_id
+      LEFT JOIN users mu ON mu.id = mp.owner_id
       WHERE ra.room_id = ?
       ORDER BY ra.auto_enabled DESC, ra.priority ASC, ra.added_at ASC
     `).all(roomId) as AgentRow[]

@@ -16,6 +16,7 @@ export type MeteredUsageEvent = UsageTokenSnapshot & {
   agentProviderUserId?: string | null
   modelProviderUserId?: string | null
   modelProfileId?: string | null
+  isSelfProvidedModel?: boolean
   runtime?: string | null
   model?: string | null
   modelSource?: string | null

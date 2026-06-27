@@ -1,10 +1,10 @@
 import db from '../storage/db.js'
-import { aiConfigService } from './ai-config.service.js'
 import { messageService } from './message.service.js'
 import { createAgentToolToken } from '../agent-tool-token.js'
 import { config as appConfig } from '../config.js'
 import type { ConnectorAuth } from './remote-agent-connector.service.js'
 import { executeInlineToolCalls } from './inline-agent-tool.service.js'
+import { modelRuntimeService } from './model-runtime.service.js'
 
 function trimPrompt(input: string) {
   return String(input || '').slice(-12000)
@@ -54,9 +54,18 @@ export class PlatformHostedAgentRuntimeService {
       let output = ''
       let aiUsage: any = null
       try {
-        const aiResult = await aiConfigService.callAIWithUsage(prompt, { system, maxTokens: cfg.model?.maxTokens || 1600, model: cfg.model?.model })
+        const actorUserId = event.payload?.actorUserId || event.payload?.metadata?.actorUserId
+        const aiResult = await modelRuntimeService.callRoomAgentModel(event.roomId, auth.agentId, actorUserId, prompt, { system, maxTokens: cfg.model?.maxTokens || 1600, model: cfg.model?.model })
         output = aiResult.text
-        aiUsage = { model: aiResult.model, ...aiResult.usage }
+        aiUsage = {
+          model: aiResult.model,
+          ...aiResult.usage,
+          modelProfileId: aiResult.modelProfileId,
+          modelSource: aiResult.modelSource,
+          modelProviderUserId: aiResult.modelProviderUserId,
+          baseUrlHost: aiResult.baseUrlHost,
+          isSelfProvidedModel: aiResult.isSelfProvidedModel,
+        }
         const toolSummary = await executeInlineToolCalls(event.roomId, auth.agentId, event.payload?.actorUserId || event.payload?.metadata?.actorUserId, output)
         if (toolSummary) output = toolSummary
       } catch (err: any) {

@@ -8,6 +8,11 @@ function toInt(value: any): number {
   return Number.isFinite(n) ? Math.trunc(n) : 0
 }
 
+function parseJson(value?: string | null): any {
+  if (!value) return {}
+  try { return JSON.parse(value) } catch { return {} }
+}
+
 function mapRow(row: any): MeteredUsageEvent {
   return {
     id: row.id,
@@ -19,6 +24,7 @@ function mapRow(row: any): MeteredUsageEvent {
     agentProviderUserId: row.agent_provider_user_id,
     modelProviderUserId: row.model_provider_user_id,
     modelProfileId: row.model_profile_id,
+    isSelfProvidedModel: row.model_source === 'user_owned' || row.model_provider_user_id === null && row.model_profile_id !== null && row.model_source === 'user_owned',
     runtime: row.runtime,
     model: row.model,
     modelSource: row.model_source,
@@ -71,8 +77,13 @@ export class UsageRepository {
     const platformProfileId = currentProviderKey ? `mp_platform_${currentProviderKey}` : null
     const platformProfile = platformProfileId && !binding ? db.prepare('SELECT owner_id model_provider_user_id, visibility, base_url, default_model FROM model_profiles WHERE id = ? AND enabled = 1').get(platformProfileId) as any : null
     const clientReported = (run.runtime === 'remote-claude-code' || run.usage_source === 'client_reported') && run.runtime !== 'platform-hosted-client'
-    const profileId = clientReported ? null : (binding?.model_profile_id || platformProfileId || null)
-    const model = run.model || (clientReported ? null : (binding?.model || binding?.default_model || platformProfile?.default_model || currentProvider?.defaultModel || null))
+    const rawUsage = parseJson(run.raw_usage_json)
+    const reportedModelProfileId = rawUsage.modelProfileId || rawUsage.model_profile_id || null
+    const reportedProfile = reportedModelProfileId ? db.prepare('SELECT owner_id model_provider_user_id, visibility, base_url, default_model FROM model_profiles WHERE id = ? AND enabled = 1').get(reportedModelProfileId) as any : null
+    const profileId = clientReported ? null : (reportedModelProfileId || binding?.model_profile_id || platformProfileId || null)
+    const providerUserId = reportedProfile?.model_provider_user_id || binding?.model_provider_user_id || platformProfile?.model_provider_user_id || null
+    const selfProvided = !!profileId && !!providerUserId && providerUserId === (run.payer_user_id || room?.created_by || agent?.owner_id)
+    const model = run.model || (clientReported ? null : (binding?.model || binding?.default_model || reportedProfile?.default_model || platformProfile?.default_model || currentProvider?.defaultModel || null))
     const id = `mue_${uuidv4()}`
     const inputTokens = toInt(run.input_tokens)
     const outputTokens = toInt(run.output_tokens)
@@ -87,12 +98,12 @@ export class UsageRepository {
       agent_template_id: templateId,
       payer_user_id: run.payer_user_id || room?.created_by || agent?.owner_id || 'system',
       agent_provider_user_id: template?.owner_id || agent?.owner_id || null,
-      model_provider_user_id: clientReported ? null : (binding?.model_provider_user_id || platformProfile?.model_provider_user_id || null),
+      model_provider_user_id: clientReported || selfProvided ? null : providerUserId,
       model_profile_id: profileId,
       runtime: run.runtime,
       model,
-      model_source: clientReported ? 'client_reported' : (binding?.visibility || platformProfile?.visibility || (profileId ? 'platform' : 'system_default')),
-      base_url_host: clientReported ? null : hostOf(binding?.base_url || platformProfile?.base_url),
+      model_source: clientReported ? 'client_reported' : (selfProvided ? 'user_owned' : (rawUsage.modelSource || rawUsage.model_source || binding?.visibility || reportedProfile?.visibility || platformProfile?.visibility || (profileId ? 'platform' : 'system_default'))),
+      base_url_host: clientReported ? null : hostOf(binding?.base_url || reportedProfile?.base_url || platformProfile?.base_url || rawUsage.baseUrlHost || rawUsage.base_url_host),
       input_tokens: inputTokens,
       output_tokens: outputTokens,
       cache_write_tokens: cacheWriteTokens,

@@ -75,7 +75,7 @@ export class BillingService {
           })
           creditWalletService.apply(event.payerUserId, -charge.modelCharge, 'model_usage_charge', { runId, ledgerId: entry.id, note: `Model usage ${runId}` })
         }
-        if (charge.modelCharge > 0 && event.modelProviderUserId) {
+    if (charge.modelCharge > 0 && event.modelProviderUserId && event.modelProviderUserId !== event.payerUserId) {
           const entry = billingLedgerRepository.createEntry(event, {
             accountUserId: event.modelProviderUserId,
             accountRole: 'model_provider',
@@ -122,10 +122,10 @@ export class BillingService {
     const room = db.prepare('SELECT created_by FROM rooms WHERE id = ?').get(roomId) as any
     const agent = db.prepare('SELECT owner_id FROM agents WHERE id = ?').get(agentId) as any
     const payerUserId = actorUserId || room?.created_by || agent?.owner_id || 'system'
-    const binding = this.resolveRoomAgentModelBinding(roomId, agentId)
-    const modelPolicy = binding.modelProfileId && binding.model
+    const binding = this.resolveRoomAgentModelBinding(roomId, agentId, payerUserId)
+    const modelPolicy = binding.modelProfileId && binding.model && !binding.isSelfProvidedModel
       ? pricingPolicyRepository.getModelPolicy(binding.modelProfileId, binding.model)
-      : (binding.model ? pricingPolicyRepository.findPlatformModelPolicy(binding.model) : undefined)
+      : (binding.model && !binding.isSelfProvidedModel ? pricingPolicyRepository.findPlatformModelPolicy(binding.model) : undefined)
     const agentTemplateId = pricingPolicyRepository.resolveAgentTemplateId(agentId)
     const agentPolicy = agentTemplateId ? pricingPolicyRepository.getAgentPolicy(agentTemplateId) : undefined
     const chargeAgent = !!agentPolicy?.agentService && agentPolicy.agentService.mode === 'per_token' && agentPolicy.agentService.providerUserId && agentPolicy.agentService.providerUserId !== payerUserId
@@ -155,19 +155,25 @@ export class BillingService {
   }
 
   private resolveModelPolicy(event: MeteredUsageEvent) {
+    if (event.modelSource === 'user_owned' || event.isSelfProvidedModel || (event.modelProviderUserId && event.modelProviderUserId === event.payerUserId)) return undefined
     if ((event.usageSource === 'client_reported' || event.modelSource === 'client_reported' || event.runtime === 'remote-claude-code') && event.runtime !== 'platform-hosted-client') return undefined
     if (event.modelProfileId && event.model) return pricingPolicyRepository.getModelPolicy(event.modelProfileId, event.model)
     if (event.model) return pricingPolicyRepository.findPlatformModelPolicy(event.model)
     return undefined
   }
 
-  private resolveRoomAgentModelBinding(roomId: string, agentId: string): { modelProfileId: string | null; model: string | null } {
-    const binding = db.prepare('SELECT model_profile_id, model FROM room_agent_model_bindings WHERE room_id = ? AND agent_id = ?').get(roomId, agentId) as any
-    if (binding?.model_profile_id || binding?.model) return { modelProfileId: binding.model_profile_id || null, model: binding.model || null }
+  private resolveRoomAgentModelBinding(roomId: string, agentId: string, payerUserId?: string): { modelProfileId: string | null; model: string | null; isSelfProvidedModel: boolean } {
+    const binding = db.prepare(`
+      SELECT b.model_profile_id, b.model, mp.owner_id model_provider_user_id
+      FROM room_agent_model_bindings b
+      LEFT JOIN model_profiles mp ON mp.id = b.model_profile_id AND mp.enabled = 1
+      WHERE b.room_id = ? AND b.agent_id = ?
+    `).get(roomId, agentId) as any
+    if (binding?.model_profile_id || binding?.model) return { modelProfileId: binding.model_profile_id || null, model: binding.model || null, isSelfProvidedModel: !!binding.model_profile_id && !!payerUserId && binding.model_provider_user_id === payerUserId }
     const aiConfig = aiConfigService.getConfig()
     const providerKey = aiConfig.currentProvider
     const provider = providerKey ? aiConfig.providers?.[providerKey] : null
-    return { modelProfileId: providerKey ? `mp_platform_${providerKey}` : null, model: provider?.defaultModel || null }
+    return { modelProfileId: providerKey ? `mp_platform_${providerKey}` : null, model: provider?.defaultModel || null, isSelfProvidedModel: false }
   }
 }
 

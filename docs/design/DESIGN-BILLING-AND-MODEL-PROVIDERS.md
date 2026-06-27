@@ -11,7 +11,7 @@ FreeChat billing is based on Agent runs. Runtime accounting can include two inde
 Core rule: **Agent is token-billable only after the owner explicitly sets a per-token price; otherwise it is free.** Model billing depends on who hosts the runtime:
 
 - **Client-hosted Agent (`deployment='client'`, `runtime='remote-claude-code'`, or `usage_source='client_reported'`)**: Agent Client reports token usage to FreeChat Server. Server reads the corresponding Agent rule and charges only the Agent service fee to the Agent creator/owner. It does **not** calculate or charge platform model fees, because the model/API key/runtime cost is borne outside FreeChat by the client host.
-- **Platform/server-provided Agent runtime**: Server calculates Agent service fee for the Agent owner and model fee for the platform/model provider separately.
+- **Platform/server-provided Agent runtime**: Server calculates Agent service fee for the Agent owner and model fee for the platform/model provider separately. If the room Agent is bound to a model profile owned by the payer, the model is treated as user-owned infrastructure: server may call that profile's encrypted API key, records trusted usage, but model fee is zero.
 
 The runtime model is configured on the **room Agent instance**, not on the whole room.
 
@@ -19,6 +19,7 @@ The runtime model is configured on the **room Agent instance**, not on the whole
 
 ```text
 model-provider      model profiles, encrypted key/baseUrl, model token rules, platform model bootstrap
+model-runtime       resolves room-agent model binding and calls platform/user/shared model profiles
 usage-metering      converts Agent run facts into immutable usage events
 billing             calculates Agent/model charges and creates accounting entries
 wallet              credit balances and wallet transactions
@@ -47,8 +48,9 @@ Creating rooms, creating Agents, adding/following Agents, or joining a workgroup
 payer_user_id          = actorUserId when present, else rooms.created_by, else Agent owner
 agent_template_id      = agents.source_template_id OR agent_id
 agent_provider_user_id = owner of agent_template_id
-model_provider_user_id = model_profiles.owner_id
+model_provider_user_id = model_profiles.owner_id, except payer-owned profiles where model_provider_user_id is null for billing
 platform provider      = user_platform_model_provider via platform model_profiles
+model_source           = platform / marketplace / user_owned / client_reported / system_default
 ```
 
 Agent service fee is not charged when the payer is also the Agent provider.
@@ -56,7 +58,7 @@ Agent service fee is not charged when the payer is also the Agent provider.
 ## Marketplace Billing Surfaces
 
 - **AI market**: Agent templates. Others see public summary; owner/admin/editor sees full prompt, skills, scripts, permissions, and Agent token price. Agent price defaults to free.
-- **Model market**: model profiles backed by provider `apiKey + baseUrl + models`. Pricing uses `model_billing_rules`.
+- **Model market**: model profiles backed by provider `apiKey + baseUrl + models`. Pricing uses `model_billing_rules`. A profile owned by the payer is considered a bring-your-own-model profile and does not create `model_usage_charge` for that payer.
 - **Scene market**: scene templates. Current MVP supports free/fixed one-time purchase pricing.
 
 Platform model pricing uses separate input/output token prices. Output is priced at `2 USD / 1M tokens`; input/cache-write is priced lower at `1 USD / 1M tokens`. In current credit UI/API this is represented as input `1`, output `2`, cache write `1`, and cache read `0` credits per 1M tokens. Minimum per run stays `0` in development to avoid blocking users with empty wallets. Runtime charges are rounded up to the nearest microcredit, not the nearest public credit.
@@ -152,7 +154,7 @@ Client UI may show or submit pricing configuration, but it never decides whether
 ## Charge Formula
 
 ```text
-model_charge_micro = token class prices from model_billing_rules, unless Agent model_free_runs_per_day quota still has remaining runs for the payer today
+model_charge_micro = token class prices from model_billing_rules, unless Agent model_free_runs_per_day quota still has remaining runs for the payer today, or model_source='user_owned'
 agent_charge_micro = token class prices from agent_billing_rules when billing_mode='per_token'; otherwise 0
 usage_total_micro  = model_charge_micro + agent_charge_micro
 
@@ -160,6 +162,8 @@ total_tokens = input_tokens + output_tokens + cache_write_tokens + cache_read_to
 ```
 
 Charges are rounded up to the nearest microcredit. Free model-charge quota is a **server-side billing rule**. The frontend may display the configured quota, but it must not decide whether a run is free or paid. Runtime preflight and final settlement both read `agent_billing_rules.model_free_runs_per_day` on the server and count settled usage by `(payer_user_id, agent_template_id, natural day)`. Platform-hosted built-ins such as 小蜜 must report trusted server-metered token usage from the server-side model response; if the model call falls back without usage, the run is recorded as non-billable usage audit instead of letting the client mark it free.
+
+User-owned model profiles are a separate server-side rule: if the resolved model profile owner is the payer, usage is recorded with `model_source='user_owned'`, model-provider income is disabled, and model charge is forced to zero. This applies to 小蜜 and other platform-hosted Agents when the current room Agent binding points to the payer's own profile. Agent service fee remains governed by the Agent's billing rule; 小蜜's Agent service fee remains free.
 
 
 ## Workgroup Share / Visitor Billing
@@ -188,8 +192,18 @@ Platform/server-provided Agent billing:
 ```text
 payer        -> debit agent_usage_charge when Agent rule is per_token and amount > 0
 Agent owner  -> credit agent_income
-payer        -> debit model_usage_charge when model rule is billable
+payer        -> debit model_usage_charge when model rule is billable and model_source is not user_owned
 model owner/platform -> credit model_income
+```
+
+Bring-your-own model profile for platform-hosted Agent:
+
+```text
+room Agent binding -> payer-owned model_profile_id
+server runtime     -> calls that profile baseUrl/apiKey
+usage event        -> model_source='user_owned'
+model fee          -> 0, no model_income entry
+Agent fee          -> unchanged by this rule; 小蜜 remains free
 ```
 
 This keeps Agent value and model infrastructure cost separate. Tina's current Agent service pricing is:

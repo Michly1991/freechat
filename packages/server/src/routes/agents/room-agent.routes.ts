@@ -97,10 +97,11 @@ app.patch('/api/rooms/:roomId/agents/:agentId/model', async (request, reply) => 
     if (!canEdit) {
       return reply.code(403).send({ success: false, error: { code: 'FORBIDDEN', message: 'Only project owner/editor can configure room agents' } })
     }
-    const agent = await agentService.updateRoomAgentModelConfig(roomId, agentId, request.body as any)
+    const agent = await agentService.updateRoomAgentModelConfig(roomId, agentId, request.body as any, user.id)
     return reply.send({ success: true, data: { agent } })
   } catch (err: any) {
     if (err.code === 'AGENT_NOT_FOUND' || err.code === 'MODEL_PROFILE_NOT_FOUND') return reply.code(404).send({ success: false, error: err })
+    if (err.code === 'FORBIDDEN') return reply.code(403).send({ success: false, error: err })
     throw err
   }
 })
