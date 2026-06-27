@@ -19,7 +19,7 @@ Model configuration has inheritance:
 room-agent override -> contact/Agent default model -> platform default model
 ```
 
-The main product entry is **Contacts -> Agent -> 模型与运行**. Room Agent UI only sets a project-specific override or restores inheritance.
+The main product entry is **Contacts -> Agent -> 模型与运行**. The contact-list Agent default model is global: once the owner changes it, every room/direct/workgroup entry that uses that Agent inherits the new model immediately, unless that room has an explicit override. Room Agent UI only sets a project-specific override or restores inheritance.
 
 ## Domain Boundaries
 
@@ -121,7 +121,7 @@ Legacy columns like `token_multiplier`, `fixed_credits_per_run`, and `fixed_cred
 
 ### `agent_model_defaults`
 
-Stores the default model for the contact-list Agent. Room Agents inherit this default unless a room override exists.
+Stores the default model for the contact-list Agent. Room Agents inherit this default unless a room override exists. For room-local clones, defaults are stored and resolved by the source template Agent (`COALESCE(source_template_id, id)`), so changing the owner’s contact-list Agent default model affects all cloned room instances.
 
 ```sql
 agent_model_defaults (

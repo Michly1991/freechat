@@ -78,6 +78,11 @@ function rowToConfig(row: any, scope: ModelBindingScope): EffectiveAgentModelCon
   }
 }
 
+function defaultAgentId(agentId: string): string {
+  const row = db.prepare('SELECT COALESCE(source_template_id, id) default_agent_id FROM agents WHERE id = ?').get(agentId) as any
+  return row?.default_agent_id || agentId
+}
+
 export class AgentModelConfigService {
   sanitize(input: any): ModelConfigInput | null {
     return sanitizeModelConfig(input)
@@ -88,9 +93,10 @@ export class AgentModelConfigService {
   }
 
   updateAgentDefault(agentId: string, input: any, configuredBy: string): void {
+    const rootAgentId = defaultAgentId(agentId)
     const modelConfig = sanitizeModelConfig(input)
     assertProfileUsableBy(configuredBy, modelConfig)
-    assertAgentDefaultShareAllowed(agentId, modelConfig)
+    assertAgentDefaultShareAllowed(rootAgentId, modelConfig)
     const now = Date.now()
     const tx = db.transaction(() => {
       if (modelConfig) {
@@ -108,9 +114,9 @@ export class AgentModelConfigService {
             allow_paid_shared_model = excluded.allow_paid_shared_model,
             extra_config = excluded.extra_config,
             updated_at = excluded.updated_at
-        `).run(agentId, modelConfig.modelProfileId || null, modelConfig.model || null, modelConfig.runtime || null, modelConfig.maxTokens || null, modelConfig.temperature ?? null, configuredBy, modelConfig.allowPaidSharedModel ? 1 : 0, JSON.stringify({ maxTokens: modelConfig.maxTokens, temperature: modelConfig.temperature }), now)
+        `).run(rootAgentId, modelConfig.modelProfileId || null, modelConfig.model || null, modelConfig.runtime || null, modelConfig.maxTokens || null, modelConfig.temperature ?? null, configuredBy, modelConfig.allowPaidSharedModel ? 1 : 0, JSON.stringify({ maxTokens: modelConfig.maxTokens, temperature: modelConfig.temperature }), now)
       } else {
-        db.prepare('DELETE FROM agent_model_defaults WHERE agent_id = ?').run(agentId)
+        db.prepare('DELETE FROM agent_model_defaults WHERE agent_id = ?').run(rootAgentId)
       }
     })
     tx()
@@ -149,7 +155,7 @@ export class AgentModelConfigService {
       const roomConfig = rowToConfig(roomRow, 'room_override')
       if (roomConfig) return roomConfig
     }
-    const defaultRow = db.prepare('SELECT * FROM agent_model_defaults WHERE agent_id = ?').get(agentId) as any
+    const defaultRow = db.prepare('SELECT * FROM agent_model_defaults WHERE agent_id = ?').get(defaultAgentId(agentId)) as any
     return rowToConfig(defaultRow, 'agent_default')
   }
 }

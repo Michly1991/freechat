@@ -112,7 +112,7 @@ export class AgentService extends AgentWorkspaceService {
         CASE WHEN amd.model_profile_id IS NULL THEN NULL WHEN dmp.owner_id = a.owner_id THEN 'user_owned' WHEN dmp.visibility = 'platform' THEN 'platform' ELSE 'marketplace' END as default_model_source
       FROM agents a
       LEFT JOIN users u ON u.id = a.owner_id
-      LEFT JOIN agent_model_defaults amd ON amd.agent_id = a.id
+      LEFT JOIN agent_model_defaults amd ON amd.agent_id = COALESCE(a.source_template_id, a.id)
       LEFT JOIN model_profiles dmp ON dmp.id = amd.model_profile_id
       LEFT JOIN users dmu ON dmu.id = dmp.owner_id
       WHERE a.id = ?
@@ -133,7 +133,7 @@ export class AgentService extends AgentWorkspaceService {
         CASE WHEN amd.model_profile_id IS NULL THEN NULL WHEN dmp.owner_id = ? THEN 'user_owned' WHEN dmp.visibility = 'platform' THEN 'platform' ELSE 'marketplace' END as default_model_source
       FROM agents
       LEFT JOIN users u ON u.id = agents.owner_id
-      LEFT JOIN agent_model_defaults amd ON amd.agent_id = agents.id
+      LEFT JOIN agent_model_defaults amd ON amd.agent_id = COALESCE(agents.source_template_id, agents.id)
       LEFT JOIN model_profiles dmp ON dmp.id = amd.model_profile_id
       LEFT JOIN users dmu ON dmu.id = dmp.owner_id
       WHERE COALESCE(is_template, 1) = 1
@@ -487,7 +487,7 @@ export class AgentService extends AgentWorkspaceService {
       LEFT JOIN room_agent_model_bindings b ON b.room_id = ra.room_id AND b.agent_id = ra.agent_id
       LEFT JOIN model_profiles mp ON mp.id = b.model_profile_id
       LEFT JOIN users mu ON mu.id = mp.owner_id
-      LEFT JOIN agent_model_defaults amd ON amd.agent_id = a.id
+      LEFT JOIN agent_model_defaults amd ON amd.agent_id = COALESCE(a.source_template_id, a.id)
       LEFT JOIN model_profiles dmp ON dmp.id = amd.model_profile_id
       LEFT JOIN users dmu ON dmu.id = dmp.owner_id`
     const current = db.prepare(`${select} WHERE ra.room_id = ? AND r.current_assistant_agent_id = a.id AND a.status != 'inactive' LIMIT 1`).get(roomId) as AgentRow | undefined
@@ -599,7 +599,7 @@ export class AgentService extends AgentWorkspaceService {
       LEFT JOIN room_agent_model_bindings b ON b.room_id = ra.room_id AND b.agent_id = ra.agent_id
       LEFT JOIN model_profiles mp ON mp.id = b.model_profile_id
       LEFT JOIN users mu ON mu.id = mp.owner_id
-      LEFT JOIN agent_model_defaults amd ON amd.agent_id = a.id
+      LEFT JOIN agent_model_defaults amd ON amd.agent_id = COALESCE(a.source_template_id, a.id)
       LEFT JOIN model_profiles dmp ON dmp.id = amd.model_profile_id
       LEFT JOIN users dmu ON dmu.id = dmp.owner_id
       WHERE ra.room_id = ?
