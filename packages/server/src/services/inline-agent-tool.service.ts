@@ -1,38 +1,9 @@
 import db from '../storage/db.js'
-import { agentService } from './agent.service.js'
-import { interactionService } from './interaction.service.js'
-import { broadcast, assertActorCanUseAgentInRoom } from '../routes/agent-tools.helpers.js'
-import { agentCapabilityService } from './agent-capability.service.js'
-import { executeAppAction } from '../app-actions/executor.js'
+import { messageService } from './message.service.js'
+import { executeTool } from '../app-actions/router.js'
+import { extractInlineToolCalls } from './inline-tool-markup.js'
 
 type ToolCall = { name: string; args: any }
-
-function tryParseJson(text: string): any | null {
-  try { return JSON.parse(text) } catch { return null }
-}
-
-export function extractInlineToolCalls(text: string): ToolCall[] {
-  const calls: ToolCall[] = []
-  const markerRe = /<\|FunctionCallBegin\|>([\s\S]*?)<\|FunctionCallEnd\|>/g
-  for (const match of text.matchAll(markerRe)) {
-    const parsed = tryParseJson(match[1].trim())
-    if (Array.isArray(parsed)) {
-      for (const item of parsed) if (item?.name) calls.push({ name: String(item.name), args: item.args || {} })
-    } else if (parsed?.name) calls.push({ name: String(parsed.name), args: parsed.args || {} })
-  }
-  const toolCallRe = /<toolcall>([\s\S]*?)<\/toolcall>/g
-  for (const match of text.matchAll(toolCallRe)) {
-    const parsed = tryParseJson(match[1].trim())
-    if (parsed?.name) calls.push({ name: String(parsed.name), args: parsed.args || parsed.params || {} })
-    else if (parsed?.action || parsed?.tool) calls.push({ name: String(parsed.action || parsed.tool), args: parsed.args || parsed.params || {} })
-  }
-  const codeRe = /```(?:json)?\s*([\s\S]*?)```/g
-  for (const match of text.matchAll(codeRe)) {
-    const parsed = tryParseJson(match[1].trim())
-    if (parsed?.action || parsed?.tool) calls.push({ name: String(parsed.action || parsed.tool), args: parsed.args || {} })
-  }
-  return calls.slice(0, 5)
-}
 
 function assertActorInRoom(roomId: string, actorUserId: string) {
   const row = db.prepare('SELECT 1 FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, actorUserId)
@@ -44,27 +15,6 @@ function isXiaomiAgent(agentId: string) {
   return String(row?.config || '').includes('"builtInKey":"xiaomi_assistant"')
 }
 
-function sanitizeAgentForInline(agent: any) {
-  if (!agent) return null
-  return {
-    id: agent.id,
-    name: agent.name,
-    roleType: agent.roleType,
-    deployment: agent.deployment,
-    description: agent.description,
-    specialties: agent.specialties || [],
-    status: agent.status,
-    onlineStatus: agent.onlineStatus,
-    roomRole: agent.roomRole,
-    autoEnabled: agent.autoEnabled,
-    ownerName: agent.ownerName,
-    isTemplate: agent.isTemplate,
-    sourceTemplateId: agent.sourceTemplateId,
-    marketListed: agent.marketListed,
-    model: agent.roomModelConfig || agent.defaultModelConfig || undefined,
-  }
-}
-
 function summarizeAgent(agent: any) {
   const parts = [agent.name]
   if (agent.description) parts.push(`：${agent.description}`)
@@ -73,6 +23,11 @@ function summarizeAgent(agent: any) {
 }
 
 function formatToolResult(action: string, result: any) {
+  if (!result?.success) {
+    const err = result?.error
+    const message = typeof err === 'string' ? err : err?.message || JSON.stringify(err || {})
+    return `工具 ${action} 执行失败：${message}`
+  }
   if (action === 'agent.my-list') {
     const agents = result?.data?.agents || result?.agents || []
     if (!agents.length) return '你当前还没有可用的 Agent。'
@@ -110,9 +65,9 @@ function formatToolResult(action: string, result: any) {
     return `${header}\n${body}${tail}`.slice(0, 12000)
   }
   if (action === 'file.list') {
-    const files = result?.data?.files || result?.files || []
+    const files = result?.data?.fileRefs || result?.data?.files || result?.files || []
     if (!files.length) return '当前房间没有文件。'
-    return `当前房间文件：\n${files.slice(0, 30).map((file: any, i: number) => `${i + 1}. ${file.name || file.path || file.relative_path} (${file.ref || (file.id ? `file:${file.id}` : file.path || file.relative_path)})`).join('\n')}`
+    return `当前房间文件（包含聊天附件）：\n${files.slice(0, 30).map((file: any, i: number) => `${i + 1}. ${file.name || file.path || file.relativePath || file.relative_path} (${file.ref || (file.id ? `file:${file.id}` : file.path || file.relativePath || file.relative_path)})${file.source === 'message_attachment' ? ' [聊天附件]' : ''}`).join('\n')}`
   }
   if (action === 'file.info') {
     const file = result?.data?.file || result?.file
@@ -136,52 +91,43 @@ function formatToolResult(action: string, result: any) {
     const file = data?.file
     return [`图片：${file?.name || file?.path || ''}`, data?.text || ''].filter(Boolean).join('\n').slice(0, 12000)
   }
+  if (action === 'mindmap.create') {
+    const preview = result?.data?.preview || result?.preview
+    return preview ? `已生成脑图预览：${preview.title}（previewId: ${preview.id}）。聊天窗口会直接展示；如用户确认保存，再调用 mindmap.save。` : '已生成脑图预览。'
+  }
+  if (action === 'mindmap.save') {
+    const saved = result?.data?.saved || result?.saved
+    return saved ? `已保存脑图：${saved.title}（目录：${saved.directory}）` : '脑图已保存。'
+  }
+  if (action === 'tab.list') {
+    const tabs = result?.data?.tabs || result?.tabs || []
+    if (!tabs.length) return '当前房间还没有页面 Tab。'
+    return `当前页面 Tab：\n${tabs.map((tab: any, i: number) => `${i + 1}. ${tab.title || tab.name || tab.id}（${tab.id}）`).join('\n')}`
+  }
+  if (action === 'tab.get' || action === 'tab.read') {
+    const tab = result?.data?.tab || result?.tab
+    if (!tab) return '没有查到该页面 Tab。'
+    return [`页面：${tab.title || tab.name || tab.id}`, `ID：${tab.id}`, String(tab.content || '').slice(0, 12000)].filter(Boolean).join('\n')
+  }
+  if (['tab.create', 'tab.create-from-file', 'tab.update', 'tab.patch', 'tab.set-default'].includes(action)) {
+    const tab = result?.data?.tab || result?.tab
+    return tab ? `页面已更新：${tab.title || tab.name || tab.id}（${tab.id}）` : '页面操作已完成。'
+  }
+  if (['tab.delete', 'tab.reorder', 'tab.open', 'tab.action'].includes(action)) return '页面操作已完成。'
+  if (action === 'members.list') {
+    const members = result?.data?.members || result?.members || []
+    if (!members.length) return '当前房间没有成员。'
+    return `当前房间成员：\n${members.map((m: any, i: number) => `${i + 1}. ${m.nickname || m.username || m.name || m.id}（${m.role || m.roomRole || m.type || '-'}）`).join('\n')}`
+  }
+  if (action === 'tool.list') {
+    const tools = result?.data?.tools || result?.tools || []
+    return `可用工具：${tools.map((tool: any) => tool.action || tool.name).filter(Boolean).slice(0, 80).join('、')}`
+  }
+  if (action === 'tool.schema' || action === 'tool.help') {
+    const tool = result?.data?.tool || result?.data || result
+    return JSON.stringify(tool, null, 2).slice(0, 6000)
+  }
   return JSON.stringify(result?.data ?? result, null, 2).slice(0, 3000)
-}
-
-function normalizeSpecialties(value: any): string[] {
-  if (Array.isArray(value)) return value.map((s: any) => String(s).trim()).filter(Boolean)
-  return String(value || '').split(/[，,|]/).map((s) => s.trim()).filter(Boolean)
-}
-
-async function createAgentCreateRequest(roomId: string, agentId: string, actorUserId: string, args: any) {
-  await agentService.assertRoomAssistant(roomId, agentId)
-  const name = String(args.name || args.agentName || '').trim()
-  if (!name) throw new Error('agent name is required')
-  const agent = await agentService.getAgent(agentId)
-  const specialties = normalizeSpecialties(args.specialties)
-  const result = await interactionService.create(roomId, { id: agent.id, name: agent.name, role: 'ai' }, {
-    type: 'confirm',
-    title: `确认创建 Agent：${name}`,
-    description: [
-      args.description ? `职责：${args.description}` : '',
-      specialties.length ? `专长：${specialties.join('、')}` : '',
-      '确认后会创建该 Agent 并加入当前项目。',
-    ].filter(Boolean).join('\n'),
-    priority: 'important',
-    payload: {
-      agentCreate: {
-        name,
-        roleType: args.roleType === 'assistant' ? 'assistant' : 'specialist',
-        deployment: 'client',
-        description: args.description,
-        specialties,
-        config: args.config || undefined,
-        roomRole: args.roomRole === 'assistant' ? 'assistant' : 'specialist',
-        autoEnabled: args.autoEnabled === true,
-        priority: Number(args.priority || 0),
-      },
-    },
-    options: [
-      { value: 'confirm', label: '确认创建', style: 'primary' },
-      { value: 'cancel', label: '取消', style: 'secondary' },
-    ],
-    responsePolicy: { allowChange: false, allowCancel: true },
-    targetUserId: actorUserId,
-  } as any)
-  broadcast(roomId, 'interaction.created', { interaction: result.interaction })
-  broadcast(roomId, 'chat.message', result.message)
-  return { action: 'agent.create_request', success: true, data: result }
 }
 
 export async function executeInlineToolCalls(roomId: string, agentId: string, actorUserId: string | undefined, output: string) {
@@ -191,55 +137,19 @@ export async function executeInlineToolCalls(roomId: string, agentId: string, ac
   assertActorInRoom(roomId, actorUserId)
   const results = []
   for (const call of calls) {
-    if (call.name === 'app.call' || call.name === 'tool.call') {
-      const scopeRoomId = call.args?.roomId || call.args?.scopeRoomId || undefined
-      if (scopeRoomId) {
-        if (!isXiaomiAgent(agentId)) throw new Error('Only XiaoMi can operate across rooms as the current user')
-        assertActorInRoom(String(scopeRoomId), actorUserId)
-      }
-      const result = await executeAppAction({ roomId, agentId, actorUserId, scopeRoomId }, call.name, call.args || {})
-      if (result.handled) {
-        const response = result.response || {}
-        results.push({ action: call.name, success: response.success !== false, data: response.data, error: response.error })
-        continue
-      }
+    const scopeRoomId = call.args?.roomId || call.args?.scopeRoomId || undefined
+    if (scopeRoomId) {
+      if (!isXiaomiAgent(agentId)) throw new Error('Only XiaoMi can operate across rooms as the current user')
+      assertActorInRoom(String(scopeRoomId), actorUserId)
     }
-    if (call.name === 'agent.my-list' || call.name === 'agent.my_list') {
-      const agents = await agentService.getUserAgents(actorUserId)
-      results.push({ action: 'agent.my-list', success: true, data: { agents } })
-      continue
+    const action = call.name === 'agent.create_request' ? 'agent.create-request' : call.name === 'agent.my_list' ? 'agent.my-list' : call.name
+    try {
+      const actor = db.prepare('SELECT role FROM users WHERE id = ?').get(actorUserId) as any
+      const response = await executeTool({ roomId: String(scopeRoomId || roomId), action, args: call.args || {}, agentId, actorUserId, actorRole: actor?.role, transport: 'platform-inline', recordMindmapPreview: true }, { messageService })
+      results.push({ action, success: response?.success !== false, data: response?.data, error: response?.error })
+    } catch (err: any) {
+      results.push({ action, success: false, error: { code: err?.code || 'INLINE_TOOL_ERROR', message: err?.message || String(err) } })
     }
-    if (call.name === 'agent.list-available') {
-      await agentService.assertRoomAssistant(roomId, agentId)
-      const agents = await agentService.getAvailableAgentsForRoom(roomId, agentId)
-      results.push({ action: call.name, success: true, data: { agents } })
-      continue
-    }
-    if (call.name === 'members.list') {
-      const members = db.prepare('SELECT u.id, u.username, u.nickname, rm.role FROM room_members rm JOIN users u ON u.id = rm.user_id WHERE rm.room_id = ? ORDER BY rm.role DESC, u.nickname, u.username').all(roomId)
-      results.push({ action: call.name, success: true, data: { members } })
-      continue
-    }
-    if (['agent.create', 'agent.create_request', 'agent.create-request'].includes(call.name)) {
-      results.push(await createAgentCreateRequest(roomId, agentId, actorUserId, call.args || {}))
-      continue
-    }
-    if (['agent.detail', 'agent.info'].includes(call.name)) {
-      const target = call.args?.agent || call.args?.agentId || call.args?.id || agentId
-      await assertActorCanUseAgentInRoom(roomId, target, actorUserId)
-      const targetAgent = await agentService.getAgent(target)
-      const skills = agentCapabilityService.listSkills(targetAgent.id)
-      const scripts = agentCapabilityService.listScripts(targetAgent.id)
-      results.push({ action: 'agent.detail', success: true, data: { agent: sanitizeAgentForInline(targetAgent), skills, scripts } })
-      continue
-    }
-    const registryResult = await executeAppAction({ roomId, agentId, actorUserId }, call.name, call.args || {})
-    if (registryResult.handled) {
-      const response = registryResult.response || {}
-      results.push({ action: call.name, success: response.success !== false, data: response.data, error: response.error })
-      continue
-    }
-    results.push({ action: call.name, success: false, error: `Inline tool ${call.name} is not supported yet` })
   }
   return results.map((result) => formatToolResult(result.action, result)).join('\n\n')
 }

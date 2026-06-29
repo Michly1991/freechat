@@ -12,6 +12,7 @@ import { renderRoleCapabilitiesForPrompt } from './agent-role-capabilities.js'
 import { tabFilesMapService } from './tab-files-map.service.js'
 import { agentGrowthService } from './agent-growth.service.js'
 import { agentPackageService } from './agent-package.service.js'
+import { conversationMemoryService } from './conversation-memory.service.js'
 import { rowToAgent, type AgentRow } from './agent-mapper.js'
 
 export class AgentWorkspaceService {
@@ -75,8 +76,12 @@ export class AgentWorkspaceService {
     ].filter(Boolean).join('\n')
   }
 
-  async buildRoomContextFiles(roomId: string, currentAgent?: Agent): Promise<{ roomMd: string; membersMd: string; workgroupMd: string }> {
+  async buildRoomContextFiles(roomId: string, currentAgent?: Agent): Promise<{ roomMd: string; membersMd: string; workgroupMd: string; memoryMd: string; agentMemoryMd: string }> {
     const room = db.prepare('SELECT id, name, description, created_by, created_at, updated_at, workgroup_id FROM rooms WHERE id = ?').get(roomId) as any
+    const [roomMemory, agentMemory] = await Promise.all([
+      conversationMemoryService.readRoomMemory(roomId),
+      currentAgent ? conversationMemoryService.readAgentMemory(roomId, currentAgent.id) : Promise.resolve(''),
+    ])
     const members = db.prepare(`
       SELECT rm.role, rm.joined_at, u.id, u.username, u.nickname, u.avatar,
              rp.display_name, rp.role_description, rp.custom_data
@@ -152,7 +157,9 @@ export class AgentWorkspaceService {
     }).join('\n')
     const wgRoomLines = wgRooms.map((r: any) => `- ${r.name}\n  - ID: ${r.id}\n  - Kind: ${r.room_kind || 'project'}`).join('\n')
     const workgroupMd = `# Workgroup Context\n\n${wg ? `- Workgroup ID: ${wg.id}\n- Name: ${wg.name}\n- Description: ${wg.description || ''}` : '- 当前房间未绑定工作组'}\n\n工作组是人和 Agent 的资源池。同一工作组内成员彼此可见；外部用户只应看到自己参与的房间。需要新建独立协作会话时，使用 \`./freechat room create\`，只能从当前工作组选择成员和 Agent。\n\n## Workgroup Humans\n\n${wgMemberLines || '- none'}\n\n## Workgroup Agents\n\n${wgAgentLines || '- none'}\n\n## Workgroup Rooms Visible To You\n\n${wgRoomLines || '- none'}\n`
-    return { roomMd, membersMd, workgroupMd }
+    const memoryMd = roomMemory || '# Room Memory\n\n暂无可复用长期记忆。\n'
+    const agentMemoryMd = currentAgent ? (agentMemory || `# Agent Memory: ${currentAgent.name}\n\n暂无可复用长期记忆。\n`) : '# Agent Memory\n\n当前为房间共享上下文，无单一当前 Agent。\n'
+    return { roomMd, membersMd, workgroupMd, memoryMd, agentMemoryMd }
   }
 
   async ensurePackageWorkspaces(): Promise<void> {
@@ -172,6 +179,7 @@ export class AgentWorkspaceService {
     await writeFile(join(rootMetaDir, 'ROOM.md'), rootCtx.roomMd, 'utf8')
     await writeFile(join(rootMetaDir, 'MEMBERS.md'), rootCtx.membersMd, 'utf8')
     await writeFile(join(rootMetaDir, 'WORKGROUP.md'), rootCtx.workgroupMd, 'utf8')
+    await writeFile(join(rootMetaDir, 'MEMORY.md'), rootCtx.memoryMd, 'utf8')
     await tabFilesMapService.writeRoomMap(roomId)
 
     for (const agent of agents) {
@@ -182,6 +190,8 @@ export class AgentWorkspaceService {
       await writeFile(join(metaDir, 'ROOM.md'), ctx.roomMd, 'utf8')
       await writeFile(join(metaDir, 'MEMBERS.md'), ctx.membersMd, 'utf8')
       await writeFile(join(metaDir, 'WORKGROUP.md'), ctx.workgroupMd, 'utf8')
+      await writeFile(join(metaDir, 'MEMORY.md'), ctx.memoryMd, 'utf8')
+      await writeFile(join(metaDir, 'AGENT_MEMORY.md'), ctx.agentMemoryMd, 'utf8')
       await tabFilesMapService.writeAgentMap(roomId, agent.id)
     }
   }
@@ -210,7 +220,7 @@ export class AgentWorkspaceService {
     await writeFile(cliCjsPath, renderAgentCliCjs({ apiUrl: toolApiUrl, roomId, token: toolToken }), 'utf8')
     await chmod(cliCjsPath, 0o700)
 
-    const agentGuide = `${renderAgentGuide(agent)}\n\n## Agent Package\n\n- 模板目录: ${packageDir}\n- 模板说明: ${join(packageDir, 'AGENT.md')}\n- 模板资源库: ${join(packageDir, 'res')}\n- 模板 Skills: ${join(packageDir, 'skills')}\n\n运行时必须先理解模板 AGENT.md；需要能力时读取对应 skills/<name>/SKILL.md。模板目录运行时只读，房间产物写入当前房间目录。系统公共 Skills 会自动挂载到当前 skills/，包括 pdf-reader、excel-reader、word-reader。\n\n## Room Workspace\n\n- 房间目录: ${agentPackageService.roomDir(roomId)}\n- 共享资料: ${join(agentPackageService.roomDir(roomId), 'shared')}\n- 产物目录: ${join(agentPackageService.roomDir(roomId), 'artifacts')}\n- 当前 Agent 工作区: ${workspaceDir}\n- 当前 Agent 私有工作目录: ${join(workspaceDir, 'workspace')}\n\n你可以读写房间 shared、artifacts、当前 Agent workspace/res/scripts/skills；不要修改其他 Agent 工作区。`
+    const agentGuide = `${renderAgentGuide(agent)}\n\n## Agent Package\n\n- 模板目录: ${packageDir}\n- 模板说明: ${join(packageDir, 'AGENT.md')}\n- 模板资源库: ${join(packageDir, 'res')}\n- 模板 Skills: ${join(packageDir, 'skills')}\n\n运行时必须先理解模板 AGENT.md；需要能力时读取对应 skills/<name>/SKILL.md。模板目录运行时只读，房间产物写入当前房间目录。系统公共 Skills 会自动挂载到当前 skills/，包括 pdf-reader、excel-reader、word-reader、mindmap。\n\n## Room Workspace\n\n- 房间目录: ${agentPackageService.roomDir(roomId)}\n- 共享资料: ${join(agentPackageService.roomDir(roomId), 'shared')}\n- 产物目录: ${join(agentPackageService.roomDir(roomId), 'artifacts')}\n- 当前 Agent 工作区: ${workspaceDir}\n- 当前 Agent 私有工作目录: ${join(workspaceDir, 'workspace')}\n\n你可以读写房间 shared、artifacts、当前 Agent workspace/res/scripts/skills；不要修改其他 Agent 工作区。`
 
     const safeName = (name: string) => String(name || 'item').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'item'
     const skills = agentCapabilityService.listSkills(agent.id).filter((skill) => skill.enabled)
@@ -236,6 +246,8 @@ export class AgentWorkspaceService {
 
     await writeFile(join(metaDir, 'MEMBERS.md'), contextFiles.membersMd, 'utf8')
     await writeFile(join(metaDir, 'WORKGROUP.md'), contextFiles.workgroupMd, 'utf8')
+    await writeFile(join(metaDir, 'MEMORY.md'), contextFiles.memoryMd, 'utf8')
+    await writeFile(join(metaDir, 'AGENT_MEMORY.md'), contextFiles.agentMemoryMd, 'utf8')
 
     await writeFile(join(metaDir, 'API.md'), renderAgentApiDoc(), 'utf8')
     await tabFilesMapService.writeAgentMap(roomId, agent.id)

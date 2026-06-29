@@ -56,6 +56,8 @@ export const APP_ACTIONS: AppActionMeta[] = [
   { action: 'ppt.read', title: '读取 PPT', category: 'ppt', risk: 'read', description: '提取 pptx 幻灯片文本。', args: { ref: 'file:<id> 或路径', slideRange: '幻灯片范围，如 1-5' }, ui: '文件面板' },
   { action: 'ppt.write', title: '写入 PPT', category: 'ppt', risk: 'normal_write', description: '生成 pptx 文件并写回当前房间。', args: { targetPath: '输出路径 .pptx', slides: '幻灯片数组' }, ui: '文件面板' },
   { action: 'image.read', title: '读取图片', category: 'image', risk: 'read', description: '调用当前模型视觉能力理解图片/OCR。', args: { ref: 'file:<id> 或路径', task: 'describe|ocr|extract_table' }, ui: '文件面板' },
+  { action: 'mindmap.create', title: '生成脑图预览', category: 'mindmap', risk: 'normal_write', description: '根据主题、Markdown 大纲或 JSON 节点生成一次性脑图预览；默认不进入正式存储。', args: { title: '标题', outline: 'Markdown 大纲', root: 'JSON 节点树' }, ui: '聊天脑图预览' },
+  { action: 'mindmap.save', title: '保存脑图', category: 'mindmap', risk: 'normal_write', description: '用户确认后把脑图预览保存为房间文件。', args: { previewId: '预览 ID', targetDir: '可选保存目录' }, ui: '聊天脑图预览' },
   { action: 'file.write', title: '写入文件', category: 'file', risk: 'normal_write', description: '写入项目文件。', ui: '文件面板' },
   { action: 'file.delete', title: '删除文件', category: 'file', risk: 'sensitive_write', description: '删除项目文件。', ui: '文件面板' },
   { action: 'task.list', title: '任务列表', category: 'task', risk: 'read', description: '查看任务。', ui: '任务面板' },

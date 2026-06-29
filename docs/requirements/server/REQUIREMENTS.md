@@ -103,3 +103,10 @@
 - `pdf.read`、`excel.read/write`、`word.read/write`、`ppt.read/write`、`image.read` 必须按 `actorUserId + roomId` 校验房间成员身份。
 - Office 写入默认生成新文件写回当前房间文件区，不直接覆盖原文件。
 - 图片读取使用当前 Agent 生效模型的视觉能力；如果模型/provider 不支持视觉，应返回明确错误，不能假装已看图。
+
+
+## Mindmap Skill
+
+- 脑图/思维导图/XMind 风格结构图属于 Agent Skill 产物，Agent 应调用 `mindmap.create` 先生成聊天内嵌预览，不默认保存正式文件。
+- 用户确认保存后，才调用 `mindmap.save` 写入房间文件；未保存预览可放在消息 payload 或房间 tmp 缓存中，允许后续清理。
+- 前端展示脑图预览必须使用受控 artifact 组件和 sandbox iframe，不允许把 Agent 任意 HTML 注入主页面。

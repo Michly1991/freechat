@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from 'uuid'
 import type { Message, Mention, MessageAttachment } from '@freechat/shared'
 import { MAX_MESSAGES_PER_ROOM } from '@freechat/shared'
 import { roomService } from './room.service.js'
+import { conversationMemoryService } from './conversation-memory.service.js'
+import { sanitizeAiCompletionForChat } from './inline-tool-markup.js'
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback
@@ -33,6 +35,26 @@ function interactionRowToPayload(row: any) {
     resolvedBy: row.resolved_by || undefined,
     resolvedAt: row.resolved_at || undefined,
   }
+}
+
+function describeAttachment(file: MessageAttachment): string {
+  const parts = [
+    `ref=${file.ref || (file.id ? `file:${file.id}` : '')}`,
+    `fileId=${file.id || ''}`,
+    `name=${file.name || file.relativePath || ''}`,
+    `type=${file.mimeType || 'unknown'}`,
+    `path=${file.relativePath || ''}`,
+  ].filter((part) => !part.endsWith('='))
+  return parts.join('; ')
+}
+
+export function renderMessageForAgentContext(message: Message): string {
+  const role = message.actorRole === 'ai' ? 'AI' : '用户'
+  const content = String(message.content || '')
+  const attachments = Array.isArray(message.attachments) && message.attachments.length
+    ? `\n  附件：${message.attachments.map(describeAttachment).join(' | ')}\n  如需引用“刚才/上面/这个文件”，优先使用这些 file: 引用。`
+    : ''
+  return `${role} ${message.actorName}: ${content}${attachments}`
 }
 
 export class MessageService {
@@ -79,6 +101,7 @@ export class MessageService {
     payload?: any,
     idOverride?: string
   ): Promise<Message> {
+    const visibleContent = actorRole === 'ai' && kind === 'text' ? sanitizeAiCompletionForChat(content) : content
     const id = idOverride || `msg_${uuidv4()}`
     const now = Date.now()
 
@@ -91,7 +114,7 @@ export class MessageService {
       actorId,
       actorName,
       actorRole,
-      content,
+      visibleContent,
       kind,
       payload ? JSON.stringify(payload) : null,
       mentions ? JSON.stringify(mentions) : null,
@@ -105,13 +128,18 @@ export class MessageService {
     // Cleanup old messages (keep only latest messages)
     this.cleanupOldMessages(roomId)
 
+    if (process.env.DISABLE_CONVERSATION_MEMORY_HOOKS !== '1') {
+      void conversationMemoryService.onMessageCreated({ roomId, actorId, actorRole, content: visibleContent, createdAt: now })
+        .catch((err) => console.error('[conversation-memory] message hook failed', err))
+    }
+
     return {
       id,
       roomId,
       actorId,
       actorName,
       actorRole,
-      content,
+      content: visibleContent,
       kind: kind as any,
       payload,
       attachments: Array.isArray(payload?.attachments) ? payload.attachments as MessageAttachment[] : undefined,

@@ -2,9 +2,10 @@ export interface Message {
   id: string
   actorId: string
   actorName: string
+  roomId?: string
   actorRole: 'human' | 'ai'
   content: string
-  kind?: 'text' | 'interaction_request' | 'system' | 'agent_receipt' | 'agent_stream'
+  kind?: 'text' | 'interaction_request' | 'system' | 'system_notice' | 'agent_receipt' | 'agent_stream' | 'artifact_preview'
   payload?: any
   attachments?: any[]
   createdAt: number

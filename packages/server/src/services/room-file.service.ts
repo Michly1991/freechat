@@ -55,6 +55,11 @@ export class RoomFileService {
       if (!row) throw { code: 'FILE_NOT_FOUND', message: 'File not found in current room' }
       return row
     }
+    if (/^file_[0-9a-f-]{16,}$/i.test(raw)) {
+      const row = db.prepare('SELECT * FROM room_files WHERE room_id = ? AND id = ?').get(roomId, raw) as any
+      if (!row) throw { code: 'FILE_NOT_FOUND', message: 'File not found in current room' }
+      return row
+    }
     const rel = safeRelativePath(raw)
     const row = db.prepare('SELECT * FROM room_files WHERE room_id = ? AND relative_path = ?').get(roomId, rel) as any
     if (row) return row
@@ -120,12 +125,14 @@ export class RoomFileService {
     return { row, stream: createReadStream(fullPath) }
   }
 
-  list(roomId: string, opts: { messageId?: string } = {}) {
+  list(roomId: string, opts: { messageId?: string; source?: string; includeMessageAttachments?: boolean } = {}) {
     const folders = db.prepare('SELECT * FROM room_file_folders WHERE room_id = ? ORDER BY relative_path ASC').all(roomId)
-    const files = opts.messageId
-      ? db.prepare('SELECT * FROM room_files WHERE room_id = ? AND message_id = ? ORDER BY created_at ASC').all(roomId, opts.messageId)
-      : db.prepare('SELECT * FROM room_files WHERE room_id = ? ORDER BY created_at DESC').all(roomId)
-    return { folders, files: (files as any[]).map(rowToFile) }
+    let files: any[]
+    if (opts.messageId) files = db.prepare('SELECT * FROM room_files WHERE room_id = ? AND message_id = ? ORDER BY created_at ASC').all(roomId, opts.messageId) as any[]
+    else if (opts.source) files = db.prepare('SELECT * FROM room_files WHERE room_id = ? AND source = ? ORDER BY created_at DESC').all(roomId, opts.source) as any[]
+    else if (opts.includeMessageAttachments === false) files = db.prepare("SELECT * FROM room_files WHERE room_id = ? AND source != 'message_attachment' ORDER BY created_at DESC").all(roomId) as any[]
+    else files = db.prepare('SELECT * FROM room_files WHERE room_id = ? ORDER BY created_at DESC').all(roomId) as any[]
+    return { folders, files: files.map(rowToFile) }
   }
 
   upsertFileRecord(input: { roomId: string; folderId: string; name: string; rel: string; storagePath: string; mimeType?: string; size: number; source: string; sourceFileId?: string; messageId?: string; uploadedBy?: string }): RoomFileRecord {

@@ -8,7 +8,8 @@
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
     "clean": "rm -rf dist",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:smoke": "tsx src/__tests__/app-actions-smoke.ts && tsx src/__tests__/remote-app-call-smoke.ts && tsx src/__tests__/inline-tools-dispatch-smoke.ts && tsx src/__tests__/inline-tool-markup-guard-smoke.ts && tsx src/__tests__/knowledge-runtime-smoke.ts && tsx src/__tests__/office-skills-smoke.ts && tsx src/__tests__/mindmap-skill-smoke.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.0",

@@ -132,6 +132,18 @@ message-files/<messageId>/<filename>
 
 下载到本地处理。
 
+## Runtime event context
+
+All Agent executions, including platform-hosted official Agents and external Agent Client runs, receive the same server-built event context in `remote_agent_events.payload.context`.
+
+Context includes:
+
+- `recentMessages`: compact recent messages with attachment metadata.
+- `recentFileRefs`: recent room files and message attachments, including `file:<id>` refs.
+- `promptText`: server-rendered conversation/file context for prompt injection.
+
+Platform-hosted Agents consume this context directly. External Agent Client writes it to `.freechat/CONTEXT.md` and also injects a concise summary into the Claude prompt. This keeps official托管 Agent and ordinary客户端 Agent behavior aligned when users refer to “刚才的文件 / 上面的附件 / 那个表格 / 刚才的脑图”.
+
 ## Agent Runtime Spec 动态同步
 
 为避免服务端文件协议与 Agent Client 内置 CLI 分叉，服务端提供统一运行规范：

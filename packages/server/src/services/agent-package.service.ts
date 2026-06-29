@@ -156,6 +156,52 @@ Agent 正式交付物应通过 FreeChat CLI/API 写入项目文件或放入 arti
     await this.writeSystemSkill('pdf-reader', 'PDF Reader', '读取、抽取、总结 PDF 文件。用户上传 PDF、要求总结 PDF、提取页码/章节/表格时使用。', 'extract_pdf.py', this.pdfScript())
     await this.writeSystemSkill('excel-reader', 'Excel Reader', '读取、抽取、总结 Excel / xlsx / csv 表格。用户上传表格、要求统计/清洗/汇总时使用。', 'extract_excel.py', this.excelScript())
     await this.writeSystemSkill('word-reader', 'Word Reader', '读取、抽取、总结 Word / docx 文档。用户上传 Word、要求总结/改写/提取结构时使用。', 'extract_word.py', this.wordScript())
+    await this.writeMindmapSkill()
+  }
+
+
+  async writeMindmapSkill() {
+    const dir = this.systemSkillDir('mindmap')
+    await mkdir(join(dir, 'res'), { recursive: true })
+    await mkdir(join(dir, 'scripts'), { recursive: true })
+    await writeFile(join(dir, 'SKILL.md'), `# Mindmap
+
+## Description
+
+当用户要求画脑图、思维导图、XMind 风格结构图、知识框架、项目拆解图时使用本 Skill。
+
+## Principles
+
+- 脑图是 Skill 产物，不是普通聊天内置文本。
+- 默认先生成一次性预览，不自动保存为正式房间文件。
+- 用户确认“保存/留下/存到房间/导出”后，再调用 \`mindmap.save\` 保存。
+- 不做在线编辑；用户要求调整时重新生成预览即可。
+- 技术上需要落文件时只放房间 tmp 缓存，可被清理。
+
+## App Tools
+
+通过 \`./freechat\` 或 inline tool 调用：
+
+- \`mindmap.create\`：生成聊天内嵌脑图预览。
+  - 参数：\`title\`、\`outline\`/\`markdown\` 或 \`root\` JSON 节点树。
+  - 默认返回 preview，聊天窗口直接展示。
+- \`mindmap.save\`：用户确认后保存预览。
+  - 参数：\`previewId\`，可选 \`targetDir\`。
+
+## Recommended Flow
+
+1. 把用户需求整理成 Markdown 大纲或 JSON 树。
+2. 调用 \`mindmap.create\`，不要先写正式文件。
+3. 回复用户“已生成预览，可重新生成或保存”。
+4. 只有用户确认保存时，调用 \`mindmap.save\`。
+
+## Example Inline Call
+
+\`\`\`json
+{"name":"mindmap.create","args":{"title":"FreeChat 架构","outline":"# FreeChat\\n- Server\\n  - Fastify\\n  - App Actions\\n- Web\\n  - Chat\\n  - Artifact Preview"}}
+\`\`\`
+`, 'utf8')
+    await writeFile(join(dir, 'res', 'README.md'), '# Mindmap Resources\n\n可放置脑图模板、风格示例和 XMind 导出格式参考。\n', 'utf8')
   }
 
   async writeSystemSkill(dirName: string, title: string, description: string, scriptName: string, scriptContent: string) {
@@ -172,7 +218,7 @@ Agent 正式交付物应通过 FreeChat CLI/API 写入项目文件或放入 arti
   async mountSystemSkills(targetSkillsDir: string) {
     await this.ensureSystemSkills()
     await mkdir(targetSkillsDir, { recursive: true })
-    for (const name of ['pdf-reader', 'excel-reader', 'word-reader']) {
+    for (const name of ['pdf-reader', 'excel-reader', 'word-reader', 'mindmap']) {
       const source = this.systemSkillDir(name)
       const target = join(targetSkillsDir, name)
       if (existsSync(target)) continue

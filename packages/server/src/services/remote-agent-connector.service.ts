@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 import db from '../storage/db.js'
 import { billingService } from './billing.service.js'
 import { platformHostedAgentRuntimeService } from './platform-hosted-agent-runtime.service.js'
+import { agentEventContextService } from './agent-event-context.service.js'
 import { ACCESS_EXPIRES_IN, authenticateConnectorCredential, signConnectorAccessToken } from './remote-agent-connector-auth.js'
 import { assertRemoteRunAuth, completeRemoteRun, failRemoteRun } from './remote-agent-run-settlement.service.js'
 
@@ -237,7 +238,7 @@ export class RemoteAgentConnectorService {
     return { runId, eventId }
   }
 
-  enqueueRun(roomId: string, agentId: string, input: string, context: EnqueueContext = {}) {
+  async enqueueRun(roomId: string, agentId: string, input: string, context: EnqueueContext = {}) {
     const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(agentId) as any
     if (!agent) throw { code: 'AGENT_NOT_FOUND', message: 'Agent not found' }
     const room = db.prepare('SELECT created_by, room_kind, workgroup_entry_id FROM rooms WHERE id = ?').get(roomId) as any
@@ -263,10 +264,11 @@ export class RemoteAgentConnectorService {
       INSERT INTO agent_runs (id, room_id, agent_id, status, input, actor_user_id, payer_user_id, run_source, task_id, subtask_id, parent_run_id, resume_attempt, runtime, started_at)
       VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, 'remote-claude-code', ?)
     `).run(runId, roomId, agentId, input, context.actorUserId || null, payerUserId, context.runSource || eventType, context.taskId || null, context.subtaskId || null, context.parentRunId || null, context.resumeAttempt || 0, now)
+    const eventContext = await agentEventContextService.build({ roomId, agentId, actorUserId: context.actorUserId, input })
     db.prepare(`
       INSERT INTO remote_agent_events (id, run_id, room_id, agent_id, type, payload_json, status, created_at)
       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
-    `).run(eventId, runId, roomId, agentId, eventType, JSON.stringify({ runId, roomId, agentId, input, actorUserId: context.actorUserId, taskId: context.taskId, subtaskId: context.subtaskId, runSource: context.runSource || eventType, responseMode: context.responseMode, metadata: context.metadata }), now)
+    `).run(eventId, runId, roomId, agentId, eventType, JSON.stringify({ runId, roomId, agentId, input, actorUserId: context.actorUserId, taskId: context.taskId, subtaskId: context.subtaskId, runSource: context.runSource || eventType, responseMode: context.responseMode, metadata: context.metadata, context: eventContext }), now)
     db.prepare("UPDATE agents SET status = 'working', updated_at = ? WHERE id = ?").run(now, agentId)
     this.pushPendingEvents(agentId)
     if (platformHostedAgentRuntimeService.canHandle(agentId)) {

@@ -53,6 +53,8 @@ try {
   const excelRef = excelWrite.response.data.file.ref
   const excelRead = await executeAppAction(ctx, 'excel.read', { ref: excelRef, range: 'A1:B2' })
   assert.match(excelRead.response?.data.csv, /合同,12345/)
+  const rawIdRead = await executeAppAction(ctx, 'excel.read', { fileId: excelRef.replace(/^file:/, ''), range: 'A1:B2' })
+  assert.match(rawIdRead.response?.data.csv, /合同,12345/)
 
   const wordWrite = await executeAppAction(ctx, 'word.write', { targetPath: 'outputs/demo.docx', content: '第一段\n\n合同金额 12345' })
   const wordRead = await executeAppAction(ctx, 'word.read', { ref: wordWrite.response.data.file.ref })

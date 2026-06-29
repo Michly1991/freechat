@@ -36,3 +36,10 @@
 - Agent 遇到 `file:<fileId>` 附件时应按文件类型调用专用工具：PDF 用 `pdf.read`，Excel 用 `excel.read/excel.write`，Word 用 `word.read/word.write`，PPT 用 `ppt.read/ppt.write`，图片用 `image.read`，普通文本用 `file.read`。
 - 未调用读取工具前，不能说“看不到附件”。
 - 写入 Office 文件后必须返回生成文件的 `file:<id>` 引用，确保用户能在当前房间文件体系中看到。
+
+
+## Mindmap Skill
+
+- 脑图/思维导图/XMind 风格结构图属于 Agent Skill 产物，Agent 应调用 `mindmap.create` 先生成聊天内嵌预览，不默认保存正式文件。
+- 用户确认保存后，才调用 `mindmap.save` 写入房间文件；未保存预览可放在消息 payload 或房间 tmp 缓存中，允许后续清理。
+- 前端展示脑图预览必须使用受控 artifact 组件和 sandbox iframe，不允许把 Agent 任意 HTML 注入主页面。

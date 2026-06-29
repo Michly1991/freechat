@@ -7,6 +7,7 @@ import { creditWalletService } from '../services/credit-wallet.service.js'
 import { agentService } from '../services/agent.service.js'
 import { agentCapabilityService } from '../services/agent-capability.service.js'
 import { agentKnowledgeService } from '../services/agent-knowledge.service.js'
+import { knowledgeRuntimeService } from '../services/knowledge-runtime.service.js'
 import { agentModelConfigService } from '../services/agent-model-config.service.js'
 import { modelProfileService } from '../services/model-profile.service.js'
 import { assertActorCanUseAgentInRoom } from '../routes/agent-tools.helpers.js'
@@ -15,6 +16,7 @@ import { roomFileService } from '../services/room-file.service.js'
 import { config } from '../config.js'
 import { assertRoomMember } from '../utils/room-authz.js'
 import { officeDocumentService } from '../services/office-document.service.js'
+import { mindmapArtifactService } from '../services/mindmap-artifact.service.js'
 
 export interface AppActionContext {
   roomId: string
@@ -178,12 +180,19 @@ export async function executeAppAction(ctx: AppActionContext, action: string, ar
     case 'agent.knowledge.search': {
       const target = await resolveAgentForActor(ctx, args.agent || args.agentId || args.id)
       if (ctx.scopeRoomId) await assertActorCanUseAgentInRoom(ctx.scopeRoomId, target.id, ctx.actorUserId)
+      const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId || '')
+      const targetInRoom = scopeRoomId ? !!db.prepare('SELECT 1 FROM room_agents WHERE room_id = ? AND agent_id = ?').get(scopeRoomId, target.id) : false
+      if (scopeRoomId && targetInRoom) return { handled: true, response: { success: true, data: knowledgeRuntimeService.searchForAgent({ roomId: scopeRoomId, agentId: target.id, query: String(args.query || args.q || ''), limit: Number(args.limit || 8), includeRoom: args.includeRoom !== false, includeAgent: args.includeAgent !== false, includePublic: args.includePublic !== false }) } }
       return { handled: true, response: { success: true, data: agentKnowledgeService.search(target.id, String(args.query || args.q || ''), { limit: Number(args.limit || 8), includePublic: args.includePublic !== false }) } }
     }
     case 'agent.knowledge.read': {
       const target = await resolveAgentForActor(ctx, args.agent || args.agentId || args.id)
       if (ctx.scopeRoomId) await assertActorCanUseAgentInRoom(ctx.scopeRoomId, target.id, ctx.actorUserId)
-      return { handled: true, response: { success: true, data: agentKnowledgeService.read(target.id, String(args.ref || args.fileId || args.path || '')) } }
+      const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId || '')
+      const ref = String(args.ref || args.fileId || args.path || '')
+      const targetInRoom = scopeRoomId ? !!db.prepare('SELECT 1 FROM room_agents WHERE room_id = ? AND agent_id = ?').get(scopeRoomId, target.id) : false
+      if (scopeRoomId && targetInRoom && /^(room|agent|agent-entry|public):/.test(ref)) return { handled: true, response: { success: true, data: knowledgeRuntimeService.readForAgent({ roomId: scopeRoomId, agentId: target.id, ref }) } }
+      return { handled: true, response: { success: true, data: agentKnowledgeService.read(target.id, ref) } }
     }
     case 'agent.knowledge.upsert': {
       const target = await resolveAgentForActor(ctx, args.agent || args.agentId || args.id)
@@ -221,19 +230,19 @@ export async function executeAppAction(ctx: AppActionContext, action: string, ar
     case 'file.list': {
       const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
       assertRoomMember(scopeRoomId, ctx.actorUserId)
-      return { handled: true, response: { success: true, data: roomFileService.list(scopeRoomId) } }
+      return { handled: true, response: { success: true, data: roomFileService.list(scopeRoomId, { source: args.source, includeMessageAttachments: args.includeMessageAttachments !== false }) } }
     }
     case 'file.info': {
       const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
       assertRoomMember(scopeRoomId, ctx.actorUserId)
-      const ref = String(args.ref || args.fileId || args.path || '')
+      const ref = String(args.ref || args.fileId || args.id || args.path || '')
       const row = roomFileService.resolveRef(scopeRoomId, ref)
       return { handled: true, response: { success: true, data: { file: roomFilePublic(row), hint: row.id ? `文本文件可用 file.read 读取；复杂文件请用 ./freechat file download file:${row.id} 下载处理。` : undefined } } }
     }
     case 'file.read': {
       const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
       assertRoomMember(scopeRoomId, ctx.actorUserId)
-      const ref = String(args.ref || args.fileId || args.path || '')
+      const ref = String(args.ref || args.fileId || args.id || args.path || '')
       if (!ref) throw { code: 'VALIDATION_ERROR', message: 'file ref/path is required' }
       return { handled: true, response: { success: true, data: await readRoomTextFile(scopeRoomId, ref, args) } }
     }
@@ -243,7 +252,7 @@ export async function executeAppAction(ctx: AppActionContext, action: string, ar
     case 'ppt.read': {
       const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
       assertRoomMember(scopeRoomId, ctx.actorUserId)
-      const ref = String(args.ref || args.fileId || args.path || '')
+      const ref = String(args.ref || args.fileId || args.id || args.path || '')
       if (!ref) throw { code: 'VALIDATION_ERROR', message: 'file ref/path is required' }
       const kind = action.split('.')[0] as any
       return { handled: true, response: { success: true, data: await officeDocumentService.read(kind, scopeRoomId, ref, args) } }
@@ -259,9 +268,19 @@ export async function executeAppAction(ctx: AppActionContext, action: string, ar
     case 'image.read': {
       const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
       assertRoomMember(scopeRoomId, ctx.actorUserId)
-      const ref = String(args.ref || args.fileId || args.path || '')
+      const ref = String(args.ref || args.fileId || args.id || args.path || '')
       if (!ref) throw { code: 'VALIDATION_ERROR', message: 'file ref/path is required' }
       return { handled: true, response: { success: true, data: await officeDocumentService.readImage(scopeRoomId, ctx.agentId, ctx.actorUserId, ref, args) } }
+    }
+    case 'mindmap.create': {
+      const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
+      assertRoomMember(scopeRoomId, ctx.actorUserId)
+      return { handled: true, response: { success: true, data: { preview: await mindmapArtifactService.createPreview(scopeRoomId, args) } } }
+    }
+    case 'mindmap.save': {
+      const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
+      assertRoomMember(scopeRoomId, ctx.actorUserId)
+      return { handled: true, response: { success: true, data: { saved: await mindmapArtifactService.save(scopeRoomId, ctx.actorUserId, args) } } }
     }
     default:
       return { handled: false }

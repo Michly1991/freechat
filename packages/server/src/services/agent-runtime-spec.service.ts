@@ -46,11 +46,13 @@ const RUNTIME_RULES = `# FreeChat Agent Runtime Spec
 
 ## 知识库规则
 
-- FreeChat Server 是 Agent 自有知识库与通用公共知识的主存储；Agent Client 运行时只按需检索/读取。
-- 不要把知识库全文预先复制进上下文；遇到产品规则、专业资料、长期背景、用户上传给 Agent 的知识或不确定答案时，先用 \`./freechat knowledge search <query>\`。
-- 检索命中后只读取少量相关条目：\`./freechat knowledge read <fileId|path|public:entryId>\`。
-- Agent 自有知识优先；通用公共知识作为补充；搜不到时再基于当前对话回答并说明缺少对应知识。
+- FreeChat Server 是房间知识、Agent 自有知识库与通用公共知识的主存储；Agent Client 运行时只按当前房间权限按需检索/读取。
+- 不要把知识库全文预先复制进上下文；遇到产品规则、专业资料、长期背景、房间/客户资料、用户上传给 Agent 的知识或不确定答案时，先用 \`./freechat knowledge search <query>\`。
+- 检索范围自动包含：当前房间知识库、当前 Agent 专属知识库、通用公共知识库。
+- 检索命中后只读取少量相关条目：\`./freechat knowledge read <room:entryId|agent:fileId|agent-entry:entryId|public:entryId>\`。
+- 优先级：房间知识 > Agent 自有知识 > 通用公共知识；如果知识和最近对话冲突，先向用户确认。
 - Agent 自有知识按 root Agent 继承，房间 clone/materialize 的 Agent 默认使用通讯录 Agent 的知识库。
+- 不要跨房间读取房间知识；服务端会校验当前 Agent 必须在目标房间内。
 
 ## Agent 协作规则
 
@@ -83,7 +85,7 @@ class AgentRuntimeSpecService {
     })
     const cliWrapper = renderAgentCliWrapper()
     const apiDoc = renderAgentApiDoc()
-    const claudeMd = `# FreeChat Agent Client\n\n你运行在用户自己的 Agent Client 中。\n\n启动后必须阅读并遵守：\n\n- .freechat/RUNTIME.md：服务端统一运行规范和强制规则\n- .freechat/API.md：FreeChat CLI/API 使用说明\n\n关键要求：\n\n- 普通聊天/私聊：直接把最终回复输出到 stdout，Agent Client 会自动发回房间；不要再调用 ./freechat chat send，避免重复回复。\n- 需要中途汇报、多条消息或执行工具时，才使用 ./freechat chat send <内容> 或 ./freechat tool <action> '<jsonArgs>'。\n- 用户可见文件必须通过 ./freechat file ... 写回当前房间，不能只留在本地 res/。\n- 对话附件优先使用 file:<fileId> 引用；PDF/Excel/Word/PPT/图片优先调用对应 App Tool（pdf/excel/word/ppt/image），不要未读就说看不到。\n- 如果需要把当前协调者转给房间内另一个 Agent，使用 ./freechat room handoff --agent <名称> --reason <原因>，不要普通聊天里假 @。\n`
+    const claudeMd = `# FreeChat Agent Client\n\n你运行在用户自己的 Agent Client 中。\n\n启动后必须阅读并遵守：\n\n- .freechat/RUNTIME.md：服务端统一运行规范和强制规则\n- .freechat/API.md：FreeChat CLI/API 使用说明\n\n关键要求：\n\n- 普通聊天/私聊：直接把最终回复输出到 stdout，Agent Client 会自动发回房间；不要再调用 ./freechat chat send，避免重复回复。\n- 需要读取/查询/写入文件或调用应用能力时，必须使用 ./freechat tool call <action> '<jsonArgs>' 或对应 CLI 命令；不要输出 <toolcall>...</toolcall>、接口 JSON、API 参数给用户。\n- 需要中途汇报、多条消息或执行工具时，才使用 ./freechat chat send <内容> 或 ./freechat tool <action> '<jsonArgs>'。\n- 用户可见文件必须通过 ./freechat file ... 写回当前房间，不能只留在本地 res/。\n- 对话附件优先使用 file:<fileId> 引用；PDF/Excel/Word/PPT/图片优先调用对应 App Tool（pdf/excel/word/ppt/image），不要未读就说看不到。\n- 如果需要把当前协调者转给房间内另一个 Agent，使用 ./freechat room handoff --agent <名称> --reason <原因>，不要普通聊天里假 @。\n`
     const material = JSON.stringify({ cliCjsTemplate, cliWrapper, claudeMd, apiDoc, runtimeRules: RUNTIME_RULES })
     const checksum = createHash('sha256').update(material).digest('hex')
     if (this.cached?.checksum === checksum) return this.cached

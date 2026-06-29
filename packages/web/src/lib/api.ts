@@ -86,6 +86,8 @@ export const api = {
     files.forEach((file) => form.append('files', file, file.name))
     return request<{ message: any }>(`/rooms/${id}/messages/with-files`, { method: 'POST', body: form })
   },
+  saveMindmapPreview: (id: string, body: { previewId?: string; title?: string; html?: string; svg?: string; root?: any; targetDir?: string }) =>
+    request<{ saved: any }>(`/rooms/${id}/mindmaps/save`, { method: 'POST', body: JSON.stringify(body) }),
   updateRoom: (id: string, body: { name?: string; description?: string }) =>
     request(`/rooms/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteRoom: (id: string) => request(`/rooms/${id}`, { method: 'DELETE' }),

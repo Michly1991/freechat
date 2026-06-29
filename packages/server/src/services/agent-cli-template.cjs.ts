@@ -26,6 +26,7 @@ function usage() {
     '  ./freechat file write-local ui/dashboard.html res/dashboard.html --show',
     '  ./freechat tab create-local "数据看板" res/dashboard.html',
     '  ./freechat tab update-local <tabId> res/dashboard.html',
+    '  ./freechat tool call mindmap.create \'{"title":"主题","outline":"# 主题\\n- 分支"}\'  # 脑图先预览',
     '',
     'Commands:',
     '  ./freechat app list [category] | app help <action> | app call <action> \'{...}\'',
@@ -205,7 +206,8 @@ async function uploadProjectFile(localPath, projectPath, addToTab) {
 }
 
 async function knowledgeRequest(pathname) {
-  const res = await fetch(API_URL + pathname, { headers: { Authorization: 'Bearer ' + TOKEN } });
+  const sep = pathname.includes('?') ? '&' : '?';
+  const res = await fetch(API_URL + pathname + sep + 'roomId=' + encodeURIComponent(ROOM_ID), { headers: { Authorization: 'Bearer ' + TOKEN } });
   const text = await res.text();
   let data;
   try { data = JSON.parse(text); } catch { data = { success: false, raw: text }; }
@@ -573,6 +575,16 @@ if (domain === 'app' && cmd === 'list') {
   if (!rest[0]) die('conversationId is required');
   const content = rest.slice(1).join(' ').trim(); if (!content) die('content is required');
   call('dm.send', { conversationId: rest[0], content });
+} else if (domain === 'tool' && ['list', 'schema', 'help'].includes(cmd)) {
+  call(cmd === 'list' ? 'tool.list' : 'tool.schema', cmd === 'list' ? { category: rest[0] } : { action: rest[0], name: rest[0] });
+} else if (domain === 'tool' && cmd === 'call') {
+  if (!rest[0]) die('toolName is required');
+  call(rest[0], rest[1] ? JSON.parse(rest.slice(1).join(' ')) : {});
+} else if (domain === 'app' && ['list', 'help'].includes(cmd)) {
+  call(cmd === 'list' ? 'tool.list' : 'tool.schema', cmd === 'list' ? { category: rest[0] } : { action: rest[0], name: rest[0] });
+} else if (domain === 'app' && cmd === 'call') {
+  if (!rest[0]) die('action is required');
+  call(rest[0], rest[1] ? JSON.parse(rest.slice(1).join(' ')) : {});
 } else if (domain === 'knowledge' && cmd === 'list') {
   knowledgeRequest('/api/remote-agents/knowledge');
 } else if (domain === 'knowledge' && cmd === 'search') {

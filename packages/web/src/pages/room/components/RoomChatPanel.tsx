@@ -3,6 +3,7 @@ import { Check, Copy, FileText, Image as ImageIcon, Paperclip, Send, X } from 'l
 import { addClientLog } from '../../../lib/clientLog'
 import { VoicePlaybackButton } from '../../../features/voice/VoicePlaybackButton'
 import { VoiceConversationButton } from '../../../features/voice/VoiceConversationButton'
+import { MindmapPreviewCard } from './MindmapPreviewCard'
 import type { FileNode, Message } from '../../room-page-model'
 import { getAgentStatusLabel, getMemberAvatar, getMemberDisplayName, renderAgentAvatar, renderAvatar, renderMessageContent } from '../room-ui-utils'
 
@@ -189,7 +190,9 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
                       <span className="hidden sm:inline">{copiedMessageId === msg.id ? '已复制' : '复制'}</span>
                     </button></div>}
                   </div>
-                  {msg.kind === 'interaction_request' ? renderInteractionCard(msg) : isAgentStream ? (
+                  {msg.kind === 'interaction_request' ? renderInteractionCard(msg) : msg.kind === 'artifact_preview' && msg.payload?.artifactType === 'mindmap' ? (
+                    <MindmapPreviewCard msg={msg} own={isOwn} />
+                  ) : isAgentStream ? (
                     <div className="space-y-2">
                       {msg.content ? <p className="text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-gray-700">{renderMessageContent(msg.content, isOwn)}</p> : <p className="text-sm text-gray-500"><span className="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse mr-2" />正在思考和处理...</p>}
                       {streamActivities.length > 0 && <div className="space-y-1 border-t border-gray-200/70 pt-2">

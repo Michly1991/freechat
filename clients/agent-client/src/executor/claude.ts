@@ -5,6 +5,17 @@ import type { AgentCredential, ClientConfig, RemoteEvent } from '../config/types
 import { workRoot } from '../config/store.js'
 import { agentTool, getAgentKnowledge, getRuntimeSpec, runActivity, type AgentKnowledgePayload, type RuntimeSpec } from '../connector/api.js'
 
+function containsToolMarkup(text: string) {
+  return /<\|FunctionCallBegin\|>[\s\S]*?<\|FunctionCallEnd\|>/i.test(String(text || '')) || /<toolcall>[\s\S]*?(?:<\/toolcall>|$)/i.test(String(text || ''))
+}
+
+function stripToolMarkup(text: string) {
+  return String(text || '')
+    .replace(/<\|FunctionCallBegin\|>[\s\S]*?<\|FunctionCallEnd\|>/gi, '')
+    .replace(/<toolcall>[\s\S]*?(?:<\/toolcall>|$)/gi, '')
+    .trim()
+}
+
 export function workspaceFor(agent: AgentCredential, event: RemoteEvent) {
   const dir = agent.workdir || join(workRoot(), event.agentId, event.roomId)
   mkdirSync(join(dir, '.freechat'), { recursive: true })
@@ -32,7 +43,7 @@ function writeKnowledgeFiles(targetDir: string, knowledge?: AgentKnowledgePayloa
   }
 }
 
-export function writeRunContext(cfg: ClientConfig, agent: AgentCredential, event: RemoteEvent, cwd: string, spec: RuntimeSpec, knowledge?: AgentKnowledgePayload) {
+function writeBaseRunContext(cfg: ClientConfig, agent: AgentCredential, event: RemoteEvent, cwd: string, spec: RuntimeSpec, knowledge?: AgentKnowledgePayload) {
   const freechatDir = join(cwd, '.freechat')
   mkdirSync(freechatDir, { recursive: true })
   writeFileSync(join(freechatDir, 'run.json'), JSON.stringify({
@@ -85,6 +96,33 @@ FreeChat Server 统一维护 Agent 自有知识库和通用公共知识。运行
   const cli = join(cwd, 'freechat')
   writeFileSync(cli, spec.cliWrapper, 'utf8')
   try { chmodSync(cli, 0o755); chmodSync(join(freechatDir, 'freechat.cjs'), 0o755) } catch {}
+}
+
+function renderAgentContextMarkdown(event: RemoteEvent) {
+  const ctx = event.payload.context
+  if (!ctx) return '# 当前运行上下文\n\n暂无服务端结构化上下文。\n'
+  const files = Array.isArray(ctx.recentFileRefs) && ctx.recentFileRefs.length
+    ? ctx.recentFileRefs.map((file, i) => `${i + 1}. ${file.name} (${file.ref})\n   - type: ${file.mimeType || 'unknown'}\n   - source: ${file.source}\n   - path: ${file.relativePath}`).join('\n')
+    : '无'
+  return `# 当前运行上下文
+
+## 最近对话与附件
+
+${ctx.promptText || '无'}
+
+## 最近文件/聊天附件
+
+${files}
+
+规则：
+- 用户说“刚才的文件/上面的附件/那个表格/刚才的脑图”时，优先使用上面的 \`file:xxx\` 引用。
+- 复杂文件请用 \`./freechat file download file:xxx\` 下载到本地处理；不要说看不到刚才附件。
+`
+}
+
+export function writeRunContext(cfg: ClientConfig, agent: AgentCredential, event: RemoteEvent, cwd: string, spec: RuntimeSpec, knowledge?: AgentKnowledgePayload) {
+  writeBaseRunContext(cfg, agent, event, cwd, spec, knowledge)
+  writeFileSync(join(cwd, '.freechat', 'CONTEXT.md'), renderAgentContextMarkdown(event), 'utf8')
 }
 
 const DEFAULT_SESSION_TTL_MS = 5 * 60 * 1000
@@ -261,7 +299,7 @@ function isLikelyIntermediateProgress(text: string): boolean {
 }
 
 function hasToolUse(response: string): boolean {
-  return /^\s*\{\s*"success"\s*:/i.test(String(response || ''))
+  return /^\s*\{\s*"success"\s*:/i.test(String(response || '')) || containsToolMarkup(response)
 }
 
 function shouldAutoSendFinal(responseMode: string, event: RemoteEvent, trimmed: string) {
@@ -283,11 +321,15 @@ export async function executeEvent(cfg: ClientConfig, agent: AgentCredential, ev
   const mustUseTool = responseMode === 'final_to_chat'
     ? '本次为最终回复模式：如果你调用了 ./freechat chat send 或 ./freechat room handoff 等会产生用户可见消息/转接的工具，工具成功后最终 stdout 只输出一个简短结果摘要，不要重复输出已经通过工具发送的完整内容。'
     : '本次为工具模式：请优先使用 ./freechat 工具完成动作，stdout 只输出简短摘要。'
-  const result = await runClaude([event.payload.input || '', mustUseTool].filter(Boolean).join('\n\n'), cwd, `${agent.agentId}:${event.runId}`)
+  const contextBrief = event.payload.context?.promptText
+    ? `服务端结构化上下文已写入 .freechat/CONTEXT.md。以下是摘要，处理“刚才/上面/那个文件/那个脑图”等指代时必须优先参考：\n${event.payload.context.promptText}`
+    : ''
+  const result = await runClaude([contextBrief, event.payload.input || '', mustUseTool].filter(Boolean).join('\n\n'), cwd, `${agent.agentId}:${event.runId}`)
   if (result.recoveredFromContextOverflow) {
     await runActivity(cfg, agent, event.runId, 'Claude context exceeded; cleared saved session and retried without --resume').catch(() => undefined)
   }
-  const trimmed = result.response.trim()
+  const trimmed = stripToolMarkup(result.response).trim()
+  if (containsToolMarkup(result.response)) result.response = trimmed
   if (shouldAutoSendFinal(responseMode, event, trimmed)) await agentTool(cfg, agent, event.roomId, 'chat.send', { content: trimmed })
   return result
 }

@@ -26,6 +26,7 @@ import { ensureAgentStreamSchema } from './schema/agent-stream-schema.js'
 import { ensureFriendDmSchema } from './schema/friend-dm-schema.js'
 import { ensureConversationSchema } from './schema/conversation-schema.js'
 import { ensureInviteSchema } from './schema/invite-schema.js'
+import { ensureConversationMemorySchema } from './conversation-memory-schema.js'
 
 mkdirSync(dirname(config.database.path), { recursive: true })
 
@@ -92,6 +93,7 @@ export function initDatabase() {
   ensureFriendDmSchema(db)
   ensureConversationSchema(db)
   ensureInviteSchema(db)
+  ensureConversationMemorySchema(db)
   console.log('Database initialized')
 }
 

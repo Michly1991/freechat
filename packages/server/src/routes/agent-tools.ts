@@ -4,13 +4,14 @@ import { agentService } from '../services/agent.service.js'
 import { remoteAgentConnectorService } from '../services/remote-agent-connector.service.js'
 import { isPersonalTool } from './agent-tools-auth.js'
 import { actorForRemote, executeAgentTool, remoteToolErrorStatus } from './remote-agent-app-call.js'
+import { canonicalizeToolAction } from '../app-actions/risk-policy.js'
 import db from '../storage/db.js'
 
 export async function registerAgentToolRoutes(app: FastifyInstance) {
   app.post('/api/agent-tools/:roomId', async (request, reply) => {
     const { roomId } = request.params as any
     const body = request.body as any
-    const action = String(body.action || body.tool || '')
+    const action = canonicalizeToolAction(String(body.action || body.tool || ''))
     const auth = request.headers.authorization || ''
     const token = auth.startsWith('Bearer ') ? auth.slice(7) : ''
     let verified = verifyAgentToolToken(roomId, token)

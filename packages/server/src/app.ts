@@ -36,6 +36,7 @@ import { registerVoiceRoutes } from './routes/voice.js'
 import { registerKnowledgeRoutes } from './routes/knowledge.js'
 import { registerWorkgroupRoutes } from './routes/workgroups.js'
 import { registerAuditLogRoutes } from './routes/audit-logs.js'
+import { registerMindmapArtifactRoutes } from './routes/mindmap-artifacts.js'
 import { authenticate } from './auth/middleware.js'
 import { initDatabase } from './storage/db.js'
 import { initWebSocket } from './ws/gateway.js'
@@ -142,6 +143,7 @@ export async function buildApp() {
   await registerKnowledgeRoutes(app)
   await registerWorkgroupRoutes(app)
   await registerAgentToolRoutes(app)
+  await registerMindmapArtifactRoutes(app)
   await registerAuditLogRoutes(app)
 
   // Error handler

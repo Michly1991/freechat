@@ -5,6 +5,10 @@ import { config as appConfig } from '../config.js'
 import type { ConnectorAuth } from './remote-agent-connector.service.js'
 import { executeInlineToolCalls } from './inline-agent-tool.service.js'
 import { modelRuntimeService } from './model-runtime.service.js'
+import { conversationMemoryService } from './conversation-memory.service.js'
+import { knowledgeRuntimeService } from './knowledge-runtime.service.js'
+import { containsInlineToolMarkup, extractInlineToolCalls, stripInlineToolMarkup } from './inline-tool-markup.js'
+import { executeTool } from '../app-actions/router.js'
 
 function trimPrompt(input: string) {
   return String(input || '').slice(-12000)
@@ -33,6 +37,70 @@ function fallbackReply() {
   ].join('\n')
 }
 
+function actionForAttachment(input: string) {
+  const type = String(input || '').toLowerCase()
+  if (/spreadsheet|excel|xlsx|xlsm|\.xlsx|\.xlsm/.test(type)) return 'excel.read'
+  if (/pdf|\.pdf/.test(type)) return 'pdf.read'
+  if (/word|document|docx|\.docx/.test(type)) return 'word.read'
+  if (/presentation|powerpoint|pptx|\.pptx/.test(type)) return 'ppt.read'
+  if (/image\/|\.png|\.jpe?g|\.webp|\.gif/.test(type)) return 'image.read'
+  if (/text\/|\.txt|\.md|\.csv|\.json|\.log|\.ya?ml/.test(type)) return 'file.read'
+  return ''
+}
+
+function extractAttachmentReads(text: string) {
+  const seen = new Set<string>()
+  const reads: Array<{ action: string; ref: string }> = []
+  const source = String(text || '')
+  const lineRe = /^-\s+ref:\s*(file:[^;\s]+);[\s\S]*?(?:name:\s*([^;\n]+);)?[\s\S]*?(?:type:\s*([^;\n]+);)?/gm
+  for (const match of source.matchAll(lineRe)) {
+    const ref = String(match[1] || '').trim()
+    const action = actionForAttachment(`${match[2] || ''} ${match[3] || ''}`)
+    const key = `${action}:${ref}`
+    if (ref && action && !seen.has(key)) { seen.add(key); reads.push({ action, ref }) }
+  }
+  const fileIdRe = /fileId:\s*(file_[0-9a-f-]+)/gi
+  for (const match of source.matchAll(fileIdRe)) {
+    const ref = `file:${match[1]}`
+    const around = source.slice(Math.max(0, match.index! - 300), Math.min(source.length, match.index! + 500))
+    const action = actionForAttachment(around)
+    const key = `${action}:${ref}`
+    if (ref && action && !seen.has(key)) { seen.add(key); reads.push({ action, ref }) }
+  }
+  return reads.slice(0, 3)
+}
+
+function toolActions(calls: Array<{ name: string }>) {
+  return new Set(calls.map((call) => String(call.name || '')))
+}
+
+function formatAutoToolResult(action: string, response: any) {
+  if (!response?.success) {
+    const err = response?.error
+    const message = typeof err === 'string' ? err : err?.message || JSON.stringify(err || {})
+    return `工具 ${action} 执行失败：${message}`
+  }
+  const data = response?.data || response
+  if (['pdf.read', 'excel.read', 'word.read', 'ppt.read'].includes(action)) {
+    const file = data?.file
+    const body = data?.csv || data?.text || JSON.stringify(data?.rows || data?.slides || data, null, 2)
+    const header = file ? `文件：${file.name || file.path}（${file.ref || file.path}）` : `工具结果：${action}`
+    const tail = data?.truncated ? `\n\n[内容已截断，totalChars=${data.totalChars}]` : ''
+    return `${header}\n${String(body || '')}${tail}`.slice(0, 12000)
+  }
+  if (action === 'file.read') {
+    const file = data?.file
+    const header = file ? `文件：${file.name || file.path}（${file.ref || file.path}）` : '文件内容：'
+    const tail = data?.truncated ? `\n\n[内容已截断，totalChars=${data.totalChars}]` : ''
+    return `${header}\n${String(data?.content || '')}${tail}`.slice(0, 12000)
+  }
+  if (action === 'image.read') {
+    const file = data?.file
+    return [`图片：${file?.name || file?.path || ''}`, data?.text || ''].filter(Boolean).join('\n').slice(0, 12000)
+  }
+  return JSON.stringify(data, null, 2).slice(0, 12000)
+}
+
 export class PlatformHostedAgentRuntimeService {
   canHandle(agentId: string) {
     const row = db.prepare("SELECT config FROM agents WHERE id = ? AND config LIKE '%\"builtInKey\":\"xiaomi_assistant\"%'").get(agentId) as any
@@ -49,14 +117,23 @@ export class PlatformHostedAgentRuntimeService {
     try {
       const agent = db.prepare('SELECT * FROM agents WHERE id = ?').get(auth.agentId) as any
       const cfg = agent?.config ? JSON.parse(agent.config) : {}
-      const recent = await messageService.getMessages(event.roomId, 10).catch(() => [])
-      const context = recent.map((m: any) => `${m.actorRole === 'ai' ? 'AI' : '用户'} ${m.actorName}: ${m.content}`).join('\n')
+      const eventContext = event.payload?.context || null
+      const context = String(eventContext?.promptText || '')
+      const [roomMemory, agentMemory] = await Promise.all([
+        conversationMemoryService.readRoomMemory(event.roomId),
+        conversationMemoryService.readAgentMemory(event.roomId, auth.agentId),
+      ])
+      const memoryContext = [roomMemory ? `房间长期记忆：\n${roomMemory}` : '', agentMemory ? `当前 Agent 长期记忆：\n${agentMemory}` : ''].filter(Boolean).join('\n\n')
+      const knowledgeContext = (() => {
+        try { return knowledgeRuntimeService.getRuntimeContext(event.roomId, auth.agentId, event.payload?.input || '', 8) }
+        catch { return '' }
+      })()
       const system = [
         cfg.systemPrompt || '',
         toolHelp(event.roomId, auth.agentId, event.payload?.actorUserId || event.payload?.metadata?.actorUserId),
-        '如果需要调用 App Tool，请输出 <toolcall>{"name":"工具名","args":{...}}</toolcall>。创建 Agent 必须使用 agent.create 或 agent.create_request，系统会生成确认卡；查询 Agent 详情可用 agent.detail；读取附件/房间文件请按类型使用工具：文本 file.read、PDF pdf.read、Excel excel.read/excel.write、Word word.read/word.write、PPT ppt.read/ppt.write、图片 image.read，例如 {"name":"pdf.read","args":{"ref":"file:<fileId>"}}；代替界面操作优先用 app.call，例如 {"name":"app.call","args":{"action":"billing.summary","args":{"range":"this_month"}}}；不要只用 JSON 说明接口失败。',
+        '如果需要调用 App Tool，请只输出 <toolcall>{"name":"工具名","args":{...}}</toolcall>，不要在同一条回复里夹带给用户看的说明文字；系统执行工具后会把工具结果再交给你组织最终回复。创建 Agent 必须使用 agent.create 或 agent.create_request，系统会生成确认卡；查询 Agent 详情可用 agent.detail；读取附件/房间文件请按类型使用工具：文本 file.read、PDF pdf.read、Excel excel.read/excel.write、Word word.read/word.write、PPT ppt.read/ppt.write、图片 image.read；用户要求脑图/思维导图/XMind 风格结构图时使用 mindmap.create 先生成聊天内嵌预览，用户确认保存后再 mindmap.save，例如 {"name":"mindmap.create","args":{"title":"主题","outline":"# 主题\n- 分支"}}；代替界面操作优先用 app.call，例如 {"name":"app.call","args":{"action":"billing.summary","args":{"range":"this_month"}}}；不要只用 JSON 说明接口失败。',
       ].filter(Boolean).join('\n\n')
-      const prompt = [context ? `最近对话：\n${context}` : '', `本次请求：\n${trimPrompt(event.payload?.input || '')}`].filter(Boolean).join('\n\n')
+      const prompt = [memoryContext, knowledgeContext, context ? `最近对话：\n${context}` : '', `本次请求：\n${trimPrompt(event.payload?.input || '')}`].filter(Boolean).join('\n\n')
       let output = ''
       let aiUsage: any = null
       try {
@@ -72,8 +149,40 @@ export class PlatformHostedAgentRuntimeService {
           baseUrlHost: aiResult.baseUrlHost,
           isSelfProvidedModel: aiResult.isSelfProvidedModel,
         }
-        const toolSummary = await executeInlineToolCalls(event.roomId, auth.agentId, event.payload?.actorUserId || event.payload?.metadata?.actorUserId, output)
-        if (toolSummary) output = toolSummary
+        const inlineCalls = extractInlineToolCalls(output)
+        const inlineActions = toolActions(inlineCalls)
+        const autoReads = extractAttachmentReads(event.payload?.input || '').filter((read) => !inlineActions.has(read.action))
+        const autoReadSummaries: string[] = []
+        for (const read of autoReads) {
+          try {
+            const result = await executeTool({ roomId: event.roomId, action: read.action, args: { ref: read.ref }, agentId: auth.agentId, actorUserId, actorRole: (db.prepare('SELECT role FROM users WHERE id = ?').get(actorUserId) as any)?.role, transport: 'platform-auto-read' }, { audit: true })
+            autoReadSummaries.push(formatAutoToolResult(read.action, result))
+          } catch (err: any) {
+            autoReadSummaries.push(`工具 ${read.action} 执行失败：${err?.message || String(err)}`)
+          }
+        }
+        const toolSummary = await executeInlineToolCalls(event.roomId, auth.agentId, actorUserId, output)
+        const combinedToolSummary = [...autoReadSummaries, toolSummary].filter(Boolean).join('\n\n')
+        if (combinedToolSummary) {
+          const visibleLead = stripInlineToolMarkup(output)
+          const followUpPrompt = [
+            prompt,
+            visibleLead ? `模型原始回复中的用户可见部分（不要复述工具标记）：\n${visibleLead}` : '',
+            `刚刚执行的工具结果（仅供你分析，禁止原样转储接口 JSON；请基于结果直接回答用户）：\n${combinedToolSummary}`,
+            '请现在给用户一条自然语言最终回复。不要包含 <toolcall>、JSON 接口载荷或“工具结果”原文；如果是表格/名单，请提炼关键结论，必要时用 Markdown 表格/要点。',
+          ].filter(Boolean).join('\n\n')
+          const finalResult = await modelRuntimeService.callRoomAgentModel(event.roomId, auth.agentId, actorUserId, followUpPrompt, { system, maxTokens: cfg.model?.maxTokens || 1600, model: cfg.model?.model })
+          output = containsInlineToolMarkup(finalResult.text) ? stripInlineToolMarkup(finalResult.text) : finalResult.text
+          aiUsage = {
+            ...aiUsage,
+            inputTokens: Number(aiUsage?.inputTokens || 0) + Number(finalResult.usage?.inputTokens || 0),
+            outputTokens: Number(aiUsage?.outputTokens || 0) + Number(finalResult.usage?.outputTokens || 0),
+            cacheCreationInputTokens: Number(aiUsage?.cacheCreationInputTokens || 0) + Number(finalResult.usage?.cacheCreationInputTokens || 0),
+            cacheReadInputTokens: Number(aiUsage?.cacheReadInputTokens || 0) + Number(finalResult.usage?.cacheReadInputTokens || 0),
+            totalTokens: Number(aiUsage?.totalTokens || 0) + Number(finalResult.usage?.totalTokens || 0),
+            model: finalResult.model || aiUsage?.model,
+          }
+        }
       } catch (err: any) {
         output = fallbackReply()
       }

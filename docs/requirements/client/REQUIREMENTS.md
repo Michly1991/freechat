@@ -62,3 +62,10 @@
 - 用户上传本地文件仍由前端 file input/聊天附件完成；小蜜可操作已上传的文件引用或 Agent 知识库文本内容。
 - 小蜜代替界面操作时，产品语义是“小蜜与当前用户同权”：小蜜可代用户操作其有权访问的 Agent、账单、知识库和项目；如果涉及目标项目/房间，应把目标 roomId 传给服务端并由服务端校验。
 - 私聊添加成员/Agent 后会进入新建群聊；客户端收到 `createdRoom=true` 时应跳转新房间，并提示原私聊仍保留。
+
+
+## Mindmap Skill
+
+- 脑图/思维导图/XMind 风格结构图属于 Agent Skill 产物，Agent 应调用 `mindmap.create` 先生成聊天内嵌预览，不默认保存正式文件。
+- 用户确认保存后，才调用 `mindmap.save` 写入房间文件；未保存预览可放在消息 payload 或房间 tmp 缓存中，允许后续清理。
+- 前端展示脑图预览必须使用受控 artifact 组件和 sandbox iframe，不允许把 Agent 任意 HTML 注入主页面。

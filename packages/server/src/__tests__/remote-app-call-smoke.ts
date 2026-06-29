@@ -42,6 +42,10 @@ try {
   const msg = db.prepare('SELECT actor_id, content FROM messages WHERE room_id = ? ORDER BY created_at DESC LIMIT 1').get('room') as any
   assert.equal(msg.actor_id, created.agent.id)
   assert.equal(msg.content, 'HTTP 接入正常')
+  const toolCalls = db.prepare('SELECT tool_name, status, run_id FROM agent_tool_calls WHERE room_id = ? ORDER BY started_at ASC').all('room') as any[]
+  assert.ok(toolCalls.some((call) => call.tool_name === 'chat.send' && call.status === 'succeeded' && call.run_id === 'run'))
+
+  await assert.rejects(executeRemoteAppCall(auth, { roomId: 'room', runId: 'run', action: 'room.delete', args: {} }), (err: any) => err?.code === 'TOOL_REQUIRES_CONFIRMATION')
 
   await assert.rejects(executeRemoteAppCall(auth, { action: 'chat.send', args: { content: 'no room' } }), (err: any) => err?.code === 'VALIDATION_ERROR' && /roomId is required/.test(err?.message || ''))
   console.log('remote app call smoke passed')

@@ -645,7 +645,7 @@ export class AgentService extends AgentWorkspaceService {
 
   async enqueueAgentRun(roomId: string, agentId: string, message: string, options: { timeoutMs?: number; actorUserId?: string; onEvent?: (event: any) => void } & AgentRunContext = {}): Promise<{ response: string; silent: boolean }> {
     const agent = await this.getAgent(agentId)
-    remoteAgentConnectorService.enqueueRun(roomId, agentId, buildAgentRunInput(agent, message), options)
+    await remoteAgentConnectorService.enqueueRun(roomId, agentId, buildAgentRunInput(agent, message), options)
     return { response: '', silent: true }
   }
 
