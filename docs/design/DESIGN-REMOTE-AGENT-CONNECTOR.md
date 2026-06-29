@@ -201,6 +201,14 @@ Agent Client:    5188
 
 Agent Client 只连接一个 FreeChat 中心服务器，但可以管理多个 Agent。每个 Agent 仍有自己的 connector credential，客户端本地统一保存并优先用 WebSocket 接收事件。
 
+本地执行目录必须按 Agent + Room 隔离。默认结构：
+
+```text
+~/.freechat-agent-client/workspaces/agents/<agentId>/rooms/<roomId>/
+```
+
+若配置 `agent.workdir`，它只作为自定义 base root；客户端仍会拼接 `agents/<agentId>/rooms/<roomId>/`。不同 Agent 不共享 cwd、下载缓存、本地产物或 Claude session。
+
 客户端自带网页/API 控制台，用于管理本客户端：
 
 - 配置中心服务器地址和保存 FreeChat Server 账号；
@@ -289,7 +297,7 @@ GET /api/managed-agent-rooms?limit=50
 - Server 负责 Agent 身份、发布、房间绑定、调度事件、运行记录和计费。
 - Server 不再保存或执行本地 Claude Code Runtime，也不再通过 `spawn('claude')` 直接启动 Agent。
 - Agent 被唤起时，Server 只创建 `agent_runs` 和 `remote_agent_events`，等待已绑定的 Agent Client 拉取并执行。
-- Claude Code、模型配置、本地工具和 Agent 知识库均由 Agent Client 所在机器维护。
+- Claude Code、模型配置、本地工具和 Agent 知识库均由 Agent Client 所在机器维护；每次运行的 cwd、`.freechat/claude-session.json`、`res/downloads/` 和本地产物按 Agent + Room 隔离。
 - 没有在线 Client 的 Agent 可以被加入房间，但运行事件会保持排队，直到 Client 绑定/上线后处理。
 
 ### 跨服务器 Remote App Action HTTP 网关

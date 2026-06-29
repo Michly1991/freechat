@@ -1,15 +1,16 @@
 import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs'
 import { basename, join, normalize } from 'path'
-import { loadConfig, workRoot } from '../config/store.js'
+import { loadConfig } from '../config/store.js'
+import { agentKnowledgeDir } from '../config/workspace.js'
 
 export function agentBaseDir(agentId: string) {
   const cfg = loadConfig()
   const localAgent = cfg.agents.find((agent) => agent.agentId === agentId)
-  return localAgent?.workdir || join(workRoot(), agentId)
+  return agentKnowledgeDir(localAgent || agentId)
 }
 
 export function knowledgeDir(agentId: string) {
-  return join(agentBaseDir(agentId), 'knowledge')
+  return agentBaseDir(agentId)
 }
 
 function safeName(name: string) {

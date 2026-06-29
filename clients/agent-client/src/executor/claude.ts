@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { dirname, join, normalize } from 'path'
 import type { AgentCredential, ClientConfig, RemoteEvent } from '../config/types.js'
-import { workRoot } from '../config/store.js'
+import { agentRoomWorkspace } from '../config/workspace.js'
 import { agentTool, getAgentKnowledge, getRuntimeSpec, runActivity, type AgentKnowledgePayload, type RuntimeSpec } from '../connector/api.js'
 
 function containsToolMarkup(text: string) {
@@ -17,8 +17,11 @@ export function stripToolMarkup(text: string) {
 }
 
 export function workspaceFor(agent: AgentCredential, event: RemoteEvent) {
-  const dir = agent.workdir || join(workRoot(), event.agentId, event.roomId)
+  const dir = agentRoomWorkspace(agent, event.roomId)
   mkdirSync(join(dir, '.freechat'), { recursive: true })
+  mkdirSync(join(dir, 'res', 'downloads'), { recursive: true })
+  mkdirSync(join(dir, 'res', 'outputs'), { recursive: true })
+  mkdirSync(join(dir, 'workspace'), { recursive: true })
   return dir
 }
 
@@ -159,13 +162,14 @@ export function abortAgentRuns(agentId: string, reason = 'Agent restart requeste
 }
 
 export function clearAgentSession(agent: AgentCredential, roomId?: string) {
-  const targets = roomId ? [join(workRoot(), agent.agentId, roomId)] : [join(workRoot(), agent.agentId)]
+  const targets = roomId ? [agentRoomWorkspace(agent, roomId)] : [join(agentRoomWorkspace(agent, '__room__'), '..')]
   for (const target of targets) {
     if (roomId) rmSync(join(target, '.freechat', 'claude-session.json'), { force: true })
     else {
       try {
-        const rooms = existsSync(target) ? readdirSync(target) : []
-        for (const room of rooms) rmSync(join(target, room, '.freechat', 'claude-session.json'), { force: true })
+        const roomsRoot = target
+        const rooms = existsSync(roomsRoot) ? readdirSync(roomsRoot) : []
+        for (const room of rooms) rmSync(join(roomsRoot, room, '.freechat', 'claude-session.json'), { force: true })
       } catch {}
     }
   }

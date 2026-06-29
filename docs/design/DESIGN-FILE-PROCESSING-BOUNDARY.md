@@ -32,9 +32,31 @@ Server must not:
 Agent Client handles content processing:
 
 1. Receive `file:<fileId>` or a room file path.
-2. Download the file through the authorized Server API: `./freechat file download file:<fileId> res/input.ext`.
+2. Download the file through the authorized Server API: `./freechat file download file:<fileId> res/downloads/input.ext`. If `localPath` is omitted, official CLI downloads into the current Agent/Room workspace under `res/downloads/`.
 3. Process the local file with local scripts, Skills, system tools or model capabilities.
-4. Write user-visible results back through Server APIs, for example `./freechat file upload res/result.md reports/result.md --show`, `./freechat file write-local reports/result.md res/result.md --show`, `./freechat tab create-local "Result Page" res/page.html`, or `./freechat chat send "Short conclusion..."`.
+4. Write user-visible results back through Server APIs, for example `./freechat file upload res/outputs/result.md reports/result.md --show`, `./freechat file write-local reports/result.md res/outputs/result.md --show`, `./freechat tab create-local "Result Page" res/outputs/page.html`, or `./freechat chat send "Short conclusion..."`.
+
+## Agent Client workspace isolation
+
+Official Agent Client keeps execution state isolated by Agent and Room:
+
+```text
+~/.freechat-agent-client/workspaces/agents/<agentId>/rooms/<roomId>/
+  .freechat/
+  CLAUDE.md
+  skills/
+  scripts/
+  res/downloads/
+  res/outputs/
+  workspace/
+```
+
+Rules:
+
+- Different Agents never share cwd, downloads, outputs, cache, or Claude session, even in the same room.
+- The same Agent in different rooms uses different cwd and session state.
+- If `agent.workdir` is configured, it is only a custom base root; the client still appends `agents/<agentId>/rooms/<roomId>/`.
+- `file.download`, `file.upload`, `file.write-local`, and local `workspace` commands must stay inside the current cwd.
 
 ## Two-machine constraints
 
@@ -75,9 +97,9 @@ If called, Server returns `CLIENT_FILE_PROCESSING_REQUIRED`.
 
 ## Recommended Agent workflows
 
-- Read Excel: download with `./freechat file download file:<fileId> res/input.xlsx`, extract locally with `python skills/excel-reader/scripts/extract_excel.py res/input.xlsx res/input.md`, then answer or upload outputs.
-- Generate a report: build `res/report.md` locally, then upload with `./freechat file upload res/report.md reports/report.md --show`.
-- Generate a page: build `res/page.html` locally, then publish with `./freechat tab create-local "Analysis Result" res/page.html`.
+- Read Excel: download with `./freechat file download file:<fileId> res/downloads/input.xlsx`, extract locally with `python skills/excel-reader/scripts/extract_excel.py res/downloads/input.xlsx res/outputs/input.md`, then answer or upload outputs.
+- Generate a report: build `res/outputs/report.md` locally, then upload with `./freechat file upload res/outputs/report.md reports/report.md --show`.
+- Generate a page: build `res/outputs/page.html` locally, then publish with `./freechat tab create-local "Analysis Result" res/outputs/page.html`.
 
 ## Platform-hosted Agent limitation
 

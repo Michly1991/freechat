@@ -178,14 +178,31 @@ function walkLocal(dir, prefix = '', out = []) {
   return out;
 }
 
+function safeDownloadName(input = 'download') {
+  const parts = String(input || 'download').replace(/\\/g, '/').split('/').filter(Boolean);
+  const last = parts[parts.length - 1] || 'download';
+  return last.replace(/[^\u4e00-\u9fa5a-zA-Z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'download';
+}
+
+function filenameFromDisposition(header = '') {
+  const utf = String(header).match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf) { try { return decodeURIComponent(utf[1]); } catch {} }
+  const quoted = String(header).match(/filename="?([^";]+)"?/i);
+  if (quoted) { try { return decodeURIComponent(quoted[1]); } catch { return quoted[1]; } }
+  return '';
+}
+
 async function downloadProjectFile(projectPath, localPath) {
   if (!projectPath) die('path is required');
-  const target = safeWorkspacePath(localPath || path.join('.freechat', 'files', projectPath));
-  fs.mkdirSync(path.dirname(target), { recursive: true });
   const key = String(projectPath).startsWith('file:') ? 'ref' : 'path';
   const url = API_URL + '/api/agent-files/' + ROOM_ID + '/download?' + key + '=' + encodeURIComponent(projectPath);
   const res = await fetch(url, { headers: { Authorization: 'Bearer ' + TOKEN } });
   if (!res.ok) die(await res.text());
+  const headerName = filenameFromDisposition(res.headers.get('content-disposition') || '');
+  const fallbackName = String(projectPath).startsWith('file:') ? String(projectPath).slice(5) : projectPath;
+  const defaultName = safeDownloadName(headerName || fallbackName);
+  const target = safeWorkspacePath(localPath || path.join('res', 'downloads', defaultName));
+  fs.mkdirSync(path.dirname(target), { recursive: true });
   const buf = Buffer.from(await res.arrayBuffer());
   fs.writeFileSync(target, buf);
   console.log(JSON.stringify({ path: projectPath, localPath: target, size: buf.length }, null, 2));

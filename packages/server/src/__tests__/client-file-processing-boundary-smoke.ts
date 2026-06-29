@@ -53,12 +53,13 @@ try {
   const runtime = await import('../services/agent-runtime-spec.service.js').then((m) => m.agentRuntimeSpecService.getSpec())
   assert.match(runtime.runtimeRules, /服务端只提供文件上传、下载、存储、权限和审计基础能力/)
   assert.match(runtime.runtimeRules, /file download file:<fileId>/)
+  assert.match(runtime.runtimeRules, /res\/downloads/)
 
   const skillRoot = join(temp, 'skills')
   const { agentPackageService } = await import('../services/agent-package.service.js')
   await agentPackageService.mountSystemSkills(skillRoot)
   const excelSkill = await readFile(join(skillRoot, 'excel-reader', 'SKILL.md'), 'utf8')
-  assert.match(excelSkill, /file download file:<fileId>/)
+  assert.match(excelSkill, /file download file:<fileId> res\/downloads\/<filename>/)
   assert.match(excelSkill, /服务端解析复杂文件/)
 
   console.log('client file processing boundary smoke passed')

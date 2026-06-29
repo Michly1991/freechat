@@ -12,7 +12,7 @@
     "check:claude": "node scripts/check-claude-env.mjs",
     "check:client": "node scripts/check-client.mjs",
     "check:routes": "node scripts/check-local-routes.mjs",
-    "test:smoke": "tsx src/__tests__/progress-output-guard-smoke.ts"
+    "test:smoke": "tsx src/__tests__/progress-output-guard-smoke.ts && tsx src/__tests__/workspace-isolation-smoke.ts"
   },
   "dependencies": {},
   "devDependencies": {

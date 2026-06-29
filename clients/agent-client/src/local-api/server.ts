@@ -2,7 +2,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'http'
 import { randomBytes, timingSafeEqual } from 'crypto'
 import { existsSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
-import { loadConfig, removeAgent, saveConfig, updateAgent, upsertAgent, workRoot } from '../config/store.js'
+import { loadConfig, removeAgent, saveConfig, updateAgent, upsertAgent } from '../config/store.js'
+import { agentKnowledgeDir, agentRoot } from '../config/workspace.js'
 import { pairAgent as pairAgentRemote } from '../connector/api.js'
 import { createPairingCode, createServerAgent, getServerMe, listManagedRooms, listServerAgents, loginServer, testServer, updateServerAgent } from '../connector/server-admin.js'
 import { healthSnapshot } from '../health/checks.js'
@@ -63,14 +64,14 @@ function summarizeStore(label: string, kind: string, path: string) {
 function agentKnowledgeSummary(agentId: string) {
   const cfg = loadConfig()
   const localAgent = cfg.agents.find((agent) => agent.agentId === agentId)
-  const base = localAgent?.workdir || join(workRoot(), agentId)
+  const base = localAgent ? agentRoot(localAgent) : agentRoot(agentId)
   return {
     agentId,
     localAgent: localAgent ? { agentId: localAgent.agentId, name: localAgent.name, enabled: localAgent.enabled, status: localAgent.status } : null,
     stores: [
-      summarizeStore('Agent 客户端知识库', 'knowledge', join(base, 'knowledge')),
+      summarizeStore('Agent 客户端知识库', 'knowledge', agentKnowledgeDir(localAgent || agentId)),
       summarizeStore('Agent 工作区', 'workspace', base),
-      summarizeStore('运行规范缓存', 'runtime', join(base, '.freechat')),
+      summarizeStore('运行规范缓存', 'runtime', join(base, 'rooms')),
     ],
   }
 }
