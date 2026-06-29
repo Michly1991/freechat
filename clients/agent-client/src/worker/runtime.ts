@@ -52,7 +52,10 @@ async function handleEvent(agent: AgentCredential, event: RemoteEvent) {
   try {
     await runActivity(cfg, agent, event.runId, `accepted by Agent Client ${cfg.clientName}`)
     const result = await executeEvent(cfg, agent, event)
-    await runComplete(cfg, agent, event.runId, { summary: result.response.slice(0, 500), output: result.response, usage: result.usage })
+    if (!result.response.trim() && event.payload?.responseMode === 'final_to_chat') {
+      await runActivity(cfg, agent, event.runId, 'completed with no final chat output after filtering intermediate-only stdout')
+    }
+    await runComplete(cfg, agent, event.runId, { summary: result.response.slice(0, 500), output: result.response, responseMode: event.payload?.responseMode, usage: result.usage })
     updateAgent(agent.agentId, { status: 'idle', lastSeenAt: Date.now() })
   } catch (err: any) {
     log(`Agent ${agent.agentId} run ${event.runId} failed: ${err?.message || err}`)

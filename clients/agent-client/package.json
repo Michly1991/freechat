@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "check:claude": "node scripts/check-claude-env.mjs",
     "check:client": "node scripts/check-client.mjs",
-    "check:routes": "node scripts/check-local-routes.mjs"
+    "check:routes": "node scripts/check-local-routes.mjs",
+    "test:smoke": "tsx src/__tests__/progress-output-guard-smoke.ts"
   },
   "dependencies": {},
   "devDependencies": {

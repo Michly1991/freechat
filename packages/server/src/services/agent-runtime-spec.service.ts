@@ -26,9 +26,9 @@ const RUNTIME_RULES = `# FreeChat Agent Runtime Spec
 - 禁止直接访问或修改 \`.freechat/workspace-data/rooms/<roomId>/files\`、\`../../files\` 或其他房间目录。
 - 文件和目录均绑定当前 \`roomId\`；不同房间文件互相不可见。
 - \`fileId\` 不是访问令牌；服务端必须按当前 \`roomId + fileId\` 校验后才允许下载、读取、promote 或搜索。
-- 对话附件使用稳定引用 \`file:<fileId>\`。文本用 \`file.read\`；PDF 用 \`pdf.read\`；Excel 用 \`excel.read/excel.write\`；Word 用 \`word.read/word.write\`；PPT 用 \`ppt.read/ppt.write\`；图片用 \`image.read\`。
-- 只有服务端暂不支持的二进制格式才下载到本地处理；下载时使用：\`./freechat file download file:<fileId>\`。
-- 处理完成后必须用 \`./freechat file upload\`、\`./freechat file write-local\` 或 \`./freechat file promote\` 写回当前房间。
+- 对话附件使用稳定引用 \`file:<fileId>\`。服务端只提供文件上传、下载、存储、权限和审计基础能力，不做 PDF/Excel/Word/PPT/图片解析或生成。
+- 读取/分析附件：文本小文件可用 \`file.read\`；PDF、Excel、Word、PPT、图片等复杂文件必须先执行 \`./freechat file download file:<fileId> [localPath]\` 下载到 Agent Client 本地，再用本地脚本、Skill 或系统工具处理。
+- 生成/修改复杂文件：Agent Client 在本地生成后，用 \`./freechat file upload <localPath> <projectPath> --show\` 或 \`./freechat file write-local <projectPath> <localPath> --show\` 写回当前房间。
 
 ## 交付物规则
 
@@ -85,7 +85,7 @@ class AgentRuntimeSpecService {
     })
     const cliWrapper = renderAgentCliWrapper()
     const apiDoc = renderAgentApiDoc()
-    const claudeMd = `# FreeChat Agent Client\n\n你运行在用户自己的 Agent Client 中。\n\n启动后必须阅读并遵守：\n\n- .freechat/RUNTIME.md：服务端统一运行规范和强制规则\n- .freechat/API.md：FreeChat CLI/API 使用说明\n\n关键要求：\n\n- 普通聊天/私聊：直接把最终回复输出到 stdout，Agent Client 会自动发回房间；不要再调用 ./freechat chat send，避免重复回复。\n- 需要读取/查询/写入文件或调用应用能力时，必须使用 ./freechat tool call <action> '<jsonArgs>' 或对应 CLI 命令；不要输出 <toolcall>...</toolcall>、接口 JSON、API 参数给用户。\n- 需要中途汇报、多条消息或执行工具时，才使用 ./freechat chat send <内容> 或 ./freechat tool <action> '<jsonArgs>'。\n- 用户可见文件必须通过 ./freechat file ... 写回当前房间，不能只留在本地 res/。\n- 对话附件优先使用 file:<fileId> 引用；PDF/Excel/Word/PPT/图片优先调用对应 App Tool（pdf/excel/word/ppt/image），不要未读就说看不到。\n- 如果需要把当前协调者转给房间内另一个 Agent，使用 ./freechat room handoff --agent <名称> --reason <原因>，不要普通聊天里假 @。\n`
+    const claudeMd = `# FreeChat Agent Client\n\n你运行在用户自己的 Agent Client 中。\n\n启动后必须阅读并遵守：\n\n- .freechat/RUNTIME.md：服务端统一运行规范和强制规则\n- .freechat/API.md：FreeChat CLI/API 使用说明\n\n关键要求：\n\n- 普通聊天/私聊：直接把最终回复输出到 stdout，Agent Client 会自动发回房间；不要再调用 ./freechat chat send，避免重复回复。\n- 需要读取/查询/写入文件或调用应用能力时，必须使用 ./freechat tool call <action> '<jsonArgs>' 或对应 CLI 命令；不要输出 <toolcall>...</toolcall>、接口 JSON、API 参数给用户。\n- 需要中途汇报、多条消息或执行工具时，才使用 ./freechat chat send <内容> 或 ./freechat tool <action> '<jsonArgs>'。\n- 用户可见文件必须通过 ./freechat file ... 写回当前房间，不能只留在本地 res/。\n- 对话附件优先使用 file:<fileId> 引用；文本小文件可用 ./freechat file read；PDF/Excel/Word/PPT/图片等复杂文件必须先用 ./freechat file download file:<fileId> 下载到 Agent Client 本地，再用本地脚本/Skill/工具处理；服务端不做文件解析或生成。\n- 如果需要把当前协调者转给房间内另一个 Agent，使用 ./freechat room handoff --agent <名称> --reason <原因>，不要普通聊天里假 @。\n`
     const material = JSON.stringify({ cliCjsTemplate, cliWrapper, claudeMd, apiDoc, runtimeRules: RUNTIME_RULES })
     const checksum = createHash('sha256').update(material).digest('hex')
     if (this.cached?.checksum === checksum) return this.cached

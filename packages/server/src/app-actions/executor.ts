@@ -5,11 +5,10 @@ import { agentService } from '../services/agent.service.js'
 import { agentCapabilityService } from '../services/agent-capability.service.js'
 import { agentModelConfigService } from '../services/agent-model-config.service.js'
 import { assertActorCanUseAgentInRoom } from '../routes/agent-tools.helpers.js'
-import { getAppAction, listAppActions } from './registry.js'
+import { listAppActions } from './registry.js'
 import { roomFileService } from '../services/room-file.service.js'
 import { config } from '../config.js'
 import { assertRoomMember } from '../utils/room-authz.js'
-import { officeDocumentService } from '../services/office-document.service.js'
 import { mindmapArtifactService } from '../services/mindmap-artifact.service.js'
 import { runRegisteredAppAction } from './registry.js'
 import type { ToolExecutionContext } from './types.js'
@@ -152,29 +151,19 @@ export async function executeAppAction(ctx: AppActionContext, action: string, ar
     case 'pdf.read':
     case 'excel.read':
     case 'word.read':
-    case 'ppt.read': {
-      const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
-      assertRoomMember(scopeRoomId, ctx.actorUserId)
-      const ref = String(args.ref || args.fileId || args.id || args.path || '')
-      if (!ref) throw { code: 'VALIDATION_ERROR', message: 'file ref/path is required' }
-      const kind = action.split('.')[0] as any
-      return { handled: true, response: { success: true, data: await officeDocumentService.read(kind, scopeRoomId, ref, args) } }
-    }
+    case 'ppt.read':
+    case 'image.read':
+      throw {
+        code: 'CLIENT_FILE_PROCESSING_REQUIRED',
+        message: '服务端不做 PDF/Excel/Word/PPT/图片解析。Agent Client 必须先执行 ./freechat file download file:<fileId> 下载到本地，再用本地脚本/工具处理。服务端只提供文件上传、下载、存储、权限和审计基础能力。',
+      }
     case 'excel.write':
     case 'word.write':
-    case 'ppt.write': {
-      const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
-      assertRoomMember(scopeRoomId, ctx.actorUserId)
-      const kind = action.split('.')[0] as any
-      return { handled: true, response: { success: true, data: await officeDocumentService.write(kind, scopeRoomId, ctx.actorUserId, args) } }
-    }
-    case 'image.read': {
-      const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
-      assertRoomMember(scopeRoomId, ctx.actorUserId)
-      const ref = String(args.ref || args.fileId || args.id || args.path || '')
-      if (!ref) throw { code: 'VALIDATION_ERROR', message: 'file ref/path is required' }
-      return { handled: true, response: { success: true, data: await officeDocumentService.readImage(scopeRoomId, ctx.agentId, ctx.actorUserId, ref, args) } }
-    }
+    case 'ppt.write':
+      throw {
+        code: 'CLIENT_FILE_PROCESSING_REQUIRED',
+        message: '服务端不生成 Office 文件。Agent Client 请在本地生成文件后，用 ./freechat file upload <localPath> <projectPath> --show 或 ./freechat file write-local 写回当前房间。',
+      }
     case 'mindmap.create': {
       const scopeRoomId = String(args.roomId || ctx.scopeRoomId || ctx.roomId)
       assertRoomMember(scopeRoomId, ctx.actorUserId)

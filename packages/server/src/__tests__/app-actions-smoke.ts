@@ -54,6 +54,14 @@ try {
   assert.equal(updatedKnowledge.handled, true)
   assert.ok(updatedKnowledge.response?.data?.file?.id)
 
+  await assert.rejects(
+    executeAppAction(ctx, 'excel.read', { ref: 'file:any' }),
+    (err: any) => err?.code === 'CLIENT_FILE_PROCESSING_REQUIRED'
+  )
+  const excelSchema = await executeAppAction(ctx, 'tool.schema', { action: 'excel.read' })
+  assert.equal(excelSchema.response?.data?.tool?.risk, 'blocked')
+  assert.match(excelSchema.response?.data?.tool?.description || '', /file\.download|本地/)
+
   const inline = await executeInlineToolCalls('room', created.agent.id, 'owner', '<toolcall>{"name":"app.call","args":{"action":"agent.knowledge.search","args":{"agent":"私人顾问","query":"owner"}}}</toolcall>')
   assert.match(inline || '', /owner|results|agent/)
 

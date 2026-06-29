@@ -426,7 +426,7 @@ pnpm build
 ```json
 {
   "scripts": {
-    "test:smoke": "tsx src/__tests__/app-actions-smoke.ts && tsx src/__tests__/remote-app-call-smoke.ts && tsx src/__tests__/inline-tools-dispatch-smoke.ts && tsx src/__tests__/inline-tool-markup-guard-smoke.ts && tsx src/__tests__/knowledge-runtime-smoke.ts && tsx src/__tests__/office-skills-smoke.ts && tsx src/__tests__/mindmap-skill-smoke.ts"
+    "test:smoke": "tsx src/__tests__/app-actions-smoke.ts && tsx src/__tests__/remote-app-call-smoke.ts && tsx src/__tests__/inline-tools-dispatch-smoke.ts && tsx src/__tests__/inline-tool-markup-guard-smoke.ts && tsx src/__tests__/knowledge-runtime-smoke.ts && tsx src/__tests__/client-file-processing-boundary-smoke.ts && tsx src/__tests__/mindmap-skill-smoke.ts"
   }
 }
 ```
@@ -444,7 +444,7 @@ pnpm build
 7. `file.delete` / `members.add`：非 owner/editor 拒绝。
 8. `dangerous/blocked` action：直接调用拒绝。
 9. 工具失败：`agent_tool_calls` 记录错误码和耗时。
-10. formatter：文件/Office/脑图结果不会把超大 JSON 原样传回模型。
+10. formatter：文件/脑图结果不会把超大 JSON 原样传回模型；复杂 Office/PDF/图片文件不在服务端解析，必须走 Client 下载本地处理边界。
 
 ## 风险与缓解
 
@@ -462,7 +462,7 @@ pnpm build
 1. 先实现 ToolRouter 壳，不搬 handler，只统一 context/action/error。
 2. 把 `app.call/tool.call/tool.list/tool.schema` 迁到 Router，确保发现和代理入口稳定。
 3. 把风险 gate 接入，但第一阶段对现有 sensitive action 只做与现有规则等价的校验，不突然扩大拒绝范围。
-4. 迁移知识库、账单、Office、脑图这些近期新增能力，因为它们 handler 相对集中、测试已有。
+4. 迁移知识库、账单、脑图等近期新增能力；文件相关能力只保留服务端基础上传/下载/文本读取，Office/PDF/图片解析生成不进入服务端 handler。
 5. 最后拆 `agent-tools.app-ui.ts` 和 `agent.service.ts` 的长期大文件。
 
 ## 与既有文档关系

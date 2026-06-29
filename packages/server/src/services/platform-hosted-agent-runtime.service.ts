@@ -23,7 +23,7 @@ function toolHelp(roomId: string, agentId: string, actorUserId?: string) {
         'Body: {"action":"app.call|chat.send|task.list|file.read|file.info|tab.list|members.list|agent.my-list|agent.detail|agent.knowledge.search|billing.summary|...","args":{...}}',
     '界面功能代操作优先用 app.call：{"action":"app.call","args":{"action":"agent.detail","args":{"agent":"张小猫"}}}。可先用 tool.list/tool.schema 查看能力。',
     '用户问“我有哪些 Agent/我的 Agent/通讯录 Agent”时用 agent.my-list；问“当前房间还能添加哪些 Agent”时用 agent.list-available。',
-    '用户消息里出现 file:<fileId> 或附件提示时，必须先按文件类型调用对应能力：PDF 用 pdf.read；Excel 用 excel.read/excel.write；Word 用 word.read/word.write；PPT 用 ppt.read/ppt.write；图片用 image.read；普通文本用 file.read。不要在未读文件前说看不到附件。',
+    '用户消息里出现 file:<fileId> 或附件提示时：服务端只做文件上传/下载/存储/权限/审计，不解析或生成 PDF/Excel/Word/PPT/图片。远程 Agent Client 应先 file.download 到本地处理；平台托管 Agent 没有客户端本地处理能力，只能提示用户使用可下载文件或改由远程 Agent Client 处理。普通文本小文件可用 file.read。',
     '危险操作必须先创建确认卡或获得明确确认；不要绕过当前用户权限。',
   ].join('\n')
 }
@@ -39,11 +39,6 @@ function fallbackReply() {
 
 function actionForAttachment(input: string) {
   const type = String(input || '').toLowerCase()
-  if (/spreadsheet|excel|xlsx|xlsm|\.xlsx|\.xlsm/.test(type)) return 'excel.read'
-  if (/pdf|\.pdf/.test(type)) return 'pdf.read'
-  if (/word|document|docx|\.docx/.test(type)) return 'word.read'
-  if (/presentation|powerpoint|pptx|\.pptx/.test(type)) return 'ppt.read'
-  if (/image\/|\.png|\.jpe?g|\.webp|\.gif/.test(type)) return 'image.read'
   if (/text\/|\.txt|\.md|\.csv|\.json|\.log|\.ya?ml/.test(type)) return 'file.read'
   return ''
 }
@@ -81,22 +76,11 @@ function formatAutoToolResult(action: string, response: any) {
     return `工具 ${action} 执行失败：${message}`
   }
   const data = response?.data || response
-  if (['pdf.read', 'excel.read', 'word.read', 'ppt.read'].includes(action)) {
-    const file = data?.file
-    const body = data?.csv || data?.text || JSON.stringify(data?.rows || data?.slides || data, null, 2)
-    const header = file ? `文件：${file.name || file.path}（${file.ref || file.path}）` : `工具结果：${action}`
-    const tail = data?.truncated ? `\n\n[内容已截断，totalChars=${data.totalChars}]` : ''
-    return `${header}\n${String(body || '')}${tail}`.slice(0, 12000)
-  }
   if (action === 'file.read') {
     const file = data?.file
     const header = file ? `文件：${file.name || file.path}（${file.ref || file.path}）` : '文件内容：'
     const tail = data?.truncated ? `\n\n[内容已截断，totalChars=${data.totalChars}]` : ''
     return `${header}\n${String(data?.content || '')}${tail}`.slice(0, 12000)
-  }
-  if (action === 'image.read') {
-    const file = data?.file
-    return [`图片：${file?.name || file?.path || ''}`, data?.text || ''].filter(Boolean).join('\n').slice(0, 12000)
   }
   return JSON.stringify(data, null, 2).slice(0, 12000)
 }
@@ -131,7 +115,7 @@ export class PlatformHostedAgentRuntimeService {
       const system = [
         cfg.systemPrompt || '',
         toolHelp(event.roomId, auth.agentId, event.payload?.actorUserId || event.payload?.metadata?.actorUserId),
-        '如果需要调用 App Tool，请只输出 <toolcall>{"name":"工具名","args":{...}}</toolcall>，不要在同一条回复里夹带给用户看的说明文字；系统执行工具后会把工具结果再交给你组织最终回复。创建 Agent 必须使用 agent.create 或 agent.create_request，系统会生成确认卡；查询 Agent 详情可用 agent.detail；读取附件/房间文件请按类型使用工具：文本 file.read、PDF pdf.read、Excel excel.read/excel.write、Word word.read/word.write、PPT ppt.read/ppt.write、图片 image.read；用户要求脑图/思维导图/XMind 风格结构图时使用 mindmap.create 先生成聊天内嵌预览，用户确认保存后再 mindmap.save，例如 {"name":"mindmap.create","args":{"title":"主题","outline":"# 主题\n- 分支"}}；代替界面操作优先用 app.call，例如 {"name":"app.call","args":{"action":"billing.summary","args":{"range":"this_month"}}}；不要只用 JSON 说明接口失败。',
+        '如果需要调用 App Tool，请只输出 <toolcall>{"name":"工具名","args":{...}}</toolcall>，不要在同一条回复里夹带给用户看的说明文字；系统执行工具后会把工具结果再交给你组织最终回复。创建 Agent 必须使用 agent.create 或 agent.create_request，系统会生成确认卡；查询 Agent 详情可用 agent.detail；读取文本小文件可用 file.read；PDF/Excel/Word/PPT/图片等复杂文件不能用服务端解析工具，远程 Agent Client 必须先 file.download 到本地处理，平台托管 Agent 没有本地处理能力时应说明限制并请用户换远程 Agent Client 或提供文本内容；用户要求脑图/思维导图/XMind 风格结构图时使用 mindmap.create 先生成聊天内嵌预览，用户确认保存后再 mindmap.save，例如 {"name":"mindmap.create","args":{"title":"主题","outline":"# 主题\n- 分支"}}；代替界面操作优先用 app.call，例如 {"name":"app.call","args":{"action":"billing.summary","args":{"range":"this_month"}}}；不要只用 JSON 说明接口失败。',
       ].filter(Boolean).join('\n\n')
       const prompt = [memoryContext, knowledgeContext, context ? `最近对话：\n${context}` : '', `本次请求：\n${trimPrompt(event.payload?.input || '')}`].filter(Boolean).join('\n\n')
       let output = ''

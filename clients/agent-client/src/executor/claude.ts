@@ -9,7 +9,7 @@ function containsToolMarkup(text: string) {
   return /<\|FunctionCallBegin\|>[\s\S]*?<\|FunctionCallEnd\|>/i.test(String(text || '')) || /<toolcall>[\s\S]*?(?:<\/toolcall>|$)/i.test(String(text || ''))
 }
 
-function stripToolMarkup(text: string) {
+export function stripToolMarkup(text: string) {
   return String(text || '')
     .replace(/<\|FunctionCallBegin\|>[\s\S]*?<\|FunctionCallEnd\|>/gi, '')
     .replace(/<toolcall>[\s\S]*?(?:<\/toolcall>|$)/gi, '')
@@ -291,22 +291,40 @@ export async function runClaude(prompt: string, cwd: string, runKeyOrOptions?: s
   }
 }
 
-function isLikelyIntermediateProgress(text: string): boolean {
+export function isLikelyIntermediateProgress(text: string): boolean {
   const content = String(text || '').trim()
   if (!content) return false
-  return /(?:让我|我先|我需要先|接下来|现在我|稍等|请稍等|我来|我会|正在|我将)(?:先)?(?:查看|查询|了解|检查|分析|执行|调用|处理|确认)/.test(content)
-    || /(?:让我|我先).{0,20}(?:执行|查询|查看|了解)/.test(content)
+  const normalized = content.replace(/\s+/g, '')
+  const progressLead = /(?:让我|我先|我需要先|接下来|现在我|稍等|请稍等|我来|我会|正在|我将|马上|这就|现在就|先)(?:先)?(?:查看|查询|了解|检查|分析|执行|调用|处理|确认|读取|下载|整理|生成|创建|保存|转换)/
+  const casualProgress = /(?:再|重新|继续|仔细).{0,20}(?:看|查看|查询|读取|下载|分析|整理|生成|处理|创建|保存)(?:一下|下|一下子)?/
+  const foundThenAction = /(?:找到|看到了?|定位到).{0,40}(?:现在|马上|接下来|这就|继续).{0,20}(?:读取|下载|分析|整理|生成|处理|创建|保存)/
+  const planOnly = /(?:我(?:会|将)|接下来|下一步).{0,40}(?:读取|下载|分析|整理|生成|处理|创建|保存)/
+  const noResultYet = /(?:先|正在|马上|这就|稍等).{0,40}(?:读取|下载|分析|整理|生成|处理|创建|保存)/
+  return progressLead.test(content)
+    || /(?:让我|我先).{0,20}(?:执行|查询|查看|了解|读取|下载|分析|整理|生成)/.test(content)
+    || casualProgress.test(content)
+    || foundThenAction.test(content)
+    || planOnly.test(content)
+    || noResultYet.test(content)
+    || /(?:现在就|马上|这就)(?:读取|下载|分析|整理|生成|处理|创建|保存)/.test(normalized)
 }
 
 function hasToolUse(response: string): boolean {
   return /^\s*\{\s*"success"\s*:/i.test(String(response || '')) || containsToolMarkup(response)
 }
 
-function shouldAutoSendFinal(responseMode: string, event: RemoteEvent, trimmed: string) {
+export function shouldAutoSendFinal(responseMode: string, event: RemoteEvent, trimmed: string) {
   if (responseMode !== 'final_to_chat' || !trimmed || hasToolUse(trimmed)) return false
   const toolCapableSources = new Set(['handoff', 'task', 'subtask', 'task_plan', 'auto', 'agent.mentioned'])
   if (!toolCapableSources.has(String(event.payload.runSource || event.type))) return true
   return !isLikelyIntermediateProgress(trimmed)
+}
+
+export function finalOutputForCompletion(responseMode: string, event: RemoteEvent, output: string) {
+  const trimmed = stripToolMarkup(output).trim()
+  if (containsToolMarkup(output)) return trimmed
+  if (responseMode === 'final_to_chat' && trimmed && isLikelyIntermediateProgress(trimmed)) return ''
+  return output
 }
 
 export async function executeEvent(cfg: ClientConfig, agent: AgentCredential, event: RemoteEvent) {
@@ -319,8 +337,8 @@ export async function executeEvent(cfg: ClientConfig, agent: AgentCredential, ev
   writeRunContext(cfg, agent, event, cwd, spec, knowledge)
   const responseMode = event.payload.responseMode || (event.type === 'agent.mentioned' ? 'final_to_chat' : 'tool_only')
   const mustUseTool = responseMode === 'final_to_chat'
-    ? '本次为最终回复模式：如果你调用了 ./freechat chat send 或 ./freechat room handoff 等会产生用户可见消息/转接的工具，工具成功后最终 stdout 只输出一个简短结果摘要，不要重复输出已经通过工具发送的完整内容。'
-    : '本次为工具模式：请优先使用 ./freechat 工具完成动作，stdout 只输出简短摘要。'
+    ? '本次为最终回复模式：如果你调用了 ./freechat chat send、./freechat file download、./freechat file upload、./freechat room handoff 等工具，必须继续完成用户请求；工具成功后最终 stdout 只输出真实最终结论，不要只输出“我先读取/我正在处理/马上整理”这类中间进度，也不要重复输出已经通过工具发送的完整内容。复杂文件必须先 ./freechat file download 到本地再处理，服务端不解析 PDF/Excel/Word/PPT/图片。'
+    : '本次为工具模式：请优先使用 ./freechat 工具完成动作，stdout 只输出简短摘要；不要只输出中间进度。'
   const contextBrief = event.payload.context?.promptText
     ? `服务端结构化上下文已写入 .freechat/CONTEXT.md。以下是摘要，处理“刚才/上面/那个文件/那个脑图”等指代时必须优先参考：\n${event.payload.context.promptText}`
     : ''
@@ -329,7 +347,11 @@ export async function executeEvent(cfg: ClientConfig, agent: AgentCredential, ev
     await runActivity(cfg, agent, event.runId, 'Claude context exceeded; cleared saved session and retried without --resume').catch(() => undefined)
   }
   const trimmed = stripToolMarkup(result.response).trim()
-  if (containsToolMarkup(result.response)) result.response = trimmed
+  const completionOutput = finalOutputForCompletion(responseMode, event, result.response)
+  result.response = completionOutput
+  if (trimmed && completionOutput === '') {
+    await runActivity(cfg, agent, event.runId, `ignored intermediate-only stdout: ${trimmed.slice(0, 160)}`).catch(() => undefined)
+  }
   if (shouldAutoSendFinal(responseMode, event, trimmed)) await agentTool(cfg, agent, event.roomId, 'chat.send', { content: trimmed })
   return result
 }

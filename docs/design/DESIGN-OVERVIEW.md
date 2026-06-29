@@ -455,6 +455,7 @@ DELETE /api/rooms/:roomId/agents/:id    // 移除
 | `DESIGN-REMOTE-AGENT-CONNECTOR.md` | 远程 Claude Code Agent 连接器 |
 | `DESIGN-MEMBER-PROFILES.md` | 成员角色系统 |
 | `DESIGN-AGENT-TOOL-ROUTER.md` | Agent/App Tool 统一执行路由、权限风险 gate、审计与迁移方案 |
+| `DESIGN-FILE-PROCESSING-BOUNDARY.md` | Server/Agent Client 两机部署下的文件上传下载与客户端本地处理边界 |
 
 ---
 
