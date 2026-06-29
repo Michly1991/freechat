@@ -18,7 +18,7 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 }
 
 function PageFallback() {
-  return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-sm text-gray-500">加载中...</div>
+  return <div className="fc-app-viewport bg-gray-50 flex items-center justify-center text-sm text-gray-500">加载中...</div>
 }
 
 export default function App() {

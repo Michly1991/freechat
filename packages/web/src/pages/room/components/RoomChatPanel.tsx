@@ -156,7 +156,7 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
 
   return (
     <div className="h-full flex flex-col">
-      <div ref={messagesScrollRef} onScroll={onMessagesScroll} className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 sm:py-4 space-y-3 relative bg-gradient-to-b from-gray-50/70 to-white sm:bg-none">
+      <div ref={messagesScrollRef} onScroll={onMessagesScroll} className="fc-scroll-container flex-1 px-3 sm:px-4 py-3 sm:py-4 space-y-3 relative bg-gradient-to-b from-gray-50/70 to-white sm:bg-none">
         <div className="text-center text-xs text-gray-400 min-h-5">
           {loadingOlderMessages ? '正在加载更早消息...' : hasMoreMessages ? '上滑加载更早消息' : (messages.length > 0 ? '没有更早消息了' : '')}
         </div>
@@ -243,7 +243,7 @@ export function RoomChatPanel(props: RoomChatPanelProps) {
       )}
       <input ref={attachmentInputRef} type="file" multiple className="hidden" onChange={handleAttachmentChange} />
       <form onSubmit={sendMessage} className="fc-mobile-glass p-3 sm:p-4 bg-white border-t border-gray-200 shrink-0 relative safe-area-inset-bottom">
-        {showMentionPopup && (filteredMembers.length > 0 || filteredAgents.length > 0 || filteredFiles.length > 0) && <div className="fc-sheet-pop absolute bottom-full left-3 right-3 sm:left-4 sm:right-4 bg-white border border-gray-200 rounded-2xl shadow-xl max-h-[45vh] sm:max-h-72 overflow-y-auto z-10 mb-2">
+        {showMentionPopup && (filteredMembers.length > 0 || filteredAgents.length > 0 || filteredFiles.length > 0) && <div className="fc-sheet-pop fc-scroll-container absolute bottom-full left-3 right-3 sm:left-4 sm:right-4 bg-white border border-gray-200 rounded-2xl shadow-xl max-h-[45vh] sm:max-h-72 z-10 mb-2">
           {filteredMembers.length > 0 && <><div className="px-3 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">成员</div>{filteredMembers.map((m) => <div key={m.id || m.userId} className="px-3 py-2.5 min-h-11 hover:bg-blue-50 cursor-pointer text-sm flex items-center gap-2" onClick={() => insertMention(m, 'member')}>{renderAvatar(getMemberDisplayName(m), getMemberAvatar(m), 'w-6 h-6')}<span className="flex-1">{getMemberDisplayName(m)}</span></div>)}</>}
           {filteredAgents.length > 0 && <><div className="px-3 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">AI Agents</div>{filteredAgents.map((a) => <div key={a.id} className="px-3 py-2.5 min-h-11 hover:bg-blue-50 cursor-pointer text-sm flex items-center gap-2" onClick={() => insertMention(a, 'agent')}>{renderAgentAvatar(a, 'w-6 h-6', 'w-4 h-4')}<span className="flex-1">{a.name}</span><span className="text-xs text-gray-400">{getAgentStatusLabel(a)}</span></div>)}</>}
           {filteredFiles.length > 0 && <><div className="px-3 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">文件</div>{filteredFiles.map((f) => <div key={f.path} className="px-3 py-2.5 min-h-11 hover:bg-blue-50 cursor-pointer text-sm flex items-center gap-2" onClick={() => insertMention(f, 'file')}><FileText className="w-5 h-5 text-gray-400" /><span className="flex-1 truncate">{f.name}</span><span className="text-xs text-gray-400 truncate max-w-[45%]">{f.path}</span></div>)}</>}

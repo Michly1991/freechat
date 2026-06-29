@@ -116,7 +116,7 @@ export default function RoomSettingsPage() {
   )
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="fc-app-viewport bg-gray-50">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3"><button onClick={() => navigate(`/room/${roomId}`)} className="text-gray-500 hover:text-gray-700">← 返回房间</button><h1 className="font-semibold text-gray-800">房间设置</h1></div>
         <div className="max-w-4xl mx-auto px-4 pb-3 overflow-x-auto"><div className="flex gap-2 min-w-max">{tabs.map((tab) => <TabButton key={tab.id} active={activeTab === tab.id} icon={tab.icon} label={tab.label} onClick={() => setActiveTab(tab.id)} />)}</div></div>

@@ -117,7 +117,7 @@ export default function DmPage() {
   const otherName = other?.nickname || other?.username || '单聊'
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
+    <div className="fc-page-viewport flex flex-col overflow-hidden bg-gray-50">
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3 shrink-0">
         <button onClick={() => navigate('/')} className="text-gray-500 hover:text-gray-700">← 返回</button>
         {other && <Avatar name={otherName} avatar={other.avatar} size="w-9 h-9" />}
@@ -127,7 +127,7 @@ export default function DmPage() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <main className="fc-scroll-container flex-1 px-4 py-4 space-y-3">
         {messages.map((msg) => {
           const isOwn = msg.actorId === user?.id
           const name = isOwn ? '我' : otherName
@@ -137,7 +137,7 @@ export default function DmPage() {
               {!isOwn && <Avatar name={name} avatar={avatar} size="w-10 h-10 sm:w-12 sm:h-12" />}
               <div className={`max-w-[78%] sm:max-w-[80%] rounded-xl px-3 sm:px-4 py-2 ${isOwn ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-800'}`}>
                 <div className={`text-xs mb-1 ${isOwn ? 'text-blue-200' : 'text-gray-400'}`}>{name}</div>
-                <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                <p className="fc-break-anywhere text-sm whitespace-pre-wrap">{msg.content}</p>
               </div>
               {isOwn && <Avatar name={name} avatar={avatar} size="w-10 h-10 sm:w-12 sm:h-12" />}
             </div>
@@ -146,7 +146,7 @@ export default function DmPage() {
         <div ref={bottomRef} />
       </main>
 
-      <form onSubmit={sendMessage} className="p-4 bg-white border-t border-gray-200 shrink-0 flex gap-2">
+      <form onSubmit={sendMessage} className="safe-area-inset-bottom shrink-0 border-t border-gray-200 bg-white p-4 flex gap-2">
         <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="输入消息..." className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
         <button disabled={sending} className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-60">发送</button>
       </form>

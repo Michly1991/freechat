@@ -333,7 +333,7 @@ export function RoomPageImpl() {
     />
   )
   return (
-    <div className="h-screen flex flex-col bg-gray-50 relative">
+    <div className="fc-page-viewport flex flex-col overflow-hidden bg-gray-50 relative">
       <RoomHeader
         room={room}
         members={members}

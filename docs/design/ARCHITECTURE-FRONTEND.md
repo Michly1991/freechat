@@ -14,6 +14,16 @@
 
 后续如果继续增长，可在保持 `api` 聚合导出的前提下，把 Rooms、Agents、Billing 等方法拆成 `api-*.ts`，最后由 `api.ts` 组合导出。权限判断仍以后端为准，前端 API 层不做安全边界。
 
+### 移动端视口和缩放策略
+
+FreeChat 前端优先避免“误缩放”和布局跳动，而不是默认禁止用户手动缩放：
+
+- `index.html` 的 viewport 使用 `viewport-fit=cover` 和 `interactive-widget=resizes-content`，适配刘海屏安全区与移动端虚拟键盘。
+- 默认不设置 `user-scalable=no` / `maximum-scale=1`，避免破坏无障碍缩放；如果后续明确要 App 化固定比例，再作为单独产品决策。
+- 全局 CSS 固定 `text-size-adjust: 100%`，移动端 `input/textarea/select` 保持 16px，减少 iOS/微信 WebView 聚焦输入框自动放大。
+- 页面根容器提供 `fc-app-viewport` / `fc-page-viewport`，优先使用 `100dvh`，避免手机地址栏收起/展开时 `100vh` 抖动。
+- 全局禁横向溢出；聊天、弹层等内部滚动区域使用 `fc-scroll-container`，减少滚动穿透和页面回弹。
+
 ## 页面设计
 
 ### 路由表

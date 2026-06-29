@@ -100,7 +100,7 @@ export default function AgentSettingsPage() {
   }, [activeTab, form, skills, editingSkillId, skillForm, knowledge, agent, canEdit, isNew])
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="fc-app-viewport bg-gray-50">
       <header className="sticky top-0 z-30 border-b border-gray-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-3 py-3 sm:px-4">
           <button onClick={() => navigate(-1)} className="fc-pressable flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200" title="返回"><ArrowLeft className="h-5 w-5" /></button>
