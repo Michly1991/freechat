@@ -36,6 +36,13 @@ try {
   const listed = await executeRemoteAppCall(auth, { roomId: 'room', runId: 'run', action: 'app.call', args: { action: 'billing.account', args: {} } })
   assert.equal(listed.success, true)
   assert.ok(listed.data.account)
+  const registeredToolCall = db.prepare('SELECT tool_name, status, run_id FROM agent_tool_calls WHERE room_id = ? AND tool_name = ?').get('room', 'app.call') as any
+  assert.equal(registeredToolCall?.status, 'succeeded')
+  assert.equal(registeredToolCall?.run_id, 'run')
+
+  const directBilling = await executeRemoteAppCall(auth, { roomId: 'room', runId: 'run', action: 'billing.summary', args: { range: 'today' } })
+  assert.equal(directBilling.success, true)
+  assert.ok(directBilling.data.account)
 
   const sent = await executeRemoteAppCall(auth, { roomId: 'room', runId: 'run', action: 'chat.send', args: { content: 'HTTP 接入正常' } })
   assert.equal(sent.success, true)

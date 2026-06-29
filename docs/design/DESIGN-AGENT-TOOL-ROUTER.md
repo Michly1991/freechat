@@ -364,15 +364,20 @@ app-actions/risk-policy.ts
 
 ### Phase 2：迁移 registry + executor
 
-把 `executeAppAction` 中已稳定的 action 按领域拆到 handlers：
+当前进度：
 
-优先迁移：
+- 已将 `AppActionMeta` 扩展为可挂载 `handler` 的定义项。
+- 已新增 `runRegisteredAppAction(ctx, args)`，Router 会在旧 `executeLocalAgentTool` 分发前优先尝试 registry handler。
+- 已迁移第一批稳定 action：`tool.schema` / `tool.help`、`app.call` / `tool.call`、`billing.*`、`model.profile.list`。
+- 已迁移第二批知识库 action：`agent.knowledge.list/search/read/upsert/delete/reindex`。
+- 旧 `executeAppAction` 仍保留为兼容层，先调用 registry handler，再 fallback 到未迁移的 legacy switch。
 
-1. `tool.*` / `app.call`。
-2. `billing.*` / `model.profile.list`。
-3. `agent.knowledge.*`。
-4. `file.read/info/list` 和 Office read/write。
-5. `mindmap.*`。
+继续把 `executeAppAction` 中已稳定的 action 按领域拆到 handlers：
+
+后续优先迁移：
+
+1. `file.read/info/list` 和 Office read/write。
+2. `mindmap.*`.
 
 每迁移一组都补 smoke。
 

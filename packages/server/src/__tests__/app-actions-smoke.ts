@@ -46,6 +46,14 @@ try {
   assert.equal(knowledge.handled, true)
   assert.ok(knowledge.response?.data?.results?.length >= 1)
 
+  const knowledgeRead = await executeAppAction(ctx, 'agent.knowledge.read', { agent: '小蜜', ref: '说明.md' })
+  assert.equal(knowledgeRead.handled, true)
+  assert.match(knowledgeRead.response?.data?.file?.content || '', /账单/)
+
+  const updatedKnowledge = await executeAppAction(ctx, 'agent.knowledge.upsert', { agent: '私人顾问', path: '更新.md', name: '更新.md', content: 'registry handler 写入验证。' })
+  assert.equal(updatedKnowledge.handled, true)
+  assert.ok(updatedKnowledge.response?.data?.file?.id)
+
   const inline = await executeInlineToolCalls('room', created.agent.id, 'owner', '<toolcall>{"name":"app.call","args":{"action":"agent.knowledge.search","args":{"agent":"私人顾问","query":"owner"}}}</toolcall>')
   assert.match(inline || '', /owner|results|agent/)
 

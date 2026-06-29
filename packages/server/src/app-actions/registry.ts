@@ -1,3 +1,8 @@
+import type { ToolExecutionContext, ToolHandler } from './types.js'
+import { handleBillingModelAction } from './handlers/billing-model.handlers.js'
+import { handleSystemAction } from './handlers/system.handlers.js'
+import { handleKnowledgeAction } from './handlers/knowledge.handlers.js'
+
 export type AppActionRisk = 'read' | 'normal_write' | 'sensitive_write' | 'dangerous' | 'blocked'
 
 export interface AppActionMeta {
@@ -9,12 +14,13 @@ export interface AppActionMeta {
   args?: Record<string, string>
   aliases?: string[]
   ui?: string
+  handler?: ToolHandler
 }
 
 export const APP_ACTIONS: AppActionMeta[] = [
   { action: 'tool.list', title: '查看工具清单', category: 'system', risk: 'read', description: '列出小蜜/Agent 当前可用的界面功能工具。' },
-  { action: 'tool.schema', title: '查看工具说明', category: 'system', risk: 'read', description: '查看单个工具的参数、风险等级与界面来源。', args: { action: '工具名' }, aliases: ['tool.help'] },
-  { action: 'app.call', title: '调用界面功能', category: 'system', risk: 'normal_write', description: '按 action + args 调用已登记的界面功能工具。', args: { action: '目标工具名', args: 'JSON 参数' } },
+  { action: 'tool.schema', title: '查看工具说明', category: 'system', risk: 'read', description: '查看单个工具的参数、风险等级与界面来源。', args: { action: '工具名' }, aliases: ['tool.help'], handler: handleSystemAction },
+  { action: 'app.call', title: '调用界面功能', category: 'system', risk: 'normal_write', description: '按 action + args 调用已登记的界面功能工具。', args: { action: '目标工具名', args: 'JSON 参数' }, handler: handleSystemAction },
   { action: 'chat.list', title: '查看最近消息', category: 'chat', risk: 'read', description: '读取当前房间最近消息。', args: { limit: '数量' }, ui: '房间聊天' },
   { action: 'chat.send', title: '发送房间消息', category: 'chat', risk: 'normal_write', description: '以当前 Agent 发送房间消息。', args: { content: '消息内容' }, ui: '房间聊天' },
   { action: 'agent.my-list', title: '我的 Agent', category: 'agent', risk: 'read', description: '列出当前用户通讯录/市场可见 Agent。', ui: '通讯录 Agent' },
@@ -31,16 +37,16 @@ export const APP_ACTIONS: AppActionMeta[] = [
   { action: 'agent.create-request', title: '创建 Agent 确认卡', category: 'agent', risk: 'normal_write', description: '生成创建 Agent 的确认卡，确认后创建。', ui: '小蜜创建 Agent' },
   { action: 'agent.skill.list', title: 'Agent Skill 列表', category: 'agent', risk: 'read', description: '查看 Agent Skill。', ui: 'Agent 能力' },
   { action: 'agent.script.list', title: 'Agent Script 列表', category: 'agent', risk: 'read', description: '查看 Agent Script。', ui: 'Agent 能力' },
-  { action: 'agent.knowledge.list', title: 'Agent 知识库列表', category: 'knowledge', risk: 'read', description: '列出有权限访问的 Agent 知识库文件。', ui: 'Agent 知识库' },
-  { action: 'agent.knowledge.search', title: '搜索 Agent 知识库', category: 'knowledge', risk: 'read', description: '搜索 Agent 自有知识和通用公共知识。', args: { agent: 'Agent 名称或 ID', query: '关键词' }, ui: 'Agent 知识库' },
-  { action: 'agent.knowledge.read', title: '读取 Agent 知识文件', category: 'knowledge', risk: 'read', description: '读取 Agent 知识文件或 public:<entryId> 公共知识。', args: { agent: 'Agent 名称或 ID', ref: '文件 id/path/name 或 public:<entryId>' }, ui: 'Agent 知识库' },
-  { action: 'agent.knowledge.upsert', title: '写入 Agent 知识文件', category: 'knowledge', risk: 'normal_write', description: '新建或覆盖 Agent 知识文件。', args: { agent: 'Agent 名称或 ID', path: '路径', content: '文本内容' }, ui: 'Agent 知识库' },
-  { action: 'agent.knowledge.delete', title: '删除 Agent 知识文件', category: 'knowledge', risk: 'sensitive_write', description: '删除 Agent 知识文件。', args: { agent: 'Agent 名称或 ID', fileId: '文件 id' }, ui: 'Agent 知识库' },
-  { action: 'agent.knowledge.reindex', title: '重建 Agent 知识索引', category: 'knowledge', risk: 'normal_write', description: '标记/重建 Agent 知识索引。', ui: 'Agent 知识库' },
-  { action: 'billing.account', title: '查看余额', category: 'billing', risk: 'read', description: '查看当前用户余额与收入余额。', ui: '账单中心' },
-  { action: 'billing.summary', title: '账单汇总', category: 'billing', risk: 'read', description: '查看当前用户用量/费用汇总与多维度统计。', ui: '账单中心' },
-  { action: 'billing.ledger', title: '账单明细', category: 'billing', risk: 'read', description: '查看当前用户账单流水。', ui: '账单中心' },
-  { action: 'model.profile.list', title: '模型配置列表', category: 'model', risk: 'read', description: '查看当前用户可见模型配置。', ui: '模型配置' },
+  { action: 'agent.knowledge.list', title: 'Agent 知识库列表', category: 'knowledge', risk: 'read', description: '列出有权限访问的 Agent 知识库文件。', ui: 'Agent 知识库', handler: handleKnowledgeAction },
+  { action: 'agent.knowledge.search', title: '搜索 Agent 知识库', category: 'knowledge', risk: 'read', description: '搜索 Agent 自有知识和通用公共知识。', args: { agent: 'Agent 名称或 ID', query: '关键词' }, ui: 'Agent 知识库', handler: handleKnowledgeAction },
+  { action: 'agent.knowledge.read', title: '读取 Agent 知识文件', category: 'knowledge', risk: 'read', description: '读取 Agent 知识文件或 public:<entryId> 公共知识。', args: { agent: 'Agent 名称或 ID', ref: '文件 id/path/name 或 public:<entryId>' }, ui: 'Agent 知识库', handler: handleKnowledgeAction },
+  { action: 'agent.knowledge.upsert', title: '写入 Agent 知识文件', category: 'knowledge', risk: 'normal_write', description: '新建或覆盖 Agent 知识文件。', args: { agent: 'Agent 名称或 ID', path: '路径', content: '文本内容' }, ui: 'Agent 知识库', handler: handleKnowledgeAction },
+  { action: 'agent.knowledge.delete', title: '删除 Agent 知识文件', category: 'knowledge', risk: 'sensitive_write', description: '删除 Agent 知识文件。', args: { agent: 'Agent 名称或 ID', fileId: '文件 id' }, ui: 'Agent 知识库', handler: handleKnowledgeAction },
+  { action: 'agent.knowledge.reindex', title: '重建 Agent 知识索引', category: 'knowledge', risk: 'normal_write', description: '标记/重建 Agent 知识索引。', ui: 'Agent 知识库', handler: handleKnowledgeAction },
+  { action: 'billing.account', title: '查看余额', category: 'billing', risk: 'read', description: '查看当前用户余额与收入余额。', ui: '账单中心', handler: handleBillingModelAction },
+  { action: 'billing.summary', title: '账单汇总', category: 'billing', risk: 'read', description: '查看当前用户用量/费用汇总与多维度统计。', ui: '账单中心', handler: handleBillingModelAction },
+  { action: 'billing.ledger', title: '账单明细', category: 'billing', risk: 'read', description: '查看当前用户账单流水。', ui: '账单中心', handler: handleBillingModelAction },
+  { action: 'model.profile.list', title: '模型配置列表', category: 'model', risk: 'read', description: '查看当前用户可见模型配置。', ui: '模型配置', handler: handleBillingModelAction },
   { action: 'room.info', title: '房间信息', category: 'room', risk: 'read', description: '查看当前房间信息。', ui: '房间设置' },
   { action: 'room.update', title: '修改房间', category: 'room', risk: 'sensitive_write', description: '修改当前房间名称/描述。', ui: '房间设置' },
   { action: 'room.create-invite', title: '创建邀请链接', category: 'room', risk: 'sensitive_write', description: '创建当前房间邀请链接。', ui: '房间成员' },
@@ -81,4 +87,10 @@ export function getAppAction(action: string) {
 
 export function isKnownAppAction(action: string) {
   return byAction.has(action)
+}
+
+export async function runRegisteredAppAction(ctx: ToolExecutionContext, args: any = {}) {
+  const meta = getAppAction(ctx.action)
+  if (!meta?.handler) return { handled: false }
+  return meta.handler(ctx, args)
 }

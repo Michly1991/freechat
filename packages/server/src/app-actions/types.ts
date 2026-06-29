@@ -38,7 +38,15 @@ export interface ToolExecutionResult<T = any> {
   error?: { code: string; message: string; details?: any }
 }
 
+export interface ToolHandlerOutcome<T = any> {
+  handled: boolean
+  response?: ToolExecutionResult<T> | any
+}
+
+export type ToolHandler = (ctx: ToolExecutionContext, args: any) => Promise<ToolHandlerOutcome> | ToolHandlerOutcome
+
 export interface ToolDefinition extends AppActionMeta {
   canonicalAction: string
   risk: AppActionRisk
+  handler?: ToolHandler
 }

@@ -7,7 +7,7 @@ import { getActiveAgentStream } from '../ws/agent-stream-events.js'
 import { broadcast } from '../routes/agent-tools.helpers.js'
 import { executeLocalAgentTool } from '../routes/agent-tools-dispatch.js'
 import { canonicalizeToolAction, riskForAction, assertRiskAllowed } from './risk-policy.js'
-import { getAppAction } from './registry.js'
+import { getAppAction, runRegisteredAppAction } from './registry.js'
 import type { ToolExecutionContext, ToolExecutionOptions } from './types.js'
 
 function responseSummary(response: any) {
@@ -54,15 +54,18 @@ export async function executeTool(ctx: ToolExecutionContext, options: ToolExecut
 
   try {
     emitActivity(action)
-    const response = await executeLocalAgentTool({
-      roomId: targetRoomId,
-      action,
-      args: normalizedCtx.args || {},
-      agentId: agent.id,
-      actorUserId: normalizedCtx.actorUserId,
-      actorRole: normalizedCtx.actorRole,
-      recordMindmapPreview: normalizedCtx.recordMindmapPreview,
-    }, { db: options.db || db, messageService: options.messageService || defaultMessageService })
+    const registered = await runRegisteredAppAction(normalizedCtx, normalizedCtx.args || {})
+    const response = registered.handled
+      ? registered.response
+      : await executeLocalAgentTool({
+        roomId: targetRoomId,
+        action,
+        args: normalizedCtx.args || {},
+        agentId: agent.id,
+        actorUserId: normalizedCtx.actorUserId,
+        actorRole: normalizedCtx.actorRole,
+        recordMindmapPreview: normalizedCtx.recordMindmapPreview,
+      }, { db: options.db || db, messageService: options.messageService || defaultMessageService })
     if (toolCallId) roomAnalyticsService.finishToolCall(toolCallId, { status: 'succeeded', outputSummary: responseSummary(response) })
     return response
   } catch (err: any) {

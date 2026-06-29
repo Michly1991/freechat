@@ -72,8 +72,7 @@ export async function executeRemoteAppCall(auth: ConnectorAuth, body: any) {
   }
   if (!roomId) throw { code: 'VALIDATION_ERROR', message: 'roomId is required for room tool actions' }
   if (action === 'app.call' || action === 'tool.call') {
-    const result = await executeAppAction({ roomId, agentId: auth.agentId, actorUserId, actorRole: actor?.role, scopeRoomId: body?.scopeRoomId || args.scopeRoomId || args.roomId || body?.roomId }, action, args)
-    if (result.handled) return result.response
+    return executeAgentTool({ roomId, action, args: { ...args, runId: body?.runId || args.runId, scopeRoomId: body?.scopeRoomId || args.scopeRoomId || args.roomId }, agentId: auth.agentId, actorUserId, actorRole: actor?.role, remoteAuth: auth })
   }
   return executeAgentTool({ roomId, action, args: { ...args, runId: body?.runId || args.runId, scopeRoomId: body?.scopeRoomId || args.scopeRoomId }, agentId: auth.agentId, actorUserId, actorRole: actor?.role, remoteAuth: auth })
 }
